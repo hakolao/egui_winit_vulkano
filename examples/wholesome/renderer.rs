@@ -5,7 +5,7 @@ use egui_winit_vulkano::Gui;
 use vulkano::{
     device::{Device, DeviceExtensions, Features, Queue},
     framebuffer::{RenderPassAbstract, Subpass},
-    image::{AttachmentImage, Dimensions, ImageAccess, ImageUsage, SwapchainImage},
+    image::{AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},
     instance::{Instance, InstanceExtensions, PhysicalDevice},
     swapchain,
     swapchain::{
