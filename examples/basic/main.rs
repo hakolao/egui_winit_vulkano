@@ -12,6 +12,7 @@ use crate::{renderer::Renderer, time_info::TimeInfo};
 mod frame_system;
 mod renderer;
 mod time_info;
+mod triangle_draw_system;
 
 /// Example struct to contain the state of the UI
 pub struct GuiState {

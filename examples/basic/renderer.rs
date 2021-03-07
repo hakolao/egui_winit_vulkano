@@ -21,7 +21,10 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use crate::frame_system::{FrameSystem, Pass};
+use crate::{
+    frame_system::{FrameSystem, Pass},
+    triangle_draw_system::TriangleDrawSystem,
+};
 
 pub struct Renderer {
     #[allow(dead_code)]
@@ -34,6 +37,7 @@ pub struct Renderer {
     recreate_swapchain: bool,
     previous_frame_end: Option<Box<dyn GpuFuture>>,
     frame_system: FrameSystem,
+    scene: TriangleDrawSystem,
 }
 
 impl Renderer {
@@ -85,6 +89,8 @@ impl Renderer {
         let previous_frame_end = Some(sync::now(device.clone()).boxed());
         // Create frame system
         let frame_system = FrameSystem::new(queue.clone(), swap_chain.format());
+
+        let scene = TriangleDrawSystem::new(queue.clone(), frame_system.deferred_subpass());
         Self {
             instance,
             device,
@@ -95,6 +101,7 @@ impl Renderer {
             previous_frame_end,
             recreate_swapchain: false,
             frame_system,
+            scene,
         }
     }
 
@@ -208,6 +215,10 @@ impl Renderer {
         while let Some(pass) = frame.next_pass() {
             match pass {
                 Pass::Deferred(mut draw_pass) => {
+                    // Render triangle
+                    let cb = self.scene.draw(draw_pass.viewport_dimensions());
+                    draw_pass.execute(cb);
+                    // Render UI
                     let cb = gui.draw(self.surface.window(), draw_pass.viewport_dimensions());
                     draw_pass.execute(cb);
                 }
