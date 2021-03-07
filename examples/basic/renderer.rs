@@ -4,6 +4,7 @@ use cgmath::{Matrix4, SquareMatrix};
 use egui_winit_vulkano::Gui;
 use vulkano::{
     device::{Device, DeviceExtensions, Features, Queue},
+    framebuffer::{RenderPassAbstract, Subpass},
     image::{ImageUsage, SwapchainImage},
     instance::{Instance, InstanceExtensions, PhysicalDevice},
     swapchain,
@@ -22,7 +23,7 @@ use winit::{
 
 use crate::frame_system::{FrameSystem, Pass};
 
-pub struct VulkanoWinitRenderer {
+pub struct Renderer {
     #[allow(dead_code)]
     instance: Arc<Instance>,
     device: Arc<Device>,
@@ -35,14 +36,13 @@ pub struct VulkanoWinitRenderer {
     frame_system: FrameSystem,
 }
 
-impl VulkanoWinitRenderer {
+impl Renderer {
     pub fn new(
         event_loop: &EventLoop<()>,
         width: u32,
         height: u32,
         present_mode: PresentMode,
         name: &str,
-        gui: &mut Gui,
     ) -> Self {
         // Add instance extensions based on needs
         let instance_extensions = InstanceExtensions { ..vulkano_win::required_extensions() };
@@ -83,17 +83,8 @@ impl VulkanoWinitRenderer {
             present_mode,
         );
         let previous_frame_end = Some(sync::now(device.clone()).boxed());
-
         // Create frame system
         let frame_system = FrameSystem::new(queue.clone(), swap_chain.format());
-        // Init our gui integration
-        // Meaning its render system and egui context will be set
-        gui.init(
-            surface.window().inner_size(),
-            surface.window().scale_factor(),
-            queue.clone(),
-            frame_system.deferred_subpass(),
-        );
         Self {
             instance,
             device,
@@ -170,6 +161,15 @@ impl VulkanoWinitRenderer {
     #[allow(dead_code)]
     pub fn device(&self) -> Arc<Device> {
         self.device.clone()
+    }
+
+    pub fn queue(&self) -> Arc<Queue> {
+        self.queue.clone()
+    }
+
+    // Return a deferred subpass for our render pass
+    pub fn deferred_subpass(&self) -> Subpass<Arc<dyn RenderPassAbstract + Send + Sync>> {
+        self.frame_system.deferred_subpass()
     }
 
     pub fn window(&self) -> &Window {

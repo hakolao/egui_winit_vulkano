@@ -7,22 +7,22 @@ use winit::{
     window::Window,
 };
 
-use crate::{renderer::VulkanoWinitRenderer, time_info::TimeInfo};
+use crate::{renderer::Renderer, time_info::TimeInfo};
 
 mod frame_system;
 mod renderer;
 mod time_info;
 
 /// Example struct to contain the state of the UI
-pub struct AppGuiState {
+pub struct GuiState {
     show_texture_window: bool,
     image_texture_id: egui::TextureId,
 }
 
-impl AppGuiState {
-    pub fn new(gui: &mut Gui) -> AppGuiState {
+impl GuiState {
+    pub fn new(gui: &mut Gui) -> GuiState {
         let image_texture_id = gui.register_user_image(include_bytes!("./assets/tree.png"));
-        AppGuiState { show_texture_window: false, image_texture_id }
+        GuiState { show_texture_window: false, image_texture_id }
     }
 
     /// Defines the layout of our UI
@@ -53,19 +53,18 @@ impl AppGuiState {
 pub fn main() {
     let event_loop = EventLoop::new();
     let mut time = TimeInfo::new();
-    // Create gui integration shell
-    let mut gui = Gui::new();
-    // Create renderer (Gui integration will be initialized there)
-    let mut renderer = VulkanoWinitRenderer::new(
-        &event_loop,
-        1280,
-        720,
-        PresentMode::Immediate,
-        "Basic Example",
-        &mut gui,
+    // Create renderer
+    let mut renderer =
+        Renderer::new(&event_loop, 1280, 720, PresentMode::Immediate, "Basic Example");
+    // After creating the renderer (window, gfx_queue) create out gui integration
+    let mut gui = Gui::new(
+        renderer.window().inner_size(),
+        renderer.window().scale_factor(),
+        renderer.queue(),
+        renderer.deferred_subpass(),
     );
     // Create gui state (this should occur after renderer so we have access to gfx queue etc.)
-    let mut gui_state = AppGuiState::new(&mut gui);
+    let mut gui_state = GuiState::new(&mut gui);
     event_loop.run(move |event, _, control_flow| {
         // Update Egui integration
         gui.update(&event);
@@ -85,7 +84,7 @@ pub fn main() {
             },
             Event::RedrawRequested(window_id) if window_id == window_id => {
                 // Set immediate UI in redraw here
-                // It's a closure giving access to egui contexe inside which you can call anything.
+                // It's a closure giving access to egui context inside which you can call anything.
                 // Here we're calling the layout of our `gui_state`.
                 gui.immediate_ui(|ctx| gui_state.layout(ctx, renderer.window(), time.fps()));
                 // Lastly we'll render our ui
