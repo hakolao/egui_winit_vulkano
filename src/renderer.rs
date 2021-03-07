@@ -41,7 +41,6 @@ pub struct EguiVulkanoRenderer {
     pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
 
     egui_texture_version: u64,
-    egui_texture: Arc<dyn ImageViewAccess + Send + Sync>,
     egui_texture_desc_set: Arc<dyn DescriptorSet + Send + Sync>,
 
     user_texture_desc_sets: Vec<Option<Arc<dyn DescriptorSet + Send + Sync>>>,
@@ -109,7 +108,6 @@ impl EguiVulkanoRenderer {
             index_buffer,
             pipeline,
             egui_texture_version: 0,
-            egui_texture: font_image,
             egui_texture_desc_set: font_desc_set,
             user_texture_desc_sets: vec![],
         }
@@ -188,7 +186,6 @@ impl EguiVulkanoRenderer {
             (texture.width as u64, texture.height as u64),
         )
         .expect("Failed to load font image");
-        self.egui_texture = font_image.clone();
         self.egui_texture_version = texture.version;
         // Update descriptor set
         let layout = self.pipeline.descriptor_set_layout(0).unwrap();

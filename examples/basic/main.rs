@@ -1,8 +1,6 @@
-use std::sync::Arc;
-
 use egui::{CtxRef, Visuals};
 use egui_winit_vulkan::EguiIntegration;
-use vulkano::{device::Queue, swapchain::PresentMode};
+use vulkano::swapchain::PresentMode;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},

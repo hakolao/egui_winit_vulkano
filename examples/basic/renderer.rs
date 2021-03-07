@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use cgmath::{Matrix4, SquareMatrix};
-use egui_winit_vulkan::{EguiContext, EguiIntegration, EguiVulkanoRenderer};
+use egui_winit_vulkan::EguiIntegration;
 use vulkano::{
     device::{Device, DeviceExtensions, Features, Queue},
     image::{ImageUsage, SwapchainImage},
@@ -16,7 +16,6 @@ use vulkano::{
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
-    event::Event,
     event_loop::EventLoop,
     window::{Window, WindowBuilder},
 };
@@ -171,10 +170,6 @@ impl VulkanoWinitRenderer {
     #[allow(dead_code)]
     pub fn device(&self) -> Arc<Device> {
         self.device.clone()
-    }
-
-    pub fn queue(&self) -> Arc<Queue> {
-        self.queue.clone()
     }
 
     pub fn window(&self) -> &Window {
