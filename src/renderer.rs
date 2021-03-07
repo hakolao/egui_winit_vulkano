@@ -19,7 +19,7 @@ use vulkano::{
     sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode},
 };
 
-use crate::{utils::texture_from_bgra_bytes, EguiContext};
+use crate::{context::EguiContext, utils::texture_from_bgra_bytes};
 
 const VERTICES_PER_QUAD: usize = 4;
 const VERTEX_BUFFER_SIZE: usize = 1024 * 1024 * VERTICES_PER_QUAD;

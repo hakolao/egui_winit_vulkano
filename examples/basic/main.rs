@@ -1,5 +1,5 @@
 use egui::{CtxRef, Visuals};
-use egui_winit_vulkan::EguiIntegration;
+use egui_winit_vulkan::Gui;
 use vulkano::swapchain::PresentMode;
 use winit::{
     event::{Event, WindowEvent},
@@ -18,7 +18,7 @@ pub struct AppGuiState {
 }
 
 impl AppGuiState {
-    pub fn new(gui: &mut EguiIntegration) -> AppGuiState {
+    pub fn new(gui: &mut Gui) -> AppGuiState {
         let image_texture_id = gui.register_user_image(include_bytes!("./assets/tree.png"));
         AppGuiState { show_texture_window: false, image_texture_id }
     }
@@ -45,7 +45,7 @@ impl AppGuiState {
 pub fn main() {
     let event_loop = EventLoop::new();
     // Create gui integration shell
-    let mut gui = EguiIntegration::new();
+    let mut gui = Gui::new();
     // Create renderer (Gui integration will be initialized there)
     let mut renderer = VulkanoWinitRenderer::new(
         &event_loop,

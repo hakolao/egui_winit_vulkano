@@ -9,17 +9,17 @@ use vulkano::{
 };
 use winit::{dpi::PhysicalSize, event::Event, window::Window};
 
-use crate::{texture_from_file_bytes, EguiContext, EguiVulkanoRenderer};
+use crate::{context::EguiContext, renderer::EguiVulkanoRenderer, utils::texture_from_file_bytes};
 
-pub struct EguiIntegration {
+pub struct Gui {
     context: Option<EguiContext>,
     renderer: Option<EguiVulkanoRenderer>,
 }
 
-impl EguiIntegration {
+impl Gui {
     /// Instantiates a new integration struct as an empty shell
-    pub fn new() -> EguiIntegration {
-        EguiIntegration { context: None, renderer: None }
+    pub fn new() -> Gui {
+        Gui { context: None, renderer: None }
     }
 
     /// Initializes Egui to Vulkano integration by setting the necessary parameters

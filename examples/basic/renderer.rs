@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use cgmath::{Matrix4, SquareMatrix};
-use egui_winit_vulkan::EguiIntegration;
+use egui_winit_vulkan::Gui;
 use vulkano::{
     device::{Device, DeviceExtensions, Features, Queue},
     image::{ImageUsage, SwapchainImage},
@@ -42,7 +42,7 @@ impl VulkanoWinitRenderer {
         height: u32,
         present_mode: PresentMode,
         name: &str,
-        gui: &mut EguiIntegration,
+        gui: &mut Gui,
     ) -> Self {
         // Add instance extensions based on needs
         let instance_extensions = InstanceExtensions { ..vulkano_win::required_extensions() };
@@ -180,7 +180,7 @@ impl VulkanoWinitRenderer {
         self.recreate_swapchain = true;
     }
 
-    pub fn render(&mut self, gui: &mut EguiIntegration) {
+    pub fn render(&mut self, gui: &mut Gui) {
         // Recreate swap chain if needed (when resizing of window occurs or swapchain is outdated)
         if self.recreate_swapchain {
             self.recreate_swapchain();
