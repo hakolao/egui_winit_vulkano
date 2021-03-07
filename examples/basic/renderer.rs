@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use cgmath::{Matrix4, SquareMatrix};
-use egui_winit_vulkan::{EguiContext, EguiVulkanoRenderer};
+use egui_winit_vulkan::{EguiContext, EguiIntegration, EguiVulkanoRenderer};
 use vulkano::{
     device::{Device, DeviceExtensions, Features, Queue},
     image::{ImageUsage, SwapchainImage},
@@ -34,10 +34,6 @@ pub struct VulkanoWinitRenderer {
     recreate_swapchain: bool,
     previous_frame_end: Option<Box<dyn GpuFuture>>,
     frame_system: FrameSystem,
-    egui_context: EguiContext,
-    // Deferred draw system for Egui
-    egui_draw_system: EguiVulkanoRenderer,
-    // Add deferred draw systems here, e.g. egui, or scene
 }
 
 impl VulkanoWinitRenderer {
@@ -47,6 +43,7 @@ impl VulkanoWinitRenderer {
         height: u32,
         present_mode: PresentMode,
         name: &str,
+        gui: &mut EguiIntegration,
     ) -> Self {
         // Add instance extensions based on needs
         let instance_extensions = InstanceExtensions { ..vulkano_win::required_extensions() };
@@ -90,12 +87,14 @@ impl VulkanoWinitRenderer {
 
         // Create frame system
         let frame_system = FrameSystem::new(queue.clone(), swap_chain.format());
-        // Create subpass for EguiVulkanoRenderer
-        let egui_draw_system =
-            EguiVulkanoRenderer::new(queue.clone(), frame_system.deferred_subpass());
-        // Create egui context
-        let egui_context =
-            EguiContext::new(surface.window().inner_size(), surface.window().scale_factor());
+        // Init our gui integration
+        // Meaning its render system and egui context will be set
+        gui.init(
+            surface.window().inner_size(),
+            surface.window().scale_factor(),
+            queue.clone(),
+            frame_system.deferred_subpass(),
+        );
         Self {
             instance,
             device,
@@ -106,8 +105,6 @@ impl VulkanoWinitRenderer {
             previous_frame_end,
             recreate_swapchain: false,
             frame_system,
-            egui_context,
-            egui_draw_system,
         }
     }
 
@@ -171,12 +168,6 @@ impl VulkanoWinitRenderer {
         (swap_chain, images)
     }
 
-    /// Updates egui context with winit events, this must be called in event loop
-    /// See main.rs
-    pub fn egui_update<T>(&mut self, winit_event: &Event<T>) {
-        self.egui_context.handle_event(winit_event)
-    }
-
     #[allow(dead_code)]
     pub fn device(&self) -> Arc<Device> {
         self.device.clone()
@@ -190,7 +181,7 @@ impl VulkanoWinitRenderer {
         self.recreate_swapchain = true;
     }
 
-    pub fn render(&mut self) {
+    pub fn render(&mut self, gui: &mut EguiIntegration) {
         // Recreate swap chain if needed (when resizing of window occurs or swapchain is outdated)
         if self.recreate_swapchain {
             self.recreate_swapchain();
@@ -218,18 +209,7 @@ impl VulkanoWinitRenderer {
         while let Some(pass) = frame.next_pass() {
             match pass {
                 Pass::Deferred(mut draw_pass) => {
-                    // Add UI
-                    self.egui_context.begin_frame();
-                    // ToDo: Ui content here
-                    let (output, clipped_meshes) = self.egui_context.end_frame();
-                    // Update cursor icon
-                    self.egui_context.update_cursor_icon(self.surface.window(), output.cursor_icon);
-                    // Draw egui meshes
-                    let cb = self.egui_draw_system.draw(
-                        &mut self.egui_context,
-                        clipped_meshes,
-                        draw_pass.viewport_dimensions(),
-                    );
+                    let cb = gui.draw(self.surface.window(), draw_pass.viewport_dimensions());
                     draw_pass.execute(cb);
                 }
                 Pass::Finished(af) => {

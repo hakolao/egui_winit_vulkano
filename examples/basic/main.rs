@@ -1,3 +1,4 @@
+use egui_winit_vulkan::EguiIntegration;
 use vulkano::swapchain::PresentMode;
 use winit::{
     event::{Event, WindowEvent},
@@ -11,11 +12,18 @@ mod renderer;
 
 pub fn main() {
     let event_loop = EventLoop::new();
-    let mut renderer =
-        VulkanoWinitRenderer::new(&event_loop, 1280, 720, PresentMode::Immediate, "Basic Example");
+    let mut gui = EguiIntegration::new();
+    let mut renderer = VulkanoWinitRenderer::new(
+        &event_loop,
+        1280,
+        720,
+        PresentMode::Immediate,
+        "Basic Example",
+        &mut gui,
+    );
     event_loop.run(move |event, _, control_flow| {
-        // Update Egui Context state
-        renderer.egui_update(&event);
+        // Update Egui integration
+        gui.update(&event);
         match event {
             Event::WindowEvent { event, window_id } if window_id == window_id => match event {
                 WindowEvent::Resized(_) => {
@@ -31,7 +39,7 @@ pub fn main() {
                 _ => (),
             },
             Event::RedrawRequested(window_id) if window_id == window_id => {
-                renderer.render();
+                renderer.render(&mut gui);
             }
             Event::MainEventsCleared => {
                 renderer.window().request_redraw();
