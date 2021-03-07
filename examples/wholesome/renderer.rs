@@ -209,7 +209,6 @@ impl Renderer {
         let future = self.previous_frame_end.take().unwrap().join(acquire_future);
         let mut frame =
             self.frame_system.frame(future, self.images[image_num].clone(), Matrix4::identity());
-
         // Draw each render pass
         let mut after_future = None;
         while let Some(pass) = frame.next_pass() {
