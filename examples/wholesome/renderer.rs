@@ -5,7 +5,7 @@ use egui_winit_vulkano::Gui;
 use vulkano::{
     device::{Device, DeviceExtensions, Features, Queue},
     framebuffer::{RenderPassAbstract, Subpass},
-    image::{ImageUsage, SwapchainImage},
+    image::{AttachmentImage, Dimensions, ImageAccess, ImageUsage, SwapchainImage},
     instance::{Instance, InstanceExtensions, PhysicalDevice},
     swapchain,
     swapchain::{
@@ -33,7 +33,10 @@ pub struct Renderer {
     surface: Arc<Surface<Window>>,
     queue: Arc<Queue>,
     swap_chain: Arc<Swapchain<Window>>,
-    images: Vec<Arc<SwapchainImage<Window>>>,
+    color_images: Vec<Arc<SwapchainImage<Window>>>,
+    scene_images: Vec<Arc<AttachmentImage>>,
+    image_num: usize,
+    scene_view_size: [u32; 2],
     recreate_swapchain: bool,
     previous_frame_end: Option<Box<dyn GpuFuture>>,
     frame_system: FrameSystem,
@@ -45,6 +48,7 @@ impl Renderer {
         event_loop: &EventLoop<()>,
         width: u32,
         height: u32,
+        scene_view_size: [u32; 2],
         present_mode: PresentMode,
         name: &str,
     ) -> Self {
@@ -88,19 +92,23 @@ impl Renderer {
         );
         let previous_frame_end = Some(sync::now(device.clone()).boxed());
         // Create frame system
-        let frame_system = FrameSystem::new(queue.clone(), swap_chain.format());
+        let render_pass_system = FrameSystem::new(queue.clone(), swap_chain.format());
+        let scene = TriangleDrawSystem::new(queue.clone(), render_pass_system.deferred_subpass());
 
-        let scene = TriangleDrawSystem::new(queue.clone(), frame_system.deferred_subpass());
+        let scene_images = Self::create_scene_images(device.clone(), &images, scene_view_size);
         Self {
             instance,
             device,
             surface,
             queue,
             swap_chain,
-            images,
+            color_images: images,
+            scene_images,
+            image_num: 0,
+            scene_view_size,
             previous_frame_end,
             recreate_swapchain: false,
-            frame_system,
+            frame_system: render_pass_system,
             scene,
         }
     }
@@ -165,6 +173,24 @@ impl Renderer {
         (swap_chain, images)
     }
 
+    fn create_scene_images(
+        device: Arc<Device>,
+        swapchain_images: &Vec<Arc<SwapchainImage<Window>>>,
+        scene_view_size: [u32; 2],
+    ) -> Vec<Arc<AttachmentImage>> {
+        let mut scene_images = vec![];
+        for si in swapchain_images {
+            let image = AttachmentImage::sampled_input_attachment(
+                device.clone(),
+                scene_view_size,
+                ImageAccess::format(&si),
+            )
+            .expect("Failed to create scene image");
+            scene_images.push(image);
+        }
+        scene_images
+    }
+
     #[allow(dead_code)]
     pub fn device(&self) -> Arc<Device> {
         self.device.clone()
@@ -187,6 +213,14 @@ impl Renderer {
         self.recreate_swapchain = true;
     }
 
+    pub fn last_image_num(&self) -> usize {
+        self.image_num
+    }
+
+    pub fn scene_images(&mut self) -> &Vec<Arc<AttachmentImage>> {
+        &self.scene_images
+    }
+
     pub fn render(&mut self, gui: &mut Gui) {
         // Recreate swap chain if needed (when resizing of window occurs or swapchain is outdated)
         if self.recreate_swapchain {
@@ -205,18 +239,21 @@ impl Renderer {
         if suboptimal {
             self.recreate_swapchain = true;
         }
+        self.image_num = image_num;
+        // Knowing image num, let's render our scene on scene images
+        self.render_scene();
         // Acquire frame to which we'll render (by image_num)
         let future = self.previous_frame_end.take().unwrap().join(acquire_future);
-        let mut frame =
-            self.frame_system.frame(future, self.images[image_num].clone(), Matrix4::identity());
+        let mut frame = self.frame_system.frame(
+            future,
+            self.color_images[image_num].clone(),
+            Matrix4::identity(),
+        );
         // Draw each render pass
         let mut after_future = None;
         while let Some(pass) = frame.next_pass() {
             match pass {
                 Pass::Deferred(mut draw_pass) => {
-                    // Render triangle
-                    let cb = self.scene.draw(draw_pass.viewport_dimensions());
-                    draw_pass.execute(cb);
                     // Render UI
                     let cb = gui.draw(self.surface.window(), draw_pass.viewport_dimensions());
                     draw_pass.execute(cb);
@@ -230,6 +267,45 @@ impl Renderer {
         self.finish(after_future, image_num);
     }
 
+    /// Renders the pass for scene on scene images
+    fn render_scene(&mut self) {
+        let future = sync::now(self.device.clone()).boxed();
+        let mut frame = self.frame_system.frame(
+            future,
+            self.scene_images[self.image_num].clone(),
+            Matrix4::identity(),
+        );
+        // Draw each render pass that's related to scene
+        let mut after_future = None;
+        while let Some(pass) = frame.next_pass() {
+            match pass {
+                Pass::Deferred(mut draw_pass) => {
+                    let cb = self.scene.draw(self.scene_view_size);
+                    draw_pass.execute(cb);
+                }
+                Pass::Finished(af) => {
+                    after_future = Some(af);
+                }
+            }
+        }
+        let future = after_future
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .expect("Failed to signal fence and flush");
+        match future.wait(None) {
+            Ok(x) => x,
+            Err(err) => println!("err: {:?}", err),
+        }
+    }
+
+    #[allow(dead_code)]
+    fn resize_scene_view(&mut self, new_size: [u32; 2]) {
+        self.scene_view_size = new_size;
+        let scene_images =
+            Self::create_scene_images(self.device.clone(), &self.color_images, new_size);
+        self.scene_images = scene_images;
+    }
+
     /// Swapchain is recreated when resized
     fn recreate_swapchain(&mut self) {
         let dimensions: [u32; 2] = self.surface.window().inner_size().into();
@@ -239,9 +315,8 @@ impl Renderer {
             Err(SwapchainCreationError::UnsupportedDimensions) => return,
             Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
         };
-
         self.swap_chain = new_swapchain;
-        self.images = new_images;
+        self.color_images = new_images;
         self.recreate_swapchain = false;
     }
 
