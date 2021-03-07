@@ -4,14 +4,16 @@ use vulkano::swapchain::PresentMode;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
+    window::Window,
 };
 
-use crate::renderer::VulkanoWinitRenderer;
+use crate::{renderer::VulkanoWinitRenderer, time_info::TimeInfo};
 
 mod frame_system;
 mod renderer;
+mod time_info;
 
-/// Contains the state of our UI
+/// Example struct to contain the state of the UI
 pub struct AppGuiState {
     show_texture_window: bool,
     image_texture_id: egui::TextureId,
@@ -24,12 +26,12 @@ impl AppGuiState {
     }
 
     /// Defines the layout of our UI
-    pub fn layout(&mut self, egui_context: CtxRef) {
+    pub fn layout(&mut self, egui_context: CtxRef, window: &Window, fps: f32) {
         egui_context.set_visuals(Visuals::dark());
         egui::SidePanel::left("Side Panel", 150.0).show(&egui_context, |ui| {
-            ui.heading("Debug");
+            ui.heading("Hello Tree");
             ui.separator();
-            ui.checkbox(&mut self.show_texture_window, "Show Texture");
+            ui.checkbox(&mut self.show_texture_window, "Show Tree");
         });
         let show_texture_window = &mut self.show_texture_window;
         let image_texture_id = self.image_texture_id;
@@ -39,11 +41,18 @@ impl AppGuiState {
                 ui.image(image_texture_id, [256.0, 256.0]);
             },
         );
+        let size = window.inner_size();
+        egui::Area::new("fps")
+            .fixed_pos(egui::pos2(size.width as f32 - 0.05 * size.width as f32, 10.0))
+            .show(&egui_context, |ui| {
+                ui.label(format!("{:.2}", fps));
+            });
     }
 }
 
 pub fn main() {
     let event_loop = EventLoop::new();
+    let mut time = TimeInfo::new();
     // Create gui integration shell
     let mut gui = Gui::new();
     // Create renderer (Gui integration will be initialized there)
@@ -76,11 +85,13 @@ pub fn main() {
             },
             Event::RedrawRequested(window_id) if window_id == window_id => {
                 // Set immediate UI in redraw here
-                // It's a closure inside which you can call anything. Here we're calling the layout
-                // of our `gui_state` which will have mutable access to our gui integration
-                gui.immediate_ui(|ctx| gui_state.layout(ctx));
+                // It's a closure giving access to egui contexe inside which you can call anything.
+                // Here we're calling the layout of our `gui_state`.
+                gui.immediate_ui(|ctx| gui_state.layout(ctx, renderer.window(), time.fps()));
                 // Lastly we'll render our ui
                 renderer.render(&mut gui);
+                // Update fps & dt
+                time.update();
             }
             Event::MainEventsCleared => {
                 renderer.window().request_redraw();
