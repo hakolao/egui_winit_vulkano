@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use egui::CtxRef;
 use vulkano::{
     command_buffer::AutoCommandBuffer,
     device::Queue,
@@ -13,13 +14,12 @@ use crate::{texture_from_file_bytes, EguiContext, EguiVulkanoRenderer};
 pub struct EguiIntegration {
     context: Option<EguiContext>,
     renderer: Option<EguiVulkanoRenderer>,
-    layout: Option<Box<dyn FnOnce()>>,
 }
 
 impl EguiIntegration {
     /// Instantiates a new integration struct as an empty shell
     pub fn new() -> EguiIntegration {
-        EguiIntegration { context: None, renderer: None, layout: None }
+        EguiIntegration { context: None, renderer: None }
     }
 
     /// Initializes Egui to Vulkano integration by setting the necessary parameters
@@ -52,21 +52,20 @@ impl EguiIntegration {
         self.context.as_mut().unwrap().handle_event(winit_event)
     }
 
-    /// Sets Egui integration's UI layout. This should be called after
-    pub fn set_immediate_ui(&mut self, layout_function: impl FnOnce() + 'static) {
+    /// Sets Egui integration's UI layout. This must be called before draw
+    /// Begins Egui frame
+    pub fn immediate_ui(&mut self, layout_function: impl FnOnce(CtxRef)) {
         assert!(self.context.is_some() && self.renderer.is_some());
-        self.layout = Some(Box::new(layout_function));
+        self.context.as_mut().unwrap().begin_frame();
+        // Render Egui
+        layout_function(self.context());
     }
 
     /// Renders ui & Updates cursor icon
+    /// Finishes Egui frame
     pub fn draw(&mut self, window: &Window, framebuffer_dimensions: [u32; 2]) -> AutoCommandBuffer {
         assert!(self.context.is_some() && self.renderer.is_some());
-        self.context.as_mut().unwrap().begin_frame();
-        // Render UI
-        if self.layout.is_some() {
-            let layout = self.layout.take().unwrap();
-            layout();
-        }
+        // Get outputs of `immediate_ui`
         let (output, clipped_meshes) = self.context.as_mut().unwrap().end_frame();
         // Update cursor icon
         self.context.as_mut().unwrap().update_cursor_icon(window, output.cursor_icon);

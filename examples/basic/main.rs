@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use egui::Visuals;
+use egui::{CtxRef, Visuals};
 use egui_winit_vulkan::EguiIntegration;
 use vulkano::{device::Queue, swapchain::PresentMode};
 use winit::{
@@ -26,9 +26,9 @@ impl AppGuiState {
     }
 
     /// Defines the layout of our UI
-    pub fn layout(&mut self, gui: &mut EguiIntegration) {
-        gui.context().set_visuals(Visuals::dark());
-        egui::SidePanel::left("Side Panel", 150.0).show(&gui.context(), |ui| {
+    pub fn layout(&mut self, egui_context: CtxRef) {
+        egui_context.set_visuals(Visuals::dark());
+        egui::SidePanel::left("Side Panel", 150.0).show(&egui_context, |ui| {
             ui.heading("Debug");
             ui.separator();
             ui.checkbox(&mut self.show_texture_window, "Show Texture");
@@ -36,7 +36,7 @@ impl AppGuiState {
         let show_texture_window = &mut self.show_texture_window;
         let image_texture_id = self.image_texture_id;
         egui::Window::new("Mah Tree").resizable(true).scroll(true).open(show_texture_window).show(
-            &gui.context(),
+            &egui_context,
             |ui| {
                 ui.image(image_texture_id, [256.0, 256.0]);
             },
@@ -80,7 +80,7 @@ pub fn main() {
                 // Set immediate UI in redraw here
                 // It's a closure inside which you can call anything. Here we're calling the layout
                 // of our `gui_state` which will have mutable access to our gui integration
-                gui.set_immediate_ui(|| gui_state.layout(&mut gui));
+                gui.immediate_ui(|ctx| gui_state.layout(ctx));
                 // Lastly we'll render our ui
                 renderer.render(&mut gui);
             }
