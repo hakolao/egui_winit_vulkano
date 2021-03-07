@@ -1,21 +1,25 @@
-use crate::utils::texture_from_bgra_bytes;
-use crate::EguiContext;
-use egui::paint::Mesh;
-use egui::Rect;
 use std::sync::Arc;
-use vulkano::buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer};
-use vulkano::command_buffer::{AutoCommandBuffer, AutoCommandBufferBuilder, DynamicState};
-use vulkano::descriptor::descriptor_set::{PersistentDescriptorSet, UnsafeDescriptorSetLayout};
-use vulkano::descriptor::{DescriptorSet, PipelineLayoutAbstract};
-use vulkano::device::Queue;
-use vulkano::format::B8G8R8A8Unorm;
-use vulkano::framebuffer::{RenderPassAbstract, Subpass};
-use vulkano::image::{
-    AttachmentImage, Dimensions, ImageCreationError, ImageViewAccess, ImmutableImage, MipmapsCount,
+
+use egui::{paint::Mesh, Rect};
+use vulkano::{
+    buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer},
+    command_buffer::{AutoCommandBuffer, AutoCommandBufferBuilder, DynamicState},
+    descriptor::{
+        descriptor_set::{PersistentDescriptorSet, UnsafeDescriptorSetLayout},
+        DescriptorSet, PipelineLayoutAbstract,
+    },
+    device::Queue,
+    format::B8G8R8A8Unorm,
+    framebuffer::{RenderPassAbstract, Subpass},
+    image::{AttachmentImage, ImageViewAccess},
+    pipeline::{
+        viewport::{Scissor, Viewport},
+        GraphicsPipeline, GraphicsPipelineAbstract,
+    },
+    sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode},
 };
-use vulkano::pipeline::viewport::{Scissor, Viewport};
-use vulkano::pipeline::GraphicsPipelineAbstract;
-use vulkano::sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode};
+
+use crate::{utils::texture_from_bgra_bytes, EguiContext};
 
 const VERTICES_PER_QUAD: usize = 4;
 const VERTEX_BUFFER_SIZE: usize = 1024 * 1024 * VERTICES_PER_QUAD;
@@ -146,10 +150,7 @@ impl EguiVulkanoRenderer {
         image: Arc<dyn ImageViewAccess + Send + Sync>,
     ) -> egui::TextureId {
         // get texture id, if one has been unregistered, give that id as new id
-        let id = if let Some(i) = self
-            .user_texture_desc_sets
-            .iter()
-            .position(|utds| utds.is_none())
+        let id = if let Some(i) = self.user_texture_desc_sets.iter().position(|utds| utds.is_none())
         {
             i as u64
         } else {
@@ -179,11 +180,7 @@ impl EguiVulkanoRenderer {
         if texture.version == self.egui_texture_version {
             return;
         }
-        let data = texture
-            .pixels
-            .iter()
-            .flat_map(|&r| vec![r, r, r, r])
-            .collect::<Vec<_>>();
+        let data = texture.pixels.iter().flat_map(|&r| vec![r, r, r, r]).collect::<Vec<_>>();
         // Update font image
         let font_image = texture_from_bgra_bytes(
             self.gfx_queue.clone(),
@@ -191,47 +188,49 @@ impl EguiVulkanoRenderer {
             (texture.width as u64, texture.height as u64),
         )
         .expect("Failed to load font image");
-        self.egui_texture = font_image.view.clone();
+        self.egui_texture = font_image.clone();
         self.egui_texture_version = texture.version;
         // Update descriptor set
         let layout = self.pipeline.descriptor_set_layout(0).unwrap();
         let font_desc_set =
-            Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, font_image.view.clone());
+            Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, font_image.clone());
         self.egui_texture_desc_set = font_desc_set;
     }
 
-    fn get_rect_scissor(&self, egui_context: &mut EguiContext, rect: Rect) -> Scissor {
+    fn get_rect_scissor(
+        &self,
+        egui_context: &mut EguiContext,
+        framebuffer_dimensions: [u32; 2],
+        rect: Rect,
+    ) -> Scissor {
         let min = rect.min;
         let min = egui::Pos2 {
-            x: min.x * egui_context.scale_factor as f32,
-            y: min.y * egui_context.scale_factor as f32,
+            x: min.x * egui_context.scale_factor() as f32,
+            y: min.y * egui_context.scale_factor() as f32,
         };
         let min = egui::Pos2 {
-            x: egui::math::clamp(min.x, 0.0..=egui_context.physical_width as f32),
-            y: egui::math::clamp(min.y, 0.0..=egui_context.physical_height as f32),
+            x: egui::math::clamp(min.x, 0.0..=framebuffer_dimensions[0] as f32),
+            y: egui::math::clamp(min.y, 0.0..=framebuffer_dimensions[1] as f32),
         };
         let max = rect.max;
         let max = egui::Pos2 {
-            x: max.x * egui_context.scale_factor as f32,
-            y: max.y * egui_context.scale_factor as f32,
+            x: max.x * egui_context.scale_factor() as f32,
+            y: max.y * egui_context.scale_factor() as f32,
         };
         let max = egui::Pos2 {
-            x: egui::math::clamp(max.x, min.x..=egui_context.physical_width as f32),
-            y: egui::math::clamp(max.y, min.y..=egui_context.physical_height as f32),
+            x: egui::math::clamp(max.x, min.x..=framebuffer_dimensions[0] as f32),
+            y: egui::math::clamp(max.y, min.y..=framebuffer_dimensions[1] as f32),
         };
         Scissor {
             origin: [min.x.round() as i32, min.y.round() as i32],
-            dimensions: [
-                (max.x.round() - min.x) as u32,
-                (max.y.round() - min.y) as u32,
-            ],
+            dimensions: [(max.x.round() - min.x) as u32, (max.y.round() - min.y) as u32],
         }
     }
 
     fn resize_allocations(&mut self, new_vertices_size: usize, new_indices_size: usize) {
         let vertex_buffer = unsafe {
             CpuAccessibleBuffer::<[EguiVertex]>::uninitialized_array(
-                gfx_queue.device().clone(),
+                self.gfx_queue.device().clone(),
                 new_vertices_size,
                 BufferUsage::vertex_buffer(),
                 false,
@@ -240,7 +239,7 @@ impl EguiVulkanoRenderer {
         };
         let index_buffer = unsafe {
             CpuAccessibleBuffer::<[u32]>::uninitialized_array(
-                gfx_queue.device().clone(),
+                self.gfx_queue.device().clone(),
                 new_indices_size,
                 BufferUsage::index_buffer(),
                 false,
@@ -326,7 +325,7 @@ impl EguiVulkanoRenderer {
                 user_image_id = Some(id);
             }
 
-            let scissors = vec![self.get_rect_scissor(egui_context, rect)];
+            let scissors = vec![self.get_rect_scissor(egui_context, framebuffer_dimensions, rect)];
             let dynamic_state = DynamicState {
                 viewports: Some(vec![Viewport {
                     origin: [0.0, 0.0],
@@ -367,10 +366,7 @@ impl EguiVulkanoRenderer {
                     .unwrap(),
             );
             let desc_set = if let Some(id) = user_image_id {
-                self.user_texture_desc_sets[id as usize]
-                    .as_ref()
-                    .unwrap()
-                    .clone()
+                self.user_texture_desc_sets[id as usize].as_ref().unwrap().clone()
             } else {
                 self.egui_texture_desc_set.clone()
             };

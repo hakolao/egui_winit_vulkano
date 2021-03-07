@@ -1,13 +1,14 @@
 use std::time::Instant;
 
-use crate::conversions::WinitToEgui;
 use copypasta::{ClipboardContext, ClipboardProvider};
-use egui::{paint::ClippedMesh, CtxRef, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
-use winit::event::{ElementState, MouseScrollDelta};
+use egui::{paint::ClippedMesh, CtxRef, Pos2, RawInput, Rect, Vec2};
 use winit::{
     dpi::PhysicalSize,
-    event::{Event, ModifiersState, VirtualKeyCode, WindowEvent},
+    event::{ElementState, Event, ModifiersState, MouseScrollDelta, VirtualKeyCode, WindowEvent},
+    window::Window,
 };
+
+use crate::conversions::{EguiToWinit, WinitToEgui};
 
 pub struct EguiContext {
     context: CtxRef,
@@ -72,7 +73,7 @@ impl EguiContext {
                 eprintln!("Copy/Cut error: {}", err);
             }
         }
-        let clipped_meshes = self.context().tessellate(shapes);
+        let clipped_meshes = self.context().tessellate(clipped_shapes);
         (output, clipped_meshes)
     }
 
@@ -88,10 +89,7 @@ impl EguiContext {
     /// Update [`EguiContext`] based on winit events
     pub fn handle_event<T>(&mut self, winit_event: &Event<T>) {
         match winit_event {
-            Event::WindowEvent {
-                window_id: _window_id,
-                event,
-            } => match event {
+            Event::WindowEvent { window_id: _window_id, event } => match event {
                 WindowEvent::Resized(physical_size) => {
                     let pixels_per_point = self
                         .raw_input
@@ -100,10 +98,7 @@ impl EguiContext {
                     self.raw_input.screen_rect =
                         Some(Self::screen_rect(*physical_size, pixels_per_point as f64));
                 }
-                WindowEvent::ScaleFactorChanged {
-                    scale_factor,
-                    new_inner_size,
-                } => {
+                WindowEvent::ScaleFactorChanged { scale_factor, new_inner_size } => {
                     self.raw_input.pixels_per_point = Some(*scale_factor as f32);
                     let pixels_per_point = self
                         .raw_input
@@ -175,14 +170,16 @@ impl EguiContext {
                     if ch.is_ascii_control() {
                         return;
                     }
-                    self.raw_input
-                        .events
-                        .push(egui::Event::Text(ch.to_string()));
+                    self.raw_input.events.push(egui::Event::Text(ch.to_string()));
                 }
                 _ => (),
             },
             _ => (),
         }
+    }
+
+    pub fn update_cursor_icon(&self, window: &Window, cursor: egui::CursorIcon) {
+        window.set_cursor_icon(EguiToWinit::cursor(cursor))
     }
 
     /// Returns the screen rect based on size & scale factor (pixels per point)

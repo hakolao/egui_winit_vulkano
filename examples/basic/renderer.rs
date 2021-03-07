@@ -1,21 +1,30 @@
-use crate::frame_system::{FrameSystem, Pass};
-use egui_winit_vulkan::{EguiContext, EguiVulkanoRenderer};
 use std::sync::Arc;
-use vulkano::device::{Device, DeviceExtensions, Features, Queue};
-use vulkano::image::{ImageUsage, SwapchainImage};
-use vulkano::instance::{Instance, InstanceExtensions, PhysicalDevice};
-use vulkano::swapchain;
-use vulkano::swapchain::{
-    AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform,
-    Swapchain, SwapchainCreationError,
+
+use cgmath::{Matrix4, SquareMatrix};
+use egui_winit_vulkan::{EguiContext, EguiVulkanoRenderer};
+use vulkano::{
+    device::{Device, DeviceExtensions, Features, Queue},
+    image::{ImageUsage, SwapchainImage},
+    instance::{Instance, InstanceExtensions, PhysicalDevice},
+    swapchain,
+    swapchain::{
+        AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform,
+        Swapchain, SwapchainCreationError,
+    },
+    sync,
+    sync::{FlushError, GpuFuture},
 };
-use vulkano::sync::{FlushError, GpuFuture};
 use vulkano_win::VkSurfaceBuild;
-use winit::event::Event;
-use winit::event_loop::EventLoop;
-use winit::window::{Window, WindowBuilder};
+use winit::{
+    event::Event,
+    event_loop::EventLoop,
+    window::{Window, WindowBuilder},
+};
+
+use crate::frame_system::{FrameSystem, Pass};
 
 pub struct VulkanoWinitRenderer {
+    #[allow(dead_code)]
     instance: Arc<Instance>,
     device: Arc<Device>,
     surface: Arc<Surface<Window>>,
@@ -24,6 +33,7 @@ pub struct VulkanoWinitRenderer {
     images: Vec<Arc<SwapchainImage<Window>>>,
     recreate_swapchain: bool,
     previous_frame_end: Option<Box<dyn GpuFuture>>,
+    frame_system: FrameSystem,
     egui_context: EguiContext,
     // Deferred draw system for Egui
     egui_draw_system: EguiVulkanoRenderer,
@@ -36,11 +46,10 @@ impl VulkanoWinitRenderer {
         width: u32,
         height: u32,
         present_mode: PresentMode,
+        name: &str,
     ) -> Self {
         // Add instance extensions based on needs
-        let instance_extensions = InstanceExtensions {
-            ..vulkano_win::required_extensions()
-        };
+        let instance_extensions = InstanceExtensions { ..vulkano_win::required_extensions() };
         // Create instance
         let instance =
             Instance::new(None, &instance_extensions, None).expect("Failed to create instance");
@@ -60,14 +69,11 @@ impl VulkanoWinitRenderer {
                 }
             })
             .expect("No physical device found");
-        println!(
-            "Using device: {} (type: {:?})",
-            physical.name(),
-            physical.ty()
-        );
+        println!("Using device: {} (type: {:?})", physical.name(), physical.ty());
         // Create rendering surface along with window
         let surface = WindowBuilder::new()
             .with_inner_size(winit::dpi::LogicalSize::new(width, height))
+            .with_title(name)
             .build_vk_surface(&event_loop, instance.clone())
             .expect("Failed to create vulkan surface & window");
         // Create device
@@ -88,10 +94,8 @@ impl VulkanoWinitRenderer {
         let egui_draw_system =
             EguiVulkanoRenderer::new(queue.clone(), frame_system.deferred_subpass());
         // Create egui context
-        let egui_context = EguiContext::new(
-            surface.window().inner_size(),
-            surface.window().scale_factor(),
-        );
+        let egui_context =
+            EguiContext::new(surface.window().inner_size(), surface.window().scale_factor());
         Self {
             instance,
             device,
@@ -101,6 +105,7 @@ impl VulkanoWinitRenderer {
             images,
             previous_frame_end,
             recreate_swapchain: false,
+            frame_system,
             egui_context,
             egui_draw_system,
         }
@@ -117,13 +122,10 @@ impl VulkanoWinitRenderer {
             .find(|&q| q.supports_graphics() && surface.is_supported(q).unwrap_or(false))
             .expect("couldn't find a graphical queue family");
         // Add device extensions based on needs
-        let device_extensions = DeviceExtensions {
-            ..DeviceExtensions::supported_by_device(physical)
-        };
+        let device_extensions =
+            DeviceExtensions { ..DeviceExtensions::supported_by_device(physical) };
         // Add device features
-        let features = Features {
-            ..*physical.supported_features()
-        };
+        let features = Features { ..*physical.supported_features() };
         let (device, mut queues) = {
             Device::new(
                 physical,
@@ -175,6 +177,7 @@ impl VulkanoWinitRenderer {
         self.egui_context.handle_event(winit_event)
     }
 
+    #[allow(dead_code)]
     pub fn device(&self) -> Arc<Device> {
         self.device.clone()
     }
@@ -207,23 +210,20 @@ impl VulkanoWinitRenderer {
         }
         // Acquire frame to which we'll render (by image_num)
         let future = self.previous_frame_end.take().unwrap().join(acquire_future);
-        let mut frame = self.frame_system.frame(
-            future,
-            self.images[image_num].clone(),
-            camera.world_to_screen(self.surface.window().scale_factor()),
-        );
+        let mut frame =
+            self.frame_system.frame(future, self.images[image_num].clone(), Matrix4::identity());
 
         // Draw each render pass
         let mut after_future = None;
-        let mut winit_cursor_icon = None;
         while let Some(pass) = frame.next_pass() {
             match pass {
                 Pass::Deferred(mut draw_pass) => {
                     // Add UI
-                    // Update egui elapsed frame time
                     self.egui_context.begin_frame();
                     // ToDo: Ui content here
                     let (output, clipped_meshes) = self.egui_context.end_frame();
+                    // Update cursor icon
+                    self.egui_context.update_cursor_icon(self.surface.window(), output.cursor_icon);
                     // Draw egui meshes
                     let cb = self.egui_draw_system.draw(
                         &mut self.egui_context,
@@ -237,11 +237,6 @@ impl VulkanoWinitRenderer {
                 }
             }
         }
-        // Convert winit cursor icon to egui
-        self.window()
-            .set_cursor_icon(EguiContext::egui_to_winit_cursor_icon(
-                winit_cursor_icon.unwrap(),
-            ));
         // Finish render
         self.finish(after_future, image_num);
     }

@@ -1,0 +1,11 @@
+comment_width = 120
+max_width = 100
+
+# Imports
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
+
+format_strings = true
+newline_style = "Unix"
+overflow_delimited_expr = true
+use_small_heuristics = "Max"

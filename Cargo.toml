@@ -15,3 +15,7 @@ vulkano-shaders = "0.20.0"
 vulkano-win = "0.20.0"
 webbrowser = "0.5.5"
 winit = "0.24.0"
+
+[dev-dependencies]
+cgmath = "0.18.0"
+

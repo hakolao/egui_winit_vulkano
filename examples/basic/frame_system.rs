@@ -13,16 +13,15 @@
 
 use std::sync::Arc;
 
+use cgmath::Matrix4;
 use vulkano::{
     command_buffer::{AutoCommandBufferBuilder, CommandBuffer, SubpassContents},
     device::Queue,
-    format::{ClearValue, Format},
+    format::Format,
     framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
-    image::{AttachmentImage, ImageAccess, ImageUsage, ImageViewAccess},
+    image::{AttachmentImage, ImageAccess, ImageViewAccess},
     sync::GpuFuture,
 };
-
-use egui_winit_vulkan::EguiContext;
 
 /// System that contains the necessary facilities for rendering a single frame.
 pub struct FrameSystem {
@@ -65,11 +64,7 @@ impl FrameSystem {
             Format::D16Unorm,
         )
         .unwrap();
-        FrameSystem {
-            gfx_queue,
-            render_pass: render_pass as Arc<_>,
-            depth_buffer,
-        }
+        FrameSystem { gfx_queue, render_pass: render_pass as Arc<_>, depth_buffer }
     }
 
     #[inline]
@@ -111,11 +106,10 @@ impl FrameSystem {
         )
         .unwrap();
         command_buffer_builder
-            .begin_render_pass(
-                framebuffer.clone(),
-                SubpassContents::SecondaryCommandBuffers,
-                vec![[0.0, 0.0, 0.0, 0.0].into(), 1.0f32.into()],
-            )
+            .begin_render_pass(framebuffer.clone(), SubpassContents::SecondaryCommandBuffers, vec![
+                [0.0, 0.0, 0.0, 0.0].into(),
+                1.0f32.into(),
+            ])
             .unwrap();
 
         Frame {
@@ -135,6 +129,7 @@ pub struct Frame<'a> {
     before_main_cb_future: Option<Box<dyn GpuFuture>>,
     framebuffer: Arc<dyn FramebufferAbstract + Send + Sync>,
     command_buffer_builder: Option<AutoCommandBufferBuilder>,
+    #[allow(dead_code)]
     world_to_framebuffer: Matrix4<f32>,
 }
 
@@ -147,11 +142,7 @@ impl<'a> Frame<'a> {
         } {
             0 => Some(Pass::Deferred(DrawPass { frame: self })),
             1 => {
-                self.command_buffer_builder
-                    .as_mut()
-                    .unwrap()
-                    .end_render_pass()
-                    .unwrap();
+                self.command_buffer_builder.as_mut().unwrap().end_render_pass().unwrap();
                 let command_buffer = self.command_buffer_builder.take().unwrap().build().unwrap();
                 let after_main_cb = self
                     .before_main_cb_future
@@ -197,6 +188,7 @@ impl<'f, 's: 'f> DrawPass<'f, 's> {
         [dims[0], dims[1]]
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub fn world_to_framebuffer_matrix(&self) -> Matrix4<f32> {
         self.frame.world_to_framebuffer
