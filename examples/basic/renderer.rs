@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use cgmath::{Matrix4, SquareMatrix};
-use egui_winit_vulkan::Gui;
+use egui_winit_vulkano::Gui;
 use vulkano::{
     device::{Device, DeviceExtensions, Features, Queue},
     image::{ImageUsage, SwapchainImage},

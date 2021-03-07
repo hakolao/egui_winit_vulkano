@@ -1,5 +1,5 @@
 use egui::{CtxRef, Visuals};
-use egui_winit_vulkan::Gui;
+use egui_winit_vulkano::Gui;
 use vulkano::swapchain::PresentMode;
 use winit::{
     event::{Event, WindowEvent},
