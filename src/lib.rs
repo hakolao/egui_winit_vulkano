@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use crate::conversions::WinitToEgui;
 use copypasta::{ClipboardContext, ClipboardProvider};
-use egui::{paint::ClippedShape, CtxRef, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
+use egui::{paint::ClippedMesh, CtxRef, Key, Modifiers, Pos2, RawInput, Rect, Vec2};
 use winit::event::{ElementState, MouseScrollDelta};
 use winit::{
     dpi::PhysicalSize,
@@ -58,7 +58,7 @@ impl EguiContext {
 
     /// Ends egui frame recording. Returns a vector of clipped meshes which contain vertices
     /// and indices to be drawn by the integration
-    pub fn end_frame(&mut self) -> (egui::Output, Vec<ClippedShape>) {
+    pub fn end_frame(&mut self) -> (egui::Output, Vec<ClippedMesh>) {
         let (output, clipped_shapes) = self.context.end_frame();
         // Handles links
         if let Some(url) = &output.open_url {
@@ -72,7 +72,8 @@ impl EguiContext {
                 eprintln!("Copy/Cut error: {}", err);
             }
         }
-        (output, clipped_shapes)
+        let clipped_meshes = self.context().tessellate(shapes);
+        (output, clipped_meshes)
     }
 
     /// Get [`egui::CtxRef`].
