@@ -41,6 +41,11 @@ Event::RedrawRequested(window_id) if window_id == window_id => {
 
 See the examples directory for a more wholesome example which uses Vulkano developers' frame system to organize rendering.
 
+Remember, on Linux, you need to install following to run egui
+```bash
+sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+```
+
 # Example
 
 ```sh
