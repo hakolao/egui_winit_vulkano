@@ -8,12 +8,12 @@ use vulkano::{
 };
 use winit::{dpi::PhysicalSize, event::Event, window::Window};
 
-use crate::{EguiContext, EguiVulkanoRenderer};
+use crate::{texture_from_file_bytes, EguiContext, EguiVulkanoRenderer};
 
 pub struct EguiIntegration {
     context: Option<EguiContext>,
     renderer: Option<EguiVulkanoRenderer>,
-    layout: Option<fn()>,
+    layout: Option<Box<dyn FnOnce()>>,
 }
 
 impl EguiIntegration {
@@ -53,9 +53,9 @@ impl EguiIntegration {
     }
 
     /// Sets Egui integration's UI layout. This should be called after
-    pub fn set_layout(&mut self, layout_function: fn()) {
+    pub fn set_immediate_ui(&mut self, layout_function: impl FnOnce() + 'static) {
         assert!(self.context.is_some() && self.renderer.is_some());
-        self.layout = Some(layout_function);
+        self.layout = Some(Box::new(layout_function));
     }
 
     /// Renders ui & Updates cursor icon
@@ -64,7 +64,8 @@ impl EguiIntegration {
         self.context.as_mut().unwrap().begin_frame();
         // Render UI
         if self.layout.is_some() {
-            (self.layout.unwrap())();
+            let layout = self.layout.take().unwrap();
+            layout();
         }
         let (output, clipped_meshes) = self.context.as_mut().unwrap().end_frame();
         // Update cursor icon
@@ -78,12 +79,22 @@ impl EguiIntegration {
         cb
     }
 
-    /// Registers a user image to be used by egui
-    pub fn register_user_image(
+    /// Registers a user image from Vulkano image view to be used by egui
+    pub fn register_user_image_view(
         &mut self,
         image: Arc<dyn ImageViewAccess + Send + Sync>,
     ) -> egui::TextureId {
         assert!(self.context.is_some() && self.renderer.is_some());
+        self.renderer.as_mut().unwrap().register_user_image(image)
+    }
+
+    /// Registers a user image to be used by egui
+    /// - `image_file_bytes`: e.g. include_bytes!("./assets/tree.png")
+    pub fn register_user_image(&mut self, image_file_bytes: &[u8]) -> egui::TextureId {
+        assert!(self.context.is_some() && self.renderer.is_some());
+        let image =
+            texture_from_file_bytes(self.renderer.as_ref().unwrap().queue(), image_file_bytes)
+                .expect("Failed to create image");
         self.renderer.as_mut().unwrap().register_user_image(image)
     }
 

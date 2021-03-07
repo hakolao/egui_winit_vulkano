@@ -173,6 +173,10 @@ impl VulkanoWinitRenderer {
         self.device.clone()
     }
 
+    pub fn queue(&self) -> Arc<Queue> {
+        self.queue.clone()
+    }
+
     pub fn window(&self) -> &Window {
         self.surface.window()
     }

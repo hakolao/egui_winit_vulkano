@@ -385,6 +385,10 @@ impl EguiVulkanoRenderer {
         }
         builder.build().unwrap()
     }
+
+    pub fn queue(&self) -> Arc<Queue> {
+        self.gfx_queue.clone()
+    }
 }
 
 mod vs {
