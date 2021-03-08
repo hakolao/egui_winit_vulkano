@@ -100,7 +100,7 @@ pub fn main() {
         "Basic Example",
     );
     // After creating the renderer (window, gfx_queue) create out gui integration
-    let mut gui = Gui::new(renderer.surface(), renderer.queue(), renderer.deferred_subpass());
+    let mut gui = Gui::new(renderer.surface(), renderer.queue());
     let scene_images = renderer.scene_images();
     // Create gui state (this should occur after renderer so we have access to gfx queue etc.)
     let mut gui_state = GuiState::new(&mut gui, scene_images, scene_view_size);

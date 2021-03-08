@@ -2,11 +2,10 @@ use std::sync::Arc;
 
 use egui::CtxRef;
 use vulkano::{
-    command_buffer::AutoCommandBuffer,
     device::Queue,
-    framebuffer::{RenderPassAbstract, Subpass},
-    image::ImageViewAccess,
+    image::{ImageAccess, ImageViewAccess},
     swapchain::Surface,
+    sync::GpuFuture,
 };
 use winit::{event::Event, window::Window};
 
@@ -26,15 +25,11 @@ impl Gui {
     /// - `gfx_queue`: Vulkano's [`Queue`]
     /// - `subpass`: Vulkano's subpass created from render pass, see examples
     /// - Render pass must have depth attachment and at least one color attachment
-    pub fn new<R>(surface: Arc<Surface<Window>>, gfx_queue: Arc<Queue>, subpass: Subpass<R>) -> Gui
-    where
-        R: RenderPassAbstract + Send + Sync + 'static,
-    {
-        assert!(subpass.has_depth());
-        assert!(subpass.num_color_attachments() >= 1);
-        // ToDo: Validate what ever is useful
+    pub fn new(surface: Arc<Surface<Window>>, gfx_queue: Arc<Queue>) -> Gui {
+        let caps = surface.capabilities(gfx_queue.device().physical_device()).unwrap();
+        let format = caps.supported_formats[0].0;
         let context = Context::new(surface.window().inner_size(), surface.window().scale_factor());
-        let renderer = Renderer::new(gfx_queue.clone(), subpass);
+        let renderer = Renderer::new(gfx_queue.clone(), format);
         Gui { context, renderer, surface: surface.clone() }
     }
 
@@ -51,16 +46,19 @@ impl Gui {
         layout_function(self.context());
     }
 
-    /// Renders ui & Updates cursor icon
+    /// Renders ui on `final_image` & Updates cursor icon
     /// Finishes Egui frame
-    pub fn draw(&mut self, framebuffer_dimensions: [u32; 2]) -> AutoCommandBuffer {
+    pub fn draw<F, I>(&mut self, before_future: F, final_image: I) -> Box<dyn GpuFuture>
+    where
+        F: GpuFuture + 'static,
+        I: ImageAccess + ImageViewAccess + Clone + Send + Sync + 'static,
+    {
         // Get outputs of `immediate_ui`
         let (output, clipped_meshes) = self.context.end_frame();
         // Update cursor icon
         self.context.update_cursor_icon(self.surface.window(), output.cursor_icon);
         // Draw egui meshes
-        let cb = self.renderer.draw(&mut self.context, clipped_meshes, framebuffer_dimensions);
-        cb
+        self.renderer.draw(&mut self.context, clipped_meshes, before_future, final_image)
     }
 
     /// Registers a user image from Vulkano image view to be used by egui

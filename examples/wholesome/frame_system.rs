@@ -182,6 +182,7 @@ impl<'f, 's: 'f> DrawPass<'f, 's> {
         }
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub fn viewport_dimensions(&self) -> [u32; 2] {
         let dims = self.frame.framebuffer.dimensions();

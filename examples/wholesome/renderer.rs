@@ -4,7 +4,6 @@ use cgmath::{Matrix4, SquareMatrix};
 use egui_winit_vulkano::Gui;
 use vulkano::{
     device::{Device, DeviceExtensions, Features, Queue},
-    framebuffer::{RenderPassAbstract, Subpass},
     image::{AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},
     instance::{Instance, InstanceExtensions, PhysicalDevice},
     swapchain,
@@ -33,7 +32,7 @@ pub struct Renderer {
     surface: Arc<Surface<Window>>,
     queue: Arc<Queue>,
     swap_chain: Arc<Swapchain<Window>>,
-    color_images: Vec<Arc<SwapchainImage<Window>>>,
+    final_images: Vec<Arc<SwapchainImage<Window>>>,
     scene_images: Vec<Arc<AttachmentImage>>,
     image_num: usize,
     scene_view_size: [u32; 2],
@@ -102,7 +101,7 @@ impl Renderer {
             surface,
             queue,
             swap_chain,
-            color_images: images,
+            final_images: images,
             scene_images,
             image_num: 0,
             scene_view_size,
@@ -204,11 +203,6 @@ impl Renderer {
         self.surface.clone()
     }
 
-    // Return a deferred subpass for our render pass
-    pub fn deferred_subpass(&self) -> Subpass<Arc<dyn RenderPassAbstract + Send + Sync>> {
-        self.frame_system.deferred_subpass()
-    }
-
     pub fn window(&self) -> &Window {
         self.surface.window()
     }
@@ -230,7 +224,7 @@ impl Renderer {
         if self.recreate_swapchain {
             self.recreate_swapchain();
         }
-        // Acquire next image in the swapchain
+        // Acquire next image in the swapchain and our image num index
         let (image_num, suboptimal, acquire_future) =
             match swapchain::acquire_next_image(self.swap_chain.clone(), None) {
                 Ok(r) => r,
@@ -246,27 +240,9 @@ impl Renderer {
         self.image_num = image_num;
         // Knowing image num, let's render our scene on scene images
         self.render_scene();
-        // Acquire frame to which we'll render (by image_num)
+        // Finally render GUI on our swapchain color image attachments
         let future = self.previous_frame_end.take().unwrap().join(acquire_future);
-        let mut frame = self.frame_system.frame(
-            future,
-            self.color_images[image_num].clone(),
-            Matrix4::identity(),
-        );
-        // Draw each render pass
-        let mut after_future = None;
-        while let Some(pass) = frame.next_pass() {
-            match pass {
-                Pass::Deferred(mut draw_pass) => {
-                    // Render UI
-                    let cb = gui.draw(draw_pass.viewport_dimensions());
-                    draw_pass.execute(cb);
-                }
-                Pass::Finished(af) => {
-                    after_future = Some(af);
-                }
-            }
-        }
+        let after_future = gui.draw(future, self.final_images[image_num].clone());
         // Finish render
         self.finish(after_future, image_num);
     }
@@ -274,8 +250,10 @@ impl Renderer {
     /// Renders the pass for scene on scene images
     fn render_scene(&mut self) {
         let future = sync::now(self.device.clone()).boxed();
+        // Acquire frame from our frame system
         let mut frame = self.frame_system.frame(
             future,
+            // Notice that final image is now scene image
             self.scene_images[self.image_num].clone(),
             Matrix4::identity(),
         );
@@ -292,6 +270,7 @@ impl Renderer {
                 }
             }
         }
+        // Wait on our future
         let future = after_future
             .unwrap()
             .then_signal_fence_and_flush()
@@ -306,7 +285,7 @@ impl Renderer {
     fn resize_scene_view(&mut self, new_size: [u32; 2]) {
         self.scene_view_size = new_size;
         let scene_images =
-            Self::create_scene_images(self.device.clone(), &self.color_images, new_size);
+            Self::create_scene_images(self.device.clone(), &self.final_images, new_size);
         self.scene_images = scene_images;
     }
 
@@ -320,14 +299,13 @@ impl Renderer {
             Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
         };
         self.swap_chain = new_swapchain;
-        self.color_images = new_images;
+        self.final_images = new_images;
         self.recreate_swapchain = false;
     }
 
     /// Finishes render by presenting the swapchain
-    fn finish(&mut self, after_future: Option<Box<dyn GpuFuture>>, image_num: usize) {
+    fn finish(&mut self, after_future: Box<dyn GpuFuture>, image_num: usize) {
         let future = after_future
-            .unwrap()
             .then_swapchain_present(self.queue.clone(), self.swap_chain.clone(), image_num)
             .then_signal_fence_and_flush();
         match future {

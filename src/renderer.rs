@@ -3,20 +3,21 @@ use std::sync::Arc;
 use egui::{paint::Mesh, Rect};
 use vulkano::{
     buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer},
-    command_buffer::{AutoCommandBuffer, AutoCommandBufferBuilder, DynamicState},
+    command_buffer::{AutoCommandBufferBuilder, DynamicState, SubpassContents},
     descriptor::{
         descriptor_set::{PersistentDescriptorSet, UnsafeDescriptorSetLayout},
         DescriptorSet, PipelineLayoutAbstract,
     },
     device::Queue,
-    format::B8G8R8A8Unorm,
-    framebuffer::{RenderPassAbstract, Subpass},
-    image::{AttachmentImage, ImageViewAccess},
+    format::{B8G8R8A8Unorm, Format},
+    framebuffer::{Framebuffer, RenderPassAbstract, Subpass},
+    image::{AttachmentImage, ImageAccess, ImageViewAccess},
     pipeline::{
         viewport::{Scissor, Viewport},
         GraphicsPipeline, GraphicsPipelineAbstract,
     },
     sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode},
+    sync::GpuFuture,
 };
 
 use crate::{context::Context, utils::texture_from_bgra_bytes};
@@ -36,8 +37,11 @@ vulkano::impl_vertex!(EguiVertex, position, tex_coords, color);
 
 pub struct Renderer {
     gfx_queue: Arc<Queue>,
+    render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
+
     vertex_buffer: Arc<CpuAccessibleBuffer<[EguiVertex]>>,
     index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
+    depth_buffer: Arc<AttachmentImage>,
     pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
 
     egui_texture_version: u64,
@@ -48,14 +52,42 @@ pub struct Renderer {
 
 impl Renderer {
     /// Creates a new [EguiVulkanoRenderer] which is responsible for rendering egui
-    /// content onto the framebuffer. Renderer assumes that a `R` render pass exists and a sub buffer
-    /// from it has been created for `EguiVulkanoRenderer` like
-    /// `Subpass::from(render_pass.clone(), 0).unwrap()`
     /// See examples
-    pub fn new<R>(gfx_queue: Arc<Queue>, subpass: Subpass<R>) -> Renderer
-    where
-        R: RenderPassAbstract + Send + Sync + 'static,
-    {
+    pub fn new(gfx_queue: Arc<Queue>, final_output_format: Format) -> Renderer {
+        // Create Gui render pass
+        let render_pass = Arc::new(
+            vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
+                attachments: {
+                    final_color: {
+                        load: Clear,
+                        store: Store,
+                        format: final_output_format,
+                        samples: 1,
+                    },
+                    depth: {
+                        load: Clear,
+                        store: DontCare,
+                        format: Format::D16Unorm,
+                        samples: 1,
+                    }
+                },
+                passes: [
+                    {
+                        color: [final_color],
+                        depth_stencil: {depth},
+                        input: []
+                    }
+                ]
+            )
+            .unwrap(),
+        );
+        let depth_buffer = AttachmentImage::transient_input_attachment(
+            gfx_queue.device().clone(),
+            [1, 1],
+            Format::D16Unorm,
+        )
+        .unwrap();
+        // Create vertex and index buffers
         let vertex_buffer = unsafe {
             CpuAccessibleBuffer::<[EguiVertex]>::uninitialized_array(
                 gfx_queue.device().clone(),
@@ -74,7 +106,8 @@ impl Renderer {
             )
             .expect("failed to create gui vertex buffer")
         };
-
+        // Create pipeline
+        let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
         let pipeline = {
             let vs = vs::Shader::load(gfx_queue.device().clone())
                 .expect("failed to create shader module");
@@ -94,8 +127,8 @@ impl Renderer {
             )
         };
 
+        // Create image attachments (temporary)
         let layout = pipeline.descriptor_set_layout(0).unwrap();
-
         // Create temp font image (gets replaced in draw)
         let font_image =
             AttachmentImage::sampled(gfx_queue.device().clone(), [1, 1], B8G8R8A8Unorm).unwrap();
@@ -104,8 +137,10 @@ impl Renderer {
             Self::sampled_image_desc_set(gfx_queue.clone(), layout, font_image.clone());
         Renderer {
             gfx_queue,
+            render_pass,
             vertex_buffer,
             index_buffer,
+            depth_buffer,
             pipeline,
             egui_texture_version: 0,
             egui_texture_desc_set: font_desc_set,
@@ -284,12 +319,60 @@ impl Renderer {
             || index_end * idx_size >= self.index_buffer.size()
     }
 
-    pub fn draw(
+    // Starts the rendering pipeline and returns [`AutoCommandBufferBuilder`] for drawing
+    fn start<I>(&mut self, final_image: I) -> (AutoCommandBufferBuilder, [u32; 2])
+    where
+        I: ImageAccess + ImageViewAccess + Clone + Send + Sync + 'static,
+    {
+        // Get dimensions
+        let img_dims = ImageAccess::dimensions(&final_image).width_height();
+        // Resize depth attachment to match final image's dimensions
+        if ImageAccess::dimensions(&self.depth_buffer).width_height() != img_dims {
+            self.depth_buffer = AttachmentImage::transient_input_attachment(
+                self.gfx_queue.device().clone(),
+                img_dims,
+                Format::D16Unorm,
+            )
+            .unwrap();
+        }
+        // Create framebuffer (must be in same order as render pass description in `new`
+        let framebuffer = Arc::new(
+            Framebuffer::start(self.render_pass.clone())
+                .add(final_image.clone())
+                .unwrap()
+                .add(self.depth_buffer.clone())
+                .unwrap()
+                .build()
+                .unwrap(),
+        );
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary_one_time_submit(
+            self.gfx_queue.device().clone(),
+            self.gfx_queue.family(),
+        )
+        .unwrap();
+        // Add clear values here for attachments and begin render pass
+        command_buffer_builder
+            .begin_render_pass(framebuffer.clone(), SubpassContents::SecondaryCommandBuffers, vec![
+                [0.0, 0.0, 0.0, 0.0].into(),
+                1.0f32.into(),
+            ])
+            .unwrap();
+        (command_buffer_builder, img_dims)
+    }
+
+    /// Executes our draw commands on the final image and returns a `GpuFuture` to wait on
+    pub fn draw<F, I>(
         &mut self,
         egui_context: &mut Context,
         clipped_meshes: Vec<egui::ClippedMesh>,
-        framebuffer_dimensions: [u32; 2],
-    ) -> AutoCommandBuffer {
+        before_future: F,
+        final_image: I,
+    ) -> Box<dyn GpuFuture>
+    where
+        F: GpuFuture + 'static,
+        I: ImageAccess + ImageViewAccess + Clone + Send + Sync + 'static,
+    {
+        let (mut command_buffer_builder, framebuffer_dimensions) = self.start(final_image);
         egui_context.update_elapsed_time();
         self.update_font_texture(egui_context);
         let push_constants = vs::ty::PushConstants {
@@ -380,7 +463,30 @@ impl Renderer {
             vertex_start += vertices_count;
             index_start += indices_count;
         }
-        builder.build().unwrap()
+        // Execute draw commands
+        let command_buffer = builder.build().unwrap();
+        unsafe {
+            command_buffer_builder.execute_commands(command_buffer).unwrap();
+        }
+        self.finish(command_buffer_builder, Box::new(before_future))
+    }
+
+    // Finishes the rendering pipeline
+    fn finish(
+        &self,
+        mut command_buffer_builder: AutoCommandBufferBuilder,
+        before_main_cb_future: Box<dyn GpuFuture>,
+    ) -> Box<dyn GpuFuture> {
+        // We end render pass
+        command_buffer_builder.end_render_pass().unwrap();
+        // Then execute our whole command buffer
+        let command_buffer = command_buffer_builder.build().unwrap();
+        let after_main_cb =
+            before_main_cb_future.then_execute(self.gfx_queue.clone(), command_buffer).unwrap();
+        let future =
+            after_main_cb.then_signal_fence_and_flush().expect("Failed to signal fence and flush");
+        // Return our future
+        Box::new(future)
     }
 
     pub fn queue(&self) -> Arc<Queue> {
