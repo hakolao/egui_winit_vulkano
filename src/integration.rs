@@ -7,38 +7,32 @@ use vulkano::{
     framebuffer::{RenderPassAbstract, Subpass},
     image::ImageViewAccess,
 };
-use winit::{dpi::PhysicalSize, event::Event, window::Window};
+use winit::{event::Event, window::Window};
 
-use crate::{context::EguiContext, renderer::EguiVulkanoRenderer, utils::texture_from_file_bytes};
+use crate::{context::Context, renderer::Renderer, utils::texture_from_file_bytes};
 
 pub struct Gui {
-    context: EguiContext,
-    renderer: EguiVulkanoRenderer,
+    context: Context,
+    renderer: Renderer,
 }
 
 impl Gui {
     /// Creates new Egui to Vulkano integration by setting the necessary parameters
     /// This is to be called once we have access to vulkano_win's winit window surface
     /// and after render pass has been created
-    /// - `size`: Size of the window as [PhysicalSize<u32>]
-    /// - `scale_factor`: pointes per pixel, = `window.scale_factor()`
+    /// - `window`: Winit [`Window`]
     /// - `gfx_queue`: Vulkano's [`Queue`]
     /// - `subpass`: Vulkano's subpass created from render pass, see examples
     /// - Render pass must have depth attachment and at least one color attachment
-    pub fn new<R>(
-        size: PhysicalSize<u32>,
-        scale_factor: f64,
-        gfx_queue: Arc<Queue>,
-        subpass: Subpass<R>,
-    ) -> Gui
+    pub fn new<R>(window: &Window, gfx_queue: Arc<Queue>, subpass: Subpass<R>) -> Gui
     where
         R: RenderPassAbstract + Send + Sync + 'static,
     {
         assert!(subpass.has_depth());
         assert!(subpass.num_color_attachments() >= 1);
         // ToDo: Validate what ever is useful
-        let context = EguiContext::new(size, scale_factor);
-        let renderer = EguiVulkanoRenderer::new(gfx_queue.clone(), subpass);
+        let context = Context::new(window.inner_size(), window.scale_factor());
+        let renderer = Renderer::new(gfx_queue.clone(), subpass);
         Gui { context, renderer }
     }
 

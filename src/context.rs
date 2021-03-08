@@ -10,7 +10,7 @@ use winit::{
 
 use crate::conversions::{EguiToWinit, WinitToEgui};
 
-pub struct EguiContext {
+pub struct Context {
     context: CtxRef,
     scale_factor: f64,
     raw_input: RawInput,
@@ -20,12 +20,12 @@ pub struct EguiContext {
     start_time: Option<Instant>,
 }
 
-impl EguiContext {
+impl Context {
     /// Starts a new [`EguiContext`] which is necessary to tie tie egui to the
     /// winit events
     pub fn new(size: PhysicalSize<u32>, scale_factor: f64) -> Self {
         let context = CtxRef::default();
-        EguiContext {
+        Context {
             context,
             scale_factor,
             raw_input: RawInput {

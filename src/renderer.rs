@@ -19,7 +19,7 @@ use vulkano::{
     sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode},
 };
 
-use crate::{context::EguiContext, utils::texture_from_bgra_bytes};
+use crate::{context::Context, utils::texture_from_bgra_bytes};
 
 const VERTICES_PER_QUAD: usize = 4;
 const VERTEX_BUFFER_SIZE: usize = 1024 * 1024 * VERTICES_PER_QUAD;
@@ -34,7 +34,7 @@ pub struct EguiVertex {
 }
 vulkano::impl_vertex!(EguiVertex, position, tex_coords, color);
 
-pub struct EguiVulkanoRenderer {
+pub struct Renderer {
     gfx_queue: Arc<Queue>,
     vertex_buffer: Arc<CpuAccessibleBuffer<[EguiVertex]>>,
     index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
@@ -46,13 +46,13 @@ pub struct EguiVulkanoRenderer {
     user_texture_desc_sets: Vec<Option<Arc<dyn DescriptorSet + Send + Sync>>>,
 }
 
-impl EguiVulkanoRenderer {
+impl Renderer {
     /// Creates a new [EguiVulkanoRenderer] which is responsible for rendering egui
     /// content onto the framebuffer. Renderer assumes that a `R` render pass exists and a sub buffer
     /// from it has been created for `EguiVulkanoRenderer` like
     /// `Subpass::from(render_pass.clone(), 0).unwrap()`
     /// See examples
-    pub fn new<R>(gfx_queue: Arc<Queue>, subpass: Subpass<R>) -> EguiVulkanoRenderer
+    pub fn new<R>(gfx_queue: Arc<Queue>, subpass: Subpass<R>) -> Renderer
     where
         R: RenderPassAbstract + Send + Sync + 'static,
     {
@@ -102,7 +102,7 @@ impl EguiVulkanoRenderer {
         // Create font image desc set
         let font_desc_set =
             Self::sampled_image_desc_set(gfx_queue.clone(), layout, font_image.clone());
-        EguiVulkanoRenderer {
+        Renderer {
             gfx_queue,
             vertex_buffer,
             index_buffer,
@@ -173,7 +173,7 @@ impl EguiVulkanoRenderer {
         }
     }
 
-    fn update_font_texture(&mut self, egui_context: &EguiContext) {
+    fn update_font_texture(&mut self, egui_context: &Context) {
         let texture = egui_context.context().texture();
         if texture.version == self.egui_texture_version {
             return;
@@ -196,7 +196,7 @@ impl EguiVulkanoRenderer {
 
     fn get_rect_scissor(
         &self,
-        egui_context: &mut EguiContext,
+        egui_context: &mut Context,
         framebuffer_dimensions: [u32; 2],
         rect: Rect,
     ) -> Scissor {
@@ -286,7 +286,7 @@ impl EguiVulkanoRenderer {
 
     pub fn draw(
         &mut self,
-        egui_context: &mut EguiContext,
+        egui_context: &mut Context,
         clipped_meshes: Vec<egui::ClippedMesh>,
         framebuffer_dimensions: [u32; 2],
     ) -> AutoCommandBuffer {
