@@ -200,6 +200,10 @@ impl Renderer {
         self.queue.clone()
     }
 
+    pub fn surface(&self) -> Arc<Surface<Window>> {
+        self.surface.clone()
+    }
+
     // Return a deferred subpass for our render pass
     pub fn deferred_subpass(&self) -> Subpass<Arc<dyn RenderPassAbstract + Send + Sync>> {
         self.frame_system.deferred_subpass()
@@ -255,7 +259,7 @@ impl Renderer {
             match pass {
                 Pass::Deferred(mut draw_pass) => {
                     // Render UI
-                    let cb = gui.draw(self.surface.window(), draw_pass.viewport_dimensions());
+                    let cb = gui.draw(draw_pass.viewport_dimensions());
                     draw_pass.execute(cb);
                 }
                 Pass::Finished(af) => {

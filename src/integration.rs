@@ -6,6 +6,7 @@ use vulkano::{
     device::Queue,
     framebuffer::{RenderPassAbstract, Subpass},
     image::ImageViewAccess,
+    swapchain::Surface,
 };
 use winit::{event::Event, window::Window};
 
@@ -14,26 +15,27 @@ use crate::{context::Context, renderer::Renderer, utils::texture_from_file_bytes
 pub struct Gui {
     context: Context,
     renderer: Renderer,
+    surface: Arc<Surface<Window>>,
 }
 
 impl Gui {
     /// Creates new Egui to Vulkano integration by setting the necessary parameters
     /// This is to be called once we have access to vulkano_win's winit window surface
     /// and after render pass has been created
-    /// - `window`: Winit [`Window`]
+    /// - `surface`: Vulkano's Winit Surface [`Arc<Surface<Window>>`]
     /// - `gfx_queue`: Vulkano's [`Queue`]
     /// - `subpass`: Vulkano's subpass created from render pass, see examples
     /// - Render pass must have depth attachment and at least one color attachment
-    pub fn new<R>(window: &Window, gfx_queue: Arc<Queue>, subpass: Subpass<R>) -> Gui
+    pub fn new<R>(surface: Arc<Surface<Window>>, gfx_queue: Arc<Queue>, subpass: Subpass<R>) -> Gui
     where
         R: RenderPassAbstract + Send + Sync + 'static,
     {
         assert!(subpass.has_depth());
         assert!(subpass.num_color_attachments() >= 1);
         // ToDo: Validate what ever is useful
-        let context = Context::new(window.inner_size(), window.scale_factor());
+        let context = Context::new(surface.window().inner_size(), surface.window().scale_factor());
         let renderer = Renderer::new(gfx_queue.clone(), subpass);
-        Gui { context, renderer }
+        Gui { context, renderer, surface: surface.clone() }
     }
 
     /// Updates context state by winit event. Integration must have been initialized
@@ -51,11 +53,11 @@ impl Gui {
 
     /// Renders ui & Updates cursor icon
     /// Finishes Egui frame
-    pub fn draw(&mut self, window: &Window, framebuffer_dimensions: [u32; 2]) -> AutoCommandBuffer {
+    pub fn draw(&mut self, framebuffer_dimensions: [u32; 2]) -> AutoCommandBuffer {
         // Get outputs of `immediate_ui`
         let (output, clipped_meshes) = self.context.end_frame();
         // Update cursor icon
-        self.context.update_cursor_icon(window, output.cursor_icon);
+        self.context.update_cursor_icon(self.surface.window(), output.cursor_icon);
         // Draw egui meshes
         let cb = self.renderer.draw(&mut self.context, clipped_meshes, framebuffer_dimensions);
         cb
