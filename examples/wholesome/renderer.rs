@@ -45,8 +45,7 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(
         event_loop: &EventLoop<()>,
-        width: u32,
-        height: u32,
+        window_size: [u32; 2],
         scene_view_size: [u32; 2],
         present_mode: PresentMode,
         name: &str,
@@ -75,7 +74,7 @@ impl Renderer {
         println!("Using device: {} (type: {:?})", physical.name(), physical.ty());
         // Create rendering surface along with window
         let surface = WindowBuilder::new()
-            .with_inner_size(winit::dpi::LogicalSize::new(width, height))
+            .with_inner_size(winit::dpi::LogicalSize::new(window_size[0], window_size[1]))
             .with_title(name)
             .build_vk_surface(&event_loop, instance.clone())
             .expect("Failed to create vulkan surface & window");
@@ -219,6 +218,8 @@ impl Renderer {
         &self.scene_images
     }
 
+    /// Renders scene onto scene images using frame system and finally draws UI on final
+    /// swapchain images
     pub fn render(&mut self, gui: &mut Gui) {
         // Recreate swap chain if needed (when resizing of window occurs or swapchain is outdated)
         if self.recreate_swapchain {

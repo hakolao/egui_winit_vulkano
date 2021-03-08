@@ -87,25 +87,28 @@ impl GuiState {
 }
 
 pub fn main() {
+    // Winit event loop & our time tracking initialization
     let event_loop = EventLoop::new();
     let mut time = TimeInfo::new();
     // Create renderer for our scene & ui
+    let window_size = [1280, 720];
     let scene_view_size = [256, 256];
     let mut renderer = Renderer::new(
         &event_loop,
-        1280,
-        720,
+        window_size,
         scene_view_size,
         PresentMode::Immediate,
-        "Basic Example",
+        "Wholesome",
     );
     // After creating the renderer (window, gfx_queue) create out gui integration
+    // It requires access to surface (Window, devices etc.) and Vulkano's gfx queue
     let mut gui = Gui::new(renderer.surface(), renderer.queue());
+    // Renderer created AttachmentImages for our scene, let's access them
     let scene_images = renderer.scene_images();
-    // Create gui state (this should occur after renderer so we have access to gfx queue etc.)
+    // Create gui state (pass anything your state requires)
     let mut gui_state = GuiState::new(&mut gui, scene_images, scene_view_size);
     event_loop.run(move |event, _, control_flow| {
-        // Update Egui integration
+        // Update Egui integration so the UI works!
         gui.update(&event);
         match event {
             Event::WindowEvent { event, window_id } if window_id == window_id => match event {
@@ -128,7 +131,8 @@ pub fn main() {
                 gui.immediate_ui(|ctx| {
                     gui_state.layout(ctx, renderer.window(), renderer.last_image_num(), time.fps())
                 });
-                // Lastly we'll render our ui
+                // Lastly we'll need to render our ui. You need to organize gui rendering to your needs
+                // We'll render gui last on our swapchain images (see function below)
                 renderer.render(&mut gui);
                 // Update fps & dt
                 time.update();
