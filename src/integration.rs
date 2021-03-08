@@ -47,10 +47,10 @@ impl Gui {
 
     /// Sets Egui integration's UI layout. This must be called before draw
     /// Begins Egui frame
-    pub fn immediate_ui(&mut self, layout_function: impl FnOnce(CtxRef)) {
+    pub fn immediate_ui(&mut self, layout_function: impl FnOnce(&mut Self, CtxRef)) {
         self.context.begin_frame();
         // Render Egui
-        layout_function(self.context());
+        layout_function(self, self.context());
     }
 
     /// Renders ui on `final_image` & Updates cursor icon

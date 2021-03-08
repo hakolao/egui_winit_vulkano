@@ -138,7 +138,7 @@ pub fn main() {
                 // Set immediate UI in redraw here
                 // It's a closure giving access to egui context inside which you can call anything.
                 // Here we're calling the layout of our `gui_state`.
-                gui.immediate_ui(|ctx| {
+                gui.immediate_ui(|_gui, ctx| {
                     gui_state.layout(ctx, renderer.window(), renderer.last_image_num(), time.fps())
                 });
                 // Lastly we'll need to render our ui. You need to organize gui rendering to your needs
