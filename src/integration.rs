@@ -1,3 +1,11 @@
+// Copyright (c) 2021 Okko Hakola
+// Licensed under the Apache License, Version 2.0
+// <LICENSE-APACHE or
+// https://www.apache.org/licenses/LICENSE-2.0> or the MIT
+// license <LICENSE-MIT or https://opensource.org/licenses/MIT>,
+// at your option. All files in the project carrying such
+// notice may not be copied, modified, or distributed except
+// according to those terms.
 use std::sync::Arc;
 
 use egui::CtxRef;
@@ -20,10 +28,9 @@ pub struct Gui {
 impl Gui {
     /// Creates new Egui to Vulkano integration by setting the necessary parameters
     /// This is to be called once we have access to vulkano_win's winit window surface
-    /// and after render pass has been created
+    /// and gfx queue
     /// - `surface`: Vulkano's Winit Surface [`Arc<Surface<Window>>`]
     /// - `gfx_queue`: Vulkano's [`Queue`]
-    /// - `subpass`: Vulkano's subpass created from render pass, see examples
     /// - Render pass must have depth attachment and at least one color attachment
     pub fn new(surface: Arc<Surface<Window>>, gfx_queue: Arc<Queue>) -> Gui {
         let caps = surface.capabilities(gfx_queue.device().physical_device()).unwrap();
@@ -33,7 +40,7 @@ impl Gui {
         Gui { context, renderer, surface: surface.clone() }
     }
 
-    /// Updates context state by winit event. Integration must have been initialized
+    /// Updates context state by winit event.
     pub fn update<T>(&mut self, winit_event: &Event<T>) {
         self.context.handle_event(winit_event)
     }

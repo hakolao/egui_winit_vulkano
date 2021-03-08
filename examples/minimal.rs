@@ -9,11 +9,11 @@
 
 use std::sync::Arc;
 
-use cgmath::{Matrix4, SquareMatrix};
+use egui::{ScrollArea, TextEdit, TextStyle};
 use egui_winit_vulkano::Gui;
 use vulkano::{
     device::{Device, DeviceExtensions, Features, Queue},
-    image::{AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},
+    image::{ImageUsage, SwapchainImage},
     instance::{Instance, InstanceExtensions, PhysicalDevice},
     swapchain,
     swapchain::{
@@ -25,16 +25,86 @@ use vulkano::{
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
-    event_loop::EventLoop,
+    event::{Event, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
 
-use crate::{
-    frame_system::{FrameSystem, Pass},
-    triangle_draw_system::TriangleDrawSystem,
-};
+pub fn main() {
+    // Winit event loop & our time tracking initialization
+    let event_loop = EventLoop::new();
+    // Create renderer for our scene & ui
+    let window_size = [1280, 720];
+    let mut renderer =
+        SimpleGuiRenderer::new(&event_loop, window_size, PresentMode::Immediate, "Wholesome");
+    // After creating the renderer (window, gfx_queue) create out gui integration
+    let mut gui = Gui::new(renderer.surface(), renderer.queue());
+    // Create gui state (pass anything your state requires)
+    let mut code = CODE.to_owned();
+    event_loop.run(move |event, _, control_flow| {
+        // Update Egui integration so the UI works!
+        gui.update(&event);
+        match event {
+            Event::WindowEvent { event, window_id } if window_id == window_id => match event {
+                WindowEvent::Resized(_) => {
+                    renderer.resize();
+                }
+                WindowEvent::ScaleFactorChanged { .. } => {
+                    renderer.resize();
+                }
+                WindowEvent::CloseRequested => {
+                    *control_flow = ControlFlow::Exit;
+                    return;
+                }
+                _ => (),
+            },
+            Event::RedrawRequested(window_id) if window_id == window_id => {
+                // Set immediate UI in redraw here
+                gui.immediate_ui(|ctx| {
+                    egui::CentralPanel::default().show(&ctx, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.add(egui::widgets::Label::new("Hi there!"));
+                        });
+                        ui.separator();
+                        ui.columns(2, |columns| {
+                            ScrollArea::auto_sized().id_source("source").show(
+                                &mut columns[0],
+                                |ui| {
+                                    // ui.text_edit_multiline(&mut self.code);
+                                    ui.add(
+                                        TextEdit::multiline(&mut code)
+                                            .text_style(TextStyle::Monospace),
+                                    );
+                                },
+                            );
+                            ScrollArea::auto_sized().id_source("rendered").show(
+                                &mut columns[1],
+                                |ui| {
+                                    egui::experimental::easy_mark(ui, &code);
+                                },
+                            );
+                        });
+                    });
+                });
+                // Render UI
+                renderer.render(&mut gui);
+            }
+            Event::MainEventsCleared => {
+                renderer.surface().window().request_redraw();
+            }
+            _ => (),
+        }
+    });
+}
 
-pub struct Renderer {
+const CODE: &str = r#"
+# Some markup
+```
+let mut gui = Gui::new(renderer.surface(), renderer.queue());
+```
+"#;
+
+struct SimpleGuiRenderer {
     #[allow(dead_code)]
     instance: Arc<Instance>,
     device: Arc<Device>,
@@ -42,20 +112,14 @@ pub struct Renderer {
     queue: Arc<Queue>,
     swap_chain: Arc<Swapchain<Window>>,
     final_images: Vec<Arc<SwapchainImage<Window>>>,
-    scene_images: Vec<Arc<AttachmentImage>>,
-    image_num: usize,
-    scene_view_size: [u32; 2],
     recreate_swapchain: bool,
     previous_frame_end: Option<Box<dyn GpuFuture>>,
-    frame_system: FrameSystem,
-    scene: TriangleDrawSystem,
 }
 
-impl Renderer {
+impl SimpleGuiRenderer {
     pub fn new(
         event_loop: &EventLoop<()>,
         window_size: [u32; 2],
-        scene_view_size: [u32; 2],
         present_mode: PresentMode,
         name: &str,
     ) -> Self {
@@ -98,11 +162,6 @@ impl Renderer {
             present_mode,
         );
         let previous_frame_end = Some(sync::now(device.clone()).boxed());
-        // Create frame system
-        let render_pass_system = FrameSystem::new(queue.clone(), swap_chain.format());
-        let scene = TriangleDrawSystem::new(queue.clone(), render_pass_system.deferred_subpass());
-
-        let scene_images = Self::create_scene_images(device.clone(), &images, scene_view_size);
         Self {
             instance,
             device,
@@ -110,13 +169,8 @@ impl Renderer {
             queue,
             swap_chain,
             final_images: images,
-            scene_images,
-            image_num: 0,
-            scene_view_size,
             previous_frame_end,
             recreate_swapchain: false,
-            frame_system: render_pass_system,
-            scene,
         }
     }
 
@@ -180,29 +234,6 @@ impl Renderer {
         (swap_chain, images)
     }
 
-    fn create_scene_images(
-        device: Arc<Device>,
-        swapchain_images: &Vec<Arc<SwapchainImage<Window>>>,
-        scene_view_size: [u32; 2],
-    ) -> Vec<Arc<AttachmentImage>> {
-        let mut scene_images = vec![];
-        for si in swapchain_images {
-            let image = AttachmentImage::sampled_input_attachment(
-                device.clone(),
-                scene_view_size,
-                ImageAccess::format(&si),
-            )
-            .expect("Failed to create scene image");
-            scene_images.push(image);
-        }
-        scene_images
-    }
-
-    #[allow(dead_code)]
-    pub fn device(&self) -> Arc<Device> {
-        self.device.clone()
-    }
-
     pub fn queue(&self) -> Arc<Queue> {
         self.queue.clone()
     }
@@ -211,24 +242,10 @@ impl Renderer {
         self.surface.clone()
     }
 
-    pub fn window(&self) -> &Window {
-        self.surface.window()
-    }
-
     pub fn resize(&mut self) {
         self.recreate_swapchain = true;
     }
 
-    pub fn last_image_num(&self) -> usize {
-        self.image_num
-    }
-
-    pub fn scene_images(&mut self) -> &Vec<Arc<AttachmentImage>> {
-        &self.scene_images
-    }
-
-    /// Renders scene onto scene images using frame system and finally draws UI on final
-    /// swapchain images
     pub fn render(&mut self, gui: &mut Gui) {
         // Recreate swap chain if needed (when resizing of window occurs or swapchain is outdated)
         if self.recreate_swapchain {
@@ -247,59 +264,13 @@ impl Renderer {
         if suboptimal {
             self.recreate_swapchain = true;
         }
-        self.image_num = image_num;
-        // Knowing image num, let's render our scene on scene images
-        self.render_scene();
-        // Finally render GUI on our swapchain color image attachments
+        // Render GUI
         let future = self.previous_frame_end.take().unwrap().join(acquire_future);
         let after_future = gui.draw(future, self.final_images[image_num].clone());
         // Finish render
         self.finish(after_future, image_num);
     }
 
-    /// Renders the pass for scene on scene images
-    fn render_scene(&mut self) {
-        let future = sync::now(self.device.clone()).boxed();
-        // Acquire frame from our frame system
-        let mut frame = self.frame_system.frame(
-            future,
-            // Notice that final image is now scene image
-            self.scene_images[self.image_num].clone(),
-            Matrix4::identity(),
-        );
-        // Draw each render pass that's related to scene
-        let mut after_future = None;
-        while let Some(pass) = frame.next_pass() {
-            match pass {
-                Pass::Deferred(mut draw_pass) => {
-                    let cb = self.scene.draw(self.scene_view_size);
-                    draw_pass.execute(cb);
-                }
-                Pass::Finished(af) => {
-                    after_future = Some(af);
-                }
-            }
-        }
-        // Wait on our future
-        let future = after_future
-            .unwrap()
-            .then_signal_fence_and_flush()
-            .expect("Failed to signal fence and flush");
-        match future.wait(None) {
-            Ok(x) => x,
-            Err(err) => println!("err: {:?}", err),
-        }
-    }
-
-    #[allow(dead_code)]
-    fn resize_scene_view(&mut self, new_size: [u32; 2]) {
-        self.scene_view_size = new_size;
-        let scene_images =
-            Self::create_scene_images(self.device.clone(), &self.final_images, new_size);
-        self.scene_images = scene_images;
-    }
-
-    /// Swapchain is recreated when resized
     fn recreate_swapchain(&mut self) {
         let dimensions: [u32; 2] = self.surface.window().inner_size().into();
         let (new_swapchain, new_images) = match self.swap_chain.recreate_with_dimensions(dimensions)
@@ -313,7 +284,6 @@ impl Renderer {
         self.recreate_swapchain = false;
     }
 
-    /// Finishes render by presenting the swapchain
     fn finish(&mut self, after_future: Box<dyn GpuFuture>, image_num: usize) {
         let future = after_future
             .then_swapchain_present(self.queue.clone(), self.swap_chain.clone(), image_num)

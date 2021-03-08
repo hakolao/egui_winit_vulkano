@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The vulkano developers
+// Copyright (c) 2017 The vulkano developers <=== !
 // Licensed under the Apache License, Version 2.0
 // <LICENSE-APACHE or
 // http://www.apache.org/licenses/LICENSE-2.0> or the MIT
@@ -9,6 +9,7 @@
 
 // Slightly modified version from
 // https://github.com/vulkano-rs/vulkano-examples/blob/master/src/bin/deferred/triangle_draw_system.rs
+// To simplify this wholesome example :)
 
 use std::sync::Arc;
 

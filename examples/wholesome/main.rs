@@ -1,3 +1,12 @@
+// Copyright (c) 2021 Okko Hakola
+// Licensed under the Apache License, Version 2.0
+// <LICENSE-APACHE or
+// https://www.apache.org/licenses/LICENSE-2.0> or the MIT
+// license <LICENSE-MIT or https://opensource.org/licenses/MIT>,
+// at your option. All files in the project carrying such
+// notice may not be copied, modified, or distributed except
+// according to those terms.
+
 use std::sync::Arc;
 
 use egui::{CtxRef, Visuals};
@@ -31,6 +40,7 @@ impl GuiState {
         scene_images: &Vec<Arc<AttachmentImage>>,
         scene_view_size: [u32; 2],
     ) -> GuiState {
+        // tree.png asset is from https://github.com/sotrh/learn-wgpu/tree/master/docs/beginner/tutorial5-textures
         let image_texture_id = gui.register_user_image(include_bytes!("./assets/tree.png"));
         let mut scene_texture_ids = vec![];
         for img in scene_images {

@@ -1,3 +1,12 @@
+// Copyright (c) 2021 Okko Hakola
+// Licensed under the Apache License, Version 2.0
+// <LICENSE-APACHE or
+// https://www.apache.org/licenses/LICENSE-2.0> or the MIT
+// license <LICENSE-MIT or https://opensource.org/licenses/MIT>,
+// at your option. All files in the project carrying such
+// notice may not be copied, modified, or distributed except
+// according to those terms.
+
 use std::sync::Arc;
 
 use egui::{paint::Mesh, Rect};
@@ -54,7 +63,7 @@ impl Renderer {
     /// Creates a new [EguiVulkanoRenderer] which is responsible for rendering egui
     /// See examples
     pub fn new(gfx_queue: Arc<Queue>, final_output_format: Format) -> Renderer {
-        // Create Gui render pass
+        // Create Gui render pass with just depth and final color
         let render_pass = Arc::new(
             vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
                 attachments: {

@@ -1,6 +1,7 @@
 # egui_winit_vulkano
 
 ![MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+![Apache](https://img.shields.io/badge/license-Apache-blue.svg)
 
 This is the [egui](https://github.com/emilk/egui) integration for
 [winit](https://github.com/rust-windowing/winit) and [vulkano](https://github.com/vulkano-rs/vulkano).
