@@ -467,6 +467,7 @@ impl Renderer {
                     indices.clone(),
                     desc_set,
                     push_constants,
+                    vec![],
                 )
                 .unwrap();
             vertex_start += vertices_count;
