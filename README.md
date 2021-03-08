@@ -12,11 +12,11 @@ The aim of this is to allow a simple enough API to separate UI nicely out of you
 # Usage
 1. Create your own renderer with Vulkano, and allow access to Vulkano's gfx queue `Arc<Queue>` and Vulkano's winit surface `Arc<Surface<Window>>`
 2. Create Gui integration with the surface & gfx queue
-```rs
+```rust
 let mut gui = Gui::new(renderer.surface(), renderer.queue());
 ```
 3. Inside your event loop, update `gui` integration
-```rs
+```rust
 event_loop.run(move |event, _, control_flow| {
     // Update Egui integration so the UI works!
     gui.update(&event);
@@ -24,14 +24,14 @@ event_loop.run(move |event, _, control_flow| {
 });
 ```
 4. Fill immediate mode UI through the integration in `Event::RedrawRequested` before you render
-```rs
+```rust
 gui.immediate_ui(|ctx| {
     // Fill egui UI layout here
     // It may be convenient to organize the layout under a stateful GuiState struct (See `wholesome` example)
 });
 ```
 5. Render gui via your renderer on any image or most likely on your swapchain images:
-```rs
+```rust
 renderer.render(&mut gui); //... and inside render function:
 // Draw, where
 // future = acquired future from previous_frame_end.join(swapchain_acquire_future) and
