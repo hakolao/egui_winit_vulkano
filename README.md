@@ -25,7 +25,8 @@ event_loop.run(move |event, _, control_flow| {
 ```
 4. Fill immediate mode UI through the integration in `Event::RedrawRequested` before you render
 ```rust
-gui.immediate_ui(|_gui, ctx| {
+gui.immediate_ui(|gui| {
+    let ctx = gui.context();
     // Fill egui UI layout here
     // It may be convenient to organize the layout under a stateful GuiState struct (See `wholesome` example)
 });

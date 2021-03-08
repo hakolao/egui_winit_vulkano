@@ -8,7 +8,6 @@
 // according to those terms.
 use std::sync::Arc;
 
-use egui::CtxRef;
 use vulkano::{
     device::Queue,
     image::{ImageAccess, ImageViewAccess},
@@ -47,10 +46,10 @@ impl Gui {
 
     /// Sets Egui integration's UI layout. This must be called before draw
     /// Begins Egui frame
-    pub fn immediate_ui(&mut self, layout_function: impl FnOnce(&mut Self, CtxRef)) {
+    pub fn immediate_ui(&mut self, layout_function: impl FnOnce(&mut Self)) {
         self.context.begin_frame();
         // Render Egui
-        layout_function(self, self.context());
+        layout_function(self);
     }
 
     /// Renders ui on `final_image` & Updates cursor icon

@@ -60,7 +60,8 @@ pub fn main() {
             },
             Event::RedrawRequested(window_id) if window_id == window_id => {
                 // Set immediate UI in redraw here
-                gui.immediate_ui(|_gui, ctx| {
+                gui.immediate_ui(|gui| {
+                    let ctx = gui.context();
                     egui::CentralPanel::default().show(&ctx, |ui| {
                         ui.vertical_centered(|ui| {
                             ui.add(egui::widgets::Label::new("Hi there!"));
