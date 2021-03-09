@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use vulkano::{
     device::Queue,
-    format::{B8G8R8A8Unorm, Format::R8G8B8A8Srgb},
+    format::{B8G8R8A8Unorm, R8G8B8A8Srgb},
     image::{Dimensions, ImageCreationError, ImageViewAccess, ImmutableImage, MipmapsCount},
 };
 
