@@ -6,7 +6,7 @@
 This is the [egui](https://github.com/emilk/egui) integration for
 [winit](https://github.com/rust-windowing/winit) and [vulkano](https://github.com/vulkano-rs/vulkano).
 
-This integration owns its own renderpass for gui and only requires a target image as input while rendering onto which the UI will be painted.
+This integration requires a target image as input to which the UI will be painted.
 The aim of this is to allow a simple enough API to separate UI nicely out of your renderer and make it easy to build your immediate mode UI with Egui.
 
 # Usage
