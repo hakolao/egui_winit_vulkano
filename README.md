@@ -38,7 +38,8 @@ renderer.render(&mut gui); //... and inside render function:
 // future = acquired future from previous_frame_end.join(swapchain_acquire_future) and
 // image_to_draw_on = the final image onto which you wish to render UI, usually e.g.
 // self.final_images[image_num].clone() = one of your swap chain images
-let after_future = gui.draw(future, image_to_draw_on);
+// [0.0, 0.0, 0.0, 0.0] = clear color
+let after_future = gui.draw(future, image_to_draw_on, [0.0, 0.0, 0.0, 0.0]);
 ```
 6. Finish your render by waiting on the future `gui.draw` returns. See `finish` function in example renderers
 

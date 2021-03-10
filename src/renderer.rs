@@ -348,7 +348,11 @@ impl Renderer {
     }
 
     // Starts the rendering pipeline and returns [`AutoCommandBufferBuilder`] for drawing
-    fn start<I>(&mut self, final_image: I) -> (AutoCommandBufferBuilder, [u32; 2])
+    fn start<I>(
+        &mut self,
+        final_image: I,
+        clear_color: [f32; 4],
+    ) -> (AutoCommandBufferBuilder, [u32; 2])
     where
         I: ImageAccess + ImageViewAccess + Clone + Send + Sync + 'static,
     {
@@ -381,7 +385,7 @@ impl Renderer {
         // Add clear values here for attachments and begin render pass
         command_buffer_builder
             .begin_render_pass(framebuffer.clone(), SubpassContents::SecondaryCommandBuffers, vec![
-                [0.0, 0.0, 0.0, 0.0].into(),
+                clear_color.into(),
                 1.0f32.into(),
             ])
             .unwrap();
@@ -395,12 +399,14 @@ impl Renderer {
         clipped_meshes: Vec<egui::ClippedMesh>,
         before_future: F,
         final_image: I,
+        clear_color: [f32; 4],
     ) -> Box<dyn GpuFuture>
     where
         F: GpuFuture + 'static,
         I: ImageAccess + ImageViewAccess + Clone + Send + Sync + 'static,
     {
-        let (mut command_buffer_builder, framebuffer_dimensions) = self.start(final_image);
+        let (mut command_buffer_builder, framebuffer_dimensions) =
+            self.start(final_image, clear_color);
         egui_context.update_elapsed_time();
         self.update_font_texture(egui_context);
         let push_constants = vs::ty::PushConstants {

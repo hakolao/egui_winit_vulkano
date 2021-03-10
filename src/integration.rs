@@ -54,7 +54,15 @@ impl Gui {
 
     /// Renders ui on `final_image` & Updates cursor icon
     /// Finishes Egui frame
-    pub fn draw<F, I>(&mut self, before_future: F, final_image: I) -> Box<dyn GpuFuture>
+    /// - `before_future` = Vulkano's GpuFuture
+    /// - `final_image` = Vulkano's image (render target)
+    /// - `clear_color` = e.g. [0.0, 0.0, 0.0, 0.0], color at range 0.0-1.0
+    pub fn draw<F, I>(
+        &mut self,
+        before_future: F,
+        final_image: I,
+        clear_color: [f32; 4],
+    ) -> Box<dyn GpuFuture>
     where
         F: GpuFuture + 'static,
         I: ImageAccess + ImageViewAccess + Clone + Send + Sync + 'static,
@@ -64,7 +72,13 @@ impl Gui {
         // Update cursor icon
         self.context.update_cursor_icon(self.surface.window(), output.cursor_icon);
         // Draw egui meshes
-        self.renderer.draw(&mut self.context, clipped_meshes, before_future, final_image)
+        self.renderer.draw(
+            &mut self.context,
+            clipped_meshes,
+            before_future,
+            final_image,
+            clear_color,
+        )
     }
 
     /// Registers a user image from Vulkano image view to be used by egui
