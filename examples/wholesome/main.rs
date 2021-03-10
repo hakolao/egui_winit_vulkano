@@ -41,7 +41,10 @@ impl GuiState {
         scene_view_size: [u32; 2],
     ) -> GuiState {
         // tree.png asset is from https://github.com/sotrh/learn-wgpu/tree/master/docs/beginner/tutorial5-textures
-        let image_texture_id = gui.register_user_image(include_bytes!("./assets/tree.png"));
+        let image_texture_id = gui.register_user_image(
+            include_bytes!("./assets/tree.png"),
+            vulkano::format::Format::R8G8B8A8Unorm,
+        );
         let mut scene_texture_ids = vec![];
         for img in scene_images {
             scene_texture_ids.push(gui.register_user_image_view(img.clone()));

@@ -18,10 +18,11 @@ use vulkano::{
         DescriptorSet, PipelineLayoutAbstract,
     },
     device::Queue,
-    format::{B8G8R8A8Unorm, Format},
+    format::Format,
     framebuffer::{Framebuffer, RenderPassAbstract, Subpass},
     image::{AttachmentImage, ImageAccess, ImageViewAccess},
     pipeline::{
+        blend::{AttachmentBlend, BlendFactor, BlendOp},
         viewport::{Scissor, Viewport},
         GraphicsPipeline, GraphicsPipelineAbstract,
     },
@@ -29,7 +30,7 @@ use vulkano::{
     sync::GpuFuture,
 };
 
-use crate::{context::Context, utils::texture_from_bgra_bytes};
+use crate::{context::Context, utils::texture_from_bytes};
 
 const VERTICES_PER_QUAD: usize = 4;
 const VERTEX_BUFFER_SIZE: usize = 1024 * 1024 * VERTICES_PER_QUAD;
@@ -47,6 +48,8 @@ vulkano::impl_vertex!(EguiVertex, position, tex_coords, color);
 pub struct Renderer {
     gfx_queue: Arc<Queue>,
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
+
+    format: vulkano::format::Format,
 
     vertex_buffer: Arc<CpuAccessibleBuffer<[EguiVertex]>>,
     index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
@@ -129,7 +132,19 @@ impl Renderer {
                     .triangle_list()
                     .fragment_shader(fs.main_entry_point(), ())
                     .viewports_scissors_dynamic(1)
-                    .blend_alpha_blending()
+                    .blend_collective(AttachmentBlend {
+                        enabled: true,
+                        color_op: BlendOp::Add,
+                        color_source: BlendFactor::One,
+                        color_destination: BlendFactor::OneMinusSrcAlpha,
+                        alpha_op: BlendOp::Add,
+                        alpha_source: BlendFactor::One,
+                        alpha_destination: BlendFactor::OneMinusSrcAlpha,
+                        mask_red: true,
+                        mask_green: true,
+                        mask_blue: true,
+                        mask_alpha: true,
+                    })
                     .cull_mode_disabled()
                     .render_pass(subpass)
                     .build(gfx_queue.device().clone())
@@ -141,12 +156,14 @@ impl Renderer {
         let layout = pipeline.descriptor_set_layout(0).unwrap();
         // Create temp font image (gets replaced in draw)
         let font_image =
-            AttachmentImage::sampled(gfx_queue.device().clone(), [1, 1], B8G8R8A8Unorm).unwrap();
+            AttachmentImage::sampled(gfx_queue.device().clone(), [1, 1], final_output_format)
+                .unwrap();
         // Create font image desc set
         let font_desc_set =
             Self::sampled_image_desc_set(gfx_queue.clone(), layout, font_image.clone());
         Renderer {
             gfx_queue,
+            format: final_output_format,
             render_pass,
             vertex_buffer,
             index_buffer,
@@ -225,10 +242,11 @@ impl Renderer {
         }
         let data = texture.pixels.iter().flat_map(|&r| vec![r, r, r, r]).collect::<Vec<_>>();
         // Update font image
-        let font_image = texture_from_bgra_bytes(
+        let font_image = texture_from_bytes(
             self.gfx_queue.clone(),
             &data,
             (texture.width as u64, texture.height as u64),
+            self.format,
         )
         .expect("Failed to load font image");
         self.egui_texture_version = texture.version;

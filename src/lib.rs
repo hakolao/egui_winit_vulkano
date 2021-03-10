@@ -14,3 +14,4 @@ mod renderer;
 mod utils;
 
 pub use integration::*;
+pub use utils::{texture_from_bytes, texture_from_file};
