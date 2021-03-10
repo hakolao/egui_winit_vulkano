@@ -130,6 +130,7 @@ impl Renderer {
                     .fragment_shader(fs.main_entry_point(), ())
                     .viewports_scissors_dynamic(1)
                     .blend_alpha_blending()
+                    .cull_mode_disabled()
                     .render_pass(subpass)
                     .build(gfx_queue.device().clone())
                     .unwrap(),
@@ -174,7 +175,7 @@ impl Renderer {
             0.0,
             1.0,
             0.0,
-            1000.0,
+            0.0,
         )
         .expect("Failed to create sampler");
         Arc::new(
