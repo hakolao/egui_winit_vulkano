@@ -30,7 +30,6 @@ impl Gui {
     /// and gfx queue
     /// - `surface`: Vulkano's Winit Surface [`Arc<Surface<Window>>`]
     /// - `gfx_queue`: Vulkano's [`Queue`]
-    /// - Render pass must have depth attachment and at least one color attachment
     pub fn new(surface: Arc<Surface<Window>>, gfx_queue: Arc<Queue>) -> Gui {
         let caps = surface.capabilities(gfx_queue.device().physical_device()).unwrap();
         let format = caps.supported_formats[0].0;
