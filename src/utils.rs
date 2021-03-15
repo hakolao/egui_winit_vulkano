@@ -11,7 +11,10 @@ use std::sync::Arc;
 
 use vulkano::{
     device::Queue,
-    image::{Dimensions, ImageCreationError, ImageViewAccess, ImmutableImage, MipmapsCount},
+    image::{
+        view::ImageView, ImageCreationError, ImageDimensions, ImageViewAbstract, ImmutableImage,
+        MipmapsCount,
+    },
 };
 
 pub fn texture_from_bytes(
@@ -19,8 +22,13 @@ pub fn texture_from_bytes(
     byte_data: &[u8],
     dimensions: (u64, u64),
     format: vulkano::format::Format,
-) -> Result<Arc<dyn ImageViewAccess + Send + Sync>, ImageCreationError> {
-    let vko_dims = Dimensions::Dim2d { width: dimensions.0 as u32, height: dimensions.1 as u32 };
+) -> Result<Arc<dyn ImageViewAbstract + Send + Sync + 'static>, ImageCreationError> {
+    let vko_dims = ImageDimensions::Dim2d {
+        width: dimensions.0 as u32,
+        height: dimensions.1 as u32,
+        array_layers: 1,
+    };
+
     let (texture, _tex_fut) = ImmutableImage::from_iter(
         byte_data.iter().cloned(),
         vko_dims,
@@ -28,20 +36,21 @@ pub fn texture_from_bytes(
         format,
         queue.clone(),
     )?;
-    Ok(texture)
+    Ok(ImageView::new(texture).unwrap())
 }
 
 pub fn texture_from_file(
     queue: Arc<Queue>,
     file_bytes: &[u8],
     format: vulkano::format::Format,
-) -> Result<Arc<dyn ImageViewAccess + Send + Sync>, ImageCreationError> {
+) -> Result<Arc<dyn ImageViewAbstract + Send + Sync + 'static>, ImageCreationError> {
     use image::GenericImageView;
 
     let img = image::load_from_memory(file_bytes).expect("Failed to load image from bytes");
     let rgba = img.as_rgba8().unwrap().to_owned();
     let dimensions = img.dimensions();
-    let vko_dims = Dimensions::Dim2d { width: dimensions.0, height: dimensions.1 };
+    let vko_dims =
+        ImageDimensions::Dim2d { width: dimensions.0, height: dimensions.1, array_layers: 1 };
     let (texture, _tex_fut) = ImmutableImage::from_iter(
         rgba.into_raw().into_iter(),
         vko_dims,
@@ -49,5 +58,5 @@ pub fn texture_from_file(
         format,
         queue.clone(),
     )?;
-    Ok(texture)
+    Ok(ImageView::new(texture).unwrap())
 }

@@ -13,7 +13,7 @@ use egui::{ScrollArea, TextEdit, TextStyle};
 use egui_winit_vulkano::Gui;
 use vulkano::{
     device::{Device, DeviceExtensions, Features, Queue},
-    image::{ImageUsage, SwapchainImage},
+    image::{view::ImageView, ImageUsage, SwapchainImage},
     instance::{Instance, InstanceExtensions, PhysicalDevice},
     swapchain,
     swapchain::{
@@ -112,7 +112,7 @@ struct SimpleGuiRenderer {
     surface: Arc<Surface<Window>>,
     queue: Arc<Queue>,
     swap_chain: Arc<Swapchain<Window>>,
-    final_images: Vec<Arc<SwapchainImage<Window>>>,
+    final_images: Vec<Arc<ImageView<Arc<SwapchainImage<Window>>>>>,
     recreate_swapchain: bool,
     previous_frame_end: Option<Box<dyn GpuFuture>>,
 }
@@ -208,7 +208,7 @@ impl SimpleGuiRenderer {
         device: Arc<Device>,
         queue: Arc<Queue>,
         present_mode: PresentMode,
-    ) -> (Arc<Swapchain<Window>>, Vec<Arc<SwapchainImage<Window>>>) {
+    ) -> (Arc<Swapchain<Window>>, Vec<Arc<ImageView<Arc<SwapchainImage<Window>>>>>) {
         let (swap_chain, images) = {
             let caps = surface.capabilities(physical).unwrap();
             let alpha = caps.supported_composite_alpha.iter().next().unwrap();
@@ -232,6 +232,10 @@ impl SimpleGuiRenderer {
             )
             .unwrap()
         };
+        let images = images
+            .into_iter()
+            .map(|image| ImageView::new(image.clone()).unwrap())
+            .collect::<Vec<_>>();
         (swap_chain, images)
     }
 
@@ -282,6 +286,10 @@ impl SimpleGuiRenderer {
             Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
         };
         self.swap_chain = new_swapchain;
+        let new_images = new_images
+            .into_iter()
+            .map(|image| ImageView::new(image.clone()).unwrap())
+            .collect::<Vec<_>>();
         self.final_images = new_images;
         self.recreate_swapchain = false;
     }

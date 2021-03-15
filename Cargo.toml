@@ -10,9 +10,9 @@ edition = "2018"
 copypasta = "0.7.1"
 egui = "0.10.0"
 image = "0.23.13"
-vulkano = { git = "https://github.com/hakolao/vulkano.git" }
-vulkano-win =  { git = "https://github.com/hakolao/vulkano.git" }
-vulkano-shaders = { git = "https://github.com/hakolao/vulkano.git" }
+vulkano = { git = "https://github.com/vulkano-rs/vulkano", rev = "4a58b34" }
+vulkano-win =  { git = "https://github.com/vulkano-rs/vulkano", rev = "4a58b34" }
+vulkano-shaders = { git = "https://github.com/vulkano-rs/vulkano", rev = "4a58b34" }
 webbrowser = "0.5.5"
 winit = "0.24.0"
 

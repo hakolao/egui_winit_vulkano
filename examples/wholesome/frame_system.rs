@@ -19,7 +19,7 @@ use vulkano::{
     device::Queue,
     format::Format,
     framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
-    image::{AttachmentImage, ImageAccess, ImageViewAccess},
+    image::{view::ImageView, AttachmentImage, ImageViewAbstract},
     sync::GpuFuture,
 };
 
@@ -27,7 +27,7 @@ use vulkano::{
 pub struct FrameSystem {
     gfx_queue: Arc<Queue>,
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
-    depth_buffer: Arc<AttachmentImage>,
+    depth_buffer: Arc<ImageView<Arc<AttachmentImage>>>,
 }
 
 impl FrameSystem {
@@ -58,10 +58,13 @@ impl FrameSystem {
             )
             .unwrap(),
         );
-        let depth_buffer = AttachmentImage::transient_input_attachment(
-            gfx_queue.device().clone(),
-            [1, 1],
-            Format::D16Unorm,
+        let depth_buffer = ImageView::new(
+            AttachmentImage::transient_input_attachment(
+                gfx_queue.device().clone(),
+                [1, 1],
+                Format::D16Unorm,
+            )
+            .unwrap(),
         )
         .unwrap();
         FrameSystem { gfx_queue, render_pass: render_pass as Arc<_>, depth_buffer }
@@ -80,14 +83,17 @@ impl FrameSystem {
     ) -> Frame
     where
         F: GpuFuture + 'static,
-        I: ImageAccess + ImageViewAccess + Clone + Send + Sync + 'static,
+        I: ImageViewAbstract + Clone + Send + Sync + 'static,
     {
-        let img_dims = ImageAccess::dimensions(&final_image).width_height();
-        if ImageAccess::dimensions(&self.depth_buffer).width_height() != img_dims {
-            self.depth_buffer = AttachmentImage::transient_input_attachment(
-                self.gfx_queue.device().clone(),
-                img_dims,
-                Format::D16Unorm,
+        let img_dims = final_image.image().dimensions().width_height();
+        if self.depth_buffer.image().dimensions().width_height() != img_dims {
+            self.depth_buffer = ImageView::new(
+                AttachmentImage::transient_input_attachment(
+                    self.gfx_queue.device().clone(),
+                    img_dims,
+                    Format::D16Unorm,
+                )
+                .unwrap(),
             )
             .unwrap();
         }

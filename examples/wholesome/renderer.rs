@@ -13,7 +13,7 @@ use cgmath::{Matrix4, SquareMatrix};
 use egui_winit_vulkano::Gui;
 use vulkano::{
     device::{Device, DeviceExtensions, Features, Queue},
-    image::{AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},
+    image::{view::ImageView, AttachmentImage, ImageUsage, ImageViewAbstract, SwapchainImage},
     instance::{Instance, InstanceExtensions, PhysicalDevice},
     swapchain,
     swapchain::{
@@ -41,8 +41,8 @@ pub struct Renderer {
     surface: Arc<Surface<Window>>,
     queue: Arc<Queue>,
     swap_chain: Arc<Swapchain<Window>>,
-    final_images: Vec<Arc<SwapchainImage<Window>>>,
-    scene_images: Vec<Arc<AttachmentImage>>,
+    final_images: Vec<Arc<ImageView<Arc<SwapchainImage<Window>>>>>,
+    scene_images: Vec<Arc<ImageView<Arc<AttachmentImage>>>>,
     image_num: usize,
     scene_view_size: [u32; 2],
     recreate_swapchain: bool,
@@ -153,7 +153,7 @@ impl Renderer {
         device: Arc<Device>,
         queue: Arc<Queue>,
         present_mode: PresentMode,
-    ) -> (Arc<Swapchain<Window>>, Vec<Arc<SwapchainImage<Window>>>) {
+    ) -> (Arc<Swapchain<Window>>, Vec<Arc<ImageView<Arc<SwapchainImage<Window>>>>>) {
         let (swap_chain, images) = {
             let caps = surface.capabilities(physical).unwrap();
             let alpha = caps.supported_composite_alpha.iter().next().unwrap();
@@ -177,22 +177,29 @@ impl Renderer {
             )
             .unwrap()
         };
+        let images = images
+            .into_iter()
+            .map(|image| ImageView::new(image.clone()).unwrap())
+            .collect::<Vec<_>>();
         (swap_chain, images)
     }
 
     fn create_scene_images(
         device: Arc<Device>,
-        swapchain_images: &Vec<Arc<SwapchainImage<Window>>>,
+        swapchain_images: &Vec<Arc<ImageView<Arc<SwapchainImage<Window>>>>>,
         scene_view_size: [u32; 2],
-    ) -> Vec<Arc<AttachmentImage>> {
+    ) -> Vec<Arc<ImageView<Arc<AttachmentImage>>>> {
         let mut scene_images = vec![];
         for si in swapchain_images {
-            let image = AttachmentImage::sampled_input_attachment(
-                device.clone(),
-                scene_view_size,
-                ImageAccess::format(&si),
+            let image = ImageView::new(
+                AttachmentImage::sampled_input_attachment(
+                    device.clone(),
+                    scene_view_size,
+                    si.format(),
+                )
+                .expect("Failed to create scene image"),
             )
-            .expect("Failed to create scene image");
+            .unwrap();
             scene_images.push(image);
         }
         scene_images
@@ -223,7 +230,7 @@ impl Renderer {
         self.image_num
     }
 
-    pub fn scene_images(&mut self) -> &Vec<Arc<AttachmentImage>> {
+    pub fn scene_images(&mut self) -> &Vec<Arc<ImageView<Arc<AttachmentImage>>>> {
         &self.scene_images
     }
 
@@ -310,6 +317,10 @@ impl Renderer {
             Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
         };
         self.swap_chain = new_swapchain;
+        let new_images = new_images
+            .into_iter()
+            .map(|image| ImageView::new(image.clone()).unwrap())
+            .collect::<Vec<_>>();
         self.final_images = new_images;
         self.recreate_swapchain = false;
     }

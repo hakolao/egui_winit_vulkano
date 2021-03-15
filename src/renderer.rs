@@ -20,7 +20,7 @@ use vulkano::{
     device::Queue,
     format::Format,
     framebuffer::{Framebuffer, RenderPassAbstract, Subpass},
-    image::{AttachmentImage, ImageAccess, ImageViewAccess},
+    image::{view::ImageView, AttachmentImage, ImageViewAbstract},
     pipeline::{
         blend::{AttachmentBlend, BlendFactor, BlendOp},
         viewport::{Scissor, Viewport},
@@ -53,7 +53,7 @@ pub struct Renderer {
 
     vertex_buffer: Arc<CpuAccessibleBuffer<[EguiVertex]>>,
     index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
-    depth_buffer: Arc<AttachmentImage>,
+    depth_buffer: Arc<ImageView<Arc<AttachmentImage>>>,
     pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
 
     egui_texture_version: u64,
@@ -93,10 +93,13 @@ impl Renderer {
             )
             .unwrap(),
         );
-        let depth_buffer = AttachmentImage::transient_input_attachment(
-            gfx_queue.device().clone(),
-            [1, 1],
-            Format::D16Unorm,
+        let depth_buffer = ImageView::new(
+            AttachmentImage::transient_input_attachment(
+                gfx_queue.device().clone(),
+                [1, 1],
+                Format::D16Unorm,
+            )
+            .unwrap(),
         )
         .unwrap();
         // Create vertex and index buffers
@@ -155,9 +158,11 @@ impl Renderer {
         // Create image attachments (temporary)
         let layout = pipeline.descriptor_set_layout(0).unwrap();
         // Create temp font image (gets replaced in draw)
-        let font_image =
+        let font_image = ImageView::new(
             AttachmentImage::sampled(gfx_queue.device().clone(), [1, 1], final_output_format)
-                .unwrap();
+                .unwrap(),
+        )
+        .unwrap();
         // Create font image desc set
         let font_desc_set =
             Self::sampled_image_desc_set(gfx_queue.clone(), layout, font_image.clone());
@@ -179,7 +184,7 @@ impl Renderer {
     fn sampled_image_desc_set(
         gfx_queue: Arc<Queue>,
         layout: &Arc<UnsafeDescriptorSetLayout>,
-        image: Arc<dyn ImageViewAccess + Send + Sync>,
+        image: Arc<dyn ImageViewAbstract + Send + Sync>,
     ) -> Arc<dyn DescriptorSet + Send + Sync> {
         let sampler = Sampler::new(
             gfx_queue.device().clone(),
@@ -207,7 +212,7 @@ impl Renderer {
     /// Registers a user texture. User texture needs to be unregistered when it is no longer needed
     pub fn register_user_image(
         &mut self,
-        image: Arc<dyn ImageViewAccess + Send + Sync>,
+        image: Arc<dyn ImageViewAbstract + Send + Sync>,
     ) -> egui::TextureId {
         // get texture id, if one has been unregistered, give that id as new id
         let id = if let Some(i) = self.user_texture_desc_sets.iter().position(|utds| utds.is_none())
@@ -354,16 +359,19 @@ impl Renderer {
         clear_color: [f32; 4],
     ) -> (AutoCommandBufferBuilder, [u32; 2])
     where
-        I: ImageAccess + ImageViewAccess + Clone + Send + Sync + 'static,
+        I: ImageViewAbstract + Clone + Send + Sync + 'static,
     {
         // Get dimensions
-        let img_dims = ImageAccess::dimensions(&final_image).width_height();
+        let img_dims = final_image.image().dimensions().width_height();
         // Resize depth attachment to match final image's dimensions
-        if ImageAccess::dimensions(&self.depth_buffer).width_height() != img_dims {
-            self.depth_buffer = AttachmentImage::transient_input_attachment(
-                self.gfx_queue.device().clone(),
-                img_dims,
-                Format::D16Unorm,
+        if self.depth_buffer.image().dimensions().width_height() != img_dims {
+            self.depth_buffer = ImageView::new(
+                AttachmentImage::transient_input_attachment(
+                    self.gfx_queue.device().clone(),
+                    img_dims,
+                    Format::D16Unorm,
+                )
+                .unwrap(),
             )
             .unwrap();
         }
@@ -403,7 +411,7 @@ impl Renderer {
     ) -> Box<dyn GpuFuture>
     where
         F: GpuFuture + 'static,
-        I: ImageAccess + ImageViewAccess + Clone + Send + Sync + 'static,
+        I: ImageViewAbstract + Clone + Send + Sync + 'static,
     {
         let (mut command_buffer_builder, framebuffer_dimensions) =
             self.start(final_image, clear_color);

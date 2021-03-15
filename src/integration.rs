@@ -8,12 +8,7 @@
 // according to those terms.
 use std::sync::Arc;
 
-use vulkano::{
-    device::Queue,
-    image::{ImageAccess, ImageViewAccess},
-    swapchain::Surface,
-    sync::GpuFuture,
-};
+use vulkano::{device::Queue, image::ImageViewAbstract, swapchain::Surface, sync::GpuFuture};
 use winit::{event::Event, window::Window};
 
 use crate::{context::Context, renderer::Renderer, utils::texture_from_file};
@@ -65,7 +60,7 @@ impl Gui {
     ) -> Box<dyn GpuFuture>
     where
         F: GpuFuture + 'static,
-        I: ImageAccess + ImageViewAccess + Clone + Send + Sync + 'static,
+        I: ImageViewAbstract + Clone + Send + Sync + 'static,
     {
         // Get outputs of `immediate_ui`
         let (output, clipped_meshes) = self.context.end_frame();
@@ -84,7 +79,7 @@ impl Gui {
     /// Registers a user image from Vulkano image view to be used by egui
     pub fn register_user_image_view(
         &mut self,
-        image: Arc<dyn ImageViewAccess + Send + Sync>,
+        image: Arc<dyn ImageViewAbstract + Send + Sync>,
     ) -> egui::TextureId {
         self.renderer.register_user_image(image)
     }

@@ -11,7 +11,10 @@ use std::sync::Arc;
 
 use egui::{CtxRef, Visuals};
 use egui_winit_vulkano::Gui;
-use vulkano::{image::AttachmentImage, swapchain::PresentMode};
+use vulkano::{
+    image::{view::ImageView, AttachmentImage},
+    swapchain::PresentMode,
+};
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -37,7 +40,7 @@ pub struct GuiState {
 impl GuiState {
     pub fn new(
         gui: &mut Gui,
-        scene_images: &Vec<Arc<AttachmentImage>>,
+        scene_images: &Vec<Arc<ImageView<Arc<AttachmentImage>>>>,
         scene_view_size: [u32; 2],
     ) -> GuiState {
         // tree.png asset is from https://github.com/sotrh/learn-wgpu/tree/master/docs/beginner/tutorial5-textures
