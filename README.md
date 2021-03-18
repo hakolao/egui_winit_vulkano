@@ -3,10 +3,10 @@
 ![MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Apache](https://img.shields.io/badge/license-Apache-blue.svg)
 
-This is the [egui](https://github.com/emilk/egui) integration for
+This is an [egui](https://github.com/emilk/egui) integration for
 [winit](https://github.com/rust-windowing/winit) and [vulkano](https://github.com/vulkano-rs/vulkano).
 
-This integration requires a target image as input to which the UI will be painted.
+You'll need a Vulkano target image as an input to which the UI will be painted.
 The aim of this is to allow a simple enough API to separate UI nicely out of your renderer and make it easy to build your immediate mode UI with Egui.
 
 # Usage
