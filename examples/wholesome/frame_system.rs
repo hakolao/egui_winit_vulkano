@@ -99,7 +99,7 @@ impl FrameSystem {
         }
         let framebuffer = Arc::new(
             Framebuffer::start(self.render_pass.clone())
-                .add(final_image.clone())
+                .add(final_image)
                 .unwrap()
                 .add(self.depth_buffer.clone())
                 .unwrap()

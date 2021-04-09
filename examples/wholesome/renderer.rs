@@ -69,14 +69,12 @@ impl Renderer {
             .fold(None, |acc, val| {
                 if acc.is_none() {
                     Some(val)
+                } else if acc.unwrap().limits().max_compute_shared_memory_size()
+                    >= val.limits().max_compute_shared_memory_size()
+                {
+                    acc
                 } else {
-                    if acc.unwrap().limits().max_compute_shared_memory_size()
-                        >= val.limits().max_compute_shared_memory_size()
-                    {
-                        acc
-                    } else {
-                        Some(val)
-                    }
+                    Some(val)
                 }
             })
             .expect("No physical device found");
@@ -160,8 +158,8 @@ impl Renderer {
             let format = caps.supported_formats[0].0;
             let dimensions: [u32; 2] = surface.window().inner_size().into();
             Swapchain::new(
-                device.clone(),
-                surface.clone(),
+                device,
+                surface,
                 caps.min_image_count,
                 format,
                 dimensions,
@@ -177,10 +175,8 @@ impl Renderer {
             )
             .unwrap()
         };
-        let images = images
-            .into_iter()
-            .map(|image| ImageView::new(image.clone()).unwrap())
-            .collect::<Vec<_>>();
+        let images =
+            images.into_iter().map(|image| ImageView::new(image).unwrap()).collect::<Vec<_>>();
         (swap_chain, images)
     }
 
@@ -317,10 +313,8 @@ impl Renderer {
             Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
         };
         self.swap_chain = new_swapchain;
-        let new_images = new_images
-            .into_iter()
-            .map(|image| ImageView::new(image.clone()).unwrap())
-            .collect::<Vec<_>>();
+        let new_images =
+            new_images.into_iter().map(|image| ImageView::new(image).unwrap()).collect::<Vec<_>>();
         self.final_images = new_images;
         self.recreate_swapchain = false;
     }

@@ -164,8 +164,7 @@ impl Renderer {
         )
         .unwrap();
         // Create font image desc set
-        let font_desc_set =
-            Self::sampled_image_desc_set(gfx_queue.clone(), layout, font_image.clone());
+        let font_desc_set = Self::sampled_image_desc_set(gfx_queue.clone(), layout, font_image);
         Renderer {
             gfx_queue,
             format: final_output_format,
@@ -202,7 +201,7 @@ impl Renderer {
         .expect("Failed to create sampler");
         Arc::new(
             PersistentDescriptorSet::start(layout.clone())
-                .add_sampled_image(image.clone(), sampler.clone())
+                .add_sampled_image(image.clone(), sampler)
                 .unwrap()
                 .build()
                 .expect("Failed to create descriptor set with sampler"),
@@ -378,7 +377,7 @@ impl Renderer {
         // Create framebuffer (must be in same order as render pass description in `new`
         let framebuffer = Arc::new(
             Framebuffer::start(self.render_pass.clone())
-                .add(final_image.clone())
+                .add(final_image)
                 .unwrap()
                 .add(self.depth_buffer.clone())
                 .unwrap()

@@ -34,7 +34,7 @@ pub fn texture_from_bytes(
         vko_dims,
         MipmapsCount::One,
         format,
-        queue.clone(),
+        queue,
     )?;
     Ok(ImageView::new(texture).unwrap())
 }
@@ -56,7 +56,7 @@ pub fn texture_from_file(
         vko_dims,
         MipmapsCount::One,
         format,
-        queue.clone(),
+        queue,
     )?;
     Ok(ImageView::new(texture).unwrap())
 }

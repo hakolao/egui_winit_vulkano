@@ -136,7 +136,6 @@ pub fn main() {
                 }
                 WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit;
-                    return;
                 }
                 _ => (),
             },

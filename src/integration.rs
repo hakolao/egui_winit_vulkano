@@ -29,8 +29,8 @@ impl Gui {
         let caps = surface.capabilities(gfx_queue.device().physical_device()).unwrap();
         let format = caps.supported_formats[0].0;
         let context = Context::new(surface.window().inner_size(), surface.window().scale_factor());
-        let renderer = Renderer::new(gfx_queue.clone(), format);
-        Gui { context, renderer, surface: surface.clone() }
+        let renderer = Renderer::new(gfx_queue, format);
+        Gui { context, renderer, surface }
     }
 
     /// Updates context state by winit event.
