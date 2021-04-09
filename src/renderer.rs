@@ -507,7 +507,9 @@ impl Renderer {
         }
         // Execute draw commands
         let command_buffer = builder.build().unwrap();
-        command_buffer_builder.execute_commands(command_buffer).unwrap();
+        unsafe {
+            command_buffer_builder.execute_commands(command_buffer).unwrap();
+        }
         self.finish(command_buffer_builder, Box::new(before_future))
     }
 
