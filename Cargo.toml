@@ -8,11 +8,11 @@ edition = "2018"
 
 [dependencies]
 copypasta = "0.7.1"
-egui = "0.10.0"
+egui = "0.11.0"
 image = "0.23.13"
-vulkano = { git = "https://github.com/vulkano-rs/vulkano", rev = "4a58b34" }
-vulkano-win =  { git = "https://github.com/vulkano-rs/vulkano", rev = "4a58b34" }
-vulkano-shaders = { git = "https://github.com/vulkano-rs/vulkano", rev = "4a58b34" }
+vulkano = "0.22.0"
+vulkano-shaders = "0.22.0"
+vulkano-win = "0.22.0"
 webbrowser = "0.5.5"
 winit = "0.24.0"
 

@@ -26,6 +26,22 @@ impl EguiToWinit {
             egui::CursorIcon::Text => winit::window::CursorIcon::Text,
             egui::CursorIcon::Grab => winit::window::CursorIcon::Grab,
             egui::CursorIcon::Grabbing => winit::window::CursorIcon::Grabbing,
+            egui::CursorIcon::NotAllowed => winit::window::CursorIcon::NotAllowed,
+            egui::CursorIcon::ZoomIn => winit::window::CursorIcon::ZoomIn,
+            egui::CursorIcon::ZoomOut => winit::window::CursorIcon::ZoomOut,
+            egui::CursorIcon::AllScroll => winit::window::CursorIcon::AllScroll,
+            egui::CursorIcon::NoDrop => winit::window::CursorIcon::NoDrop,
+            egui::CursorIcon::Move => winit::window::CursorIcon::Move,
+            egui::CursorIcon::Copy => winit::window::CursorIcon::Copy,
+            egui::CursorIcon::Alias => winit::window::CursorIcon::Alias,
+            egui::CursorIcon::VerticalText => winit::window::CursorIcon::VerticalText,
+            egui::CursorIcon::Crosshair => winit::window::CursorIcon::Crosshair,
+            egui::CursorIcon::Cell => winit::window::CursorIcon::Cell,
+            egui::CursorIcon::Wait => winit::window::CursorIcon::Wait,
+            egui::CursorIcon::Progress => winit::window::CursorIcon::Progress,
+            egui::CursorIcon::Help => winit::window::CursorIcon::Help,
+            egui::CursorIcon::ContextMenu => winit::window::CursorIcon::ContextMenu,
+            egui::CursorIcon::None => winit::window::CursorIcon::Default,
         }
     }
 }

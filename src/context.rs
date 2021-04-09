@@ -72,7 +72,7 @@ impl Context {
         let (output, clipped_shapes) = self.context.end_frame();
         // Handles links
         if let Some(url) = &output.open_url {
-            if let Err(err) = webbrowser::open(url) {
+            if let Err(err) = webbrowser::open(&url.url) {
                 eprintln!("Failed to open url: {}", err);
             }
         }

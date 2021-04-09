@@ -178,14 +178,12 @@ impl<'f, 's: 'f> DrawPass<'f, 's> {
     where
         C: CommandBuffer + Send + Sync + 'static,
     {
-        unsafe {
-            self.frame
-                .command_buffer_builder
-                .as_mut()
-                .unwrap()
-                .execute_commands(command_buffer)
-                .unwrap();
-        }
+        self.frame
+            .command_buffer_builder
+            .as_mut()
+            .unwrap()
+            .execute_commands(command_buffer)
+            .unwrap();
     }
 
     #[allow(dead_code)]

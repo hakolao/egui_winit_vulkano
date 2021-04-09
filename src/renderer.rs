@@ -274,8 +274,8 @@ impl Renderer {
             y: min.y * egui_context.scale_factor() as f32,
         };
         let min = egui::Pos2 {
-            x: egui::math::clamp(min.x, 0.0..=framebuffer_dimensions[0] as f32),
-            y: egui::math::clamp(min.y, 0.0..=framebuffer_dimensions[1] as f32),
+            x: min.x.clamp(0.0, framebuffer_dimensions[0] as f32),
+            y: min.y.clamp(0.0, framebuffer_dimensions[1] as f32),
         };
         let max = rect.max;
         let max = egui::Pos2 {
@@ -283,8 +283,8 @@ impl Renderer {
             y: max.y * egui_context.scale_factor() as f32,
         };
         let max = egui::Pos2 {
-            x: egui::math::clamp(max.x, min.x..=framebuffer_dimensions[0] as f32),
-            y: egui::math::clamp(max.y, min.y..=framebuffer_dimensions[1] as f32),
+            x: max.x.clamp(min.x, framebuffer_dimensions[0] as f32),
+            y: max.y.clamp(min.y, framebuffer_dimensions[1] as f32),
         };
         Scissor {
             origin: [min.x.round() as i32, min.y.round() as i32],
@@ -508,9 +508,7 @@ impl Renderer {
         }
         // Execute draw commands
         let command_buffer = builder.build().unwrap();
-        unsafe {
-            command_buffer_builder.execute_commands(command_buffer).unwrap();
-        }
+        command_buffer_builder.execute_commands(command_buffer).unwrap();
         self.finish(command_buffer_builder, Box::new(before_future))
     }
 
