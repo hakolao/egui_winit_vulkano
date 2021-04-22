@@ -46,6 +46,12 @@ impl Gui {
         layout_function(self);
     }
 
+    /// If you wish to better control when to begin frame, do so by calling this function
+    /// (Finish by drawing)
+    pub fn begin_frame(&mut self) {
+        self.context.begin_frame();
+    }
+
     /// Renders ui on `final_image` & Updates cursor icon
     /// Finishes Egui frame
     /// - `before_future` = Vulkano's GpuFuture
