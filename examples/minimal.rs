@@ -70,7 +70,6 @@ pub fn main() {
                             ScrollArea::auto_sized().id_source("source").show(
                                 &mut columns[0],
                                 |ui| {
-                                    // ui.text_edit_multiline(&mut self.code);
                                     ui.add(
                                         TextEdit::multiline(&mut code)
                                             .text_style(TextStyle::Monospace),
@@ -80,7 +79,7 @@ pub fn main() {
                             ScrollArea::auto_sized().id_source("rendered").show(
                                 &mut columns[1],
                                 |ui| {
-                                    egui::experimental::easy_mark(ui, &code);
+                                    egui_demo_lib::easy_mark::easy_mark(ui, &code);
                                 },
                             );
                         });
