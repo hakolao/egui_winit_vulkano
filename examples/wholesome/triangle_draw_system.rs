@@ -15,10 +15,12 @@ use std::sync::Arc;
 
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer},
-    command_buffer::{AutoCommandBuffer, AutoCommandBufferBuilder, DynamicState},
+    command_buffer::{
+        AutoCommandBufferBuilder, CommandBufferUsage, DynamicState, SecondaryAutoCommandBuffer,
+    },
     device::Queue,
-    framebuffer::{RenderPassAbstract, Subpass},
     pipeline::{viewport::Viewport, GraphicsPipeline, GraphicsPipelineAbstract},
+    render_pass::Subpass,
 };
 
 pub struct TriangleDrawSystem {
@@ -28,10 +30,7 @@ pub struct TriangleDrawSystem {
 }
 
 impl TriangleDrawSystem {
-    pub fn new<R>(gfx_queue: Arc<Queue>, subpass: Subpass<R>) -> TriangleDrawSystem
-    where
-        R: RenderPassAbstract + Send + Sync + 'static,
-    {
+    pub fn new(gfx_queue: Arc<Queue>, subpass: Subpass) -> TriangleDrawSystem {
         let vertex_buffer = {
             CpuAccessibleBuffer::from_iter(
                 gfx_queue.device().clone(),
@@ -70,11 +69,12 @@ impl TriangleDrawSystem {
         TriangleDrawSystem { gfx_queue, vertex_buffer, pipeline }
     }
 
-    pub fn draw(&self, viewport_dimensions: [u32; 2]) -> AutoCommandBuffer {
+    pub fn draw(&self, viewport_dimensions: [u32; 2]) -> SecondaryAutoCommandBuffer {
         let mut builder = AutoCommandBufferBuilder::secondary_graphics(
             self.gfx_queue.device().clone(),
             self.gfx_queue.family(),
-            self.pipeline.clone().subpass(),
+            CommandBufferUsage::MultipleSubmit,
+            self.pipeline.subpass().clone(),
         )
         .unwrap();
         builder

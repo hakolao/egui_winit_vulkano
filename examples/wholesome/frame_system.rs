@@ -15,18 +15,21 @@ use std::sync::Arc;
 
 use cgmath::Matrix4;
 use vulkano::{
-    command_buffer::{AutoCommandBufferBuilder, CommandBuffer, SubpassContents},
+    command_buffer::{
+        AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
+        SecondaryCommandBuffer, SubpassContents,
+    },
     device::Queue,
     format::Format,
-    framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
     image::{view::ImageView, AttachmentImage, ImageViewAbstract},
+    render_pass::{Framebuffer, FramebufferAbstract, RenderPass, Subpass},
     sync::GpuFuture,
 };
 
 /// System that contains the necessary facilities for rendering a single frame.
 pub struct FrameSystem {
     gfx_queue: Arc<Queue>,
-    render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
+    render_pass: Arc<RenderPass>,
     depth_buffer: Arc<ImageView<Arc<AttachmentImage>>>,
 }
 
@@ -71,7 +74,7 @@ impl FrameSystem {
     }
 
     #[inline]
-    pub fn deferred_subpass(&self) -> Subpass<Arc<dyn RenderPassAbstract + Send + Sync>> {
+    pub fn deferred_subpass(&self) -> Subpass {
         Subpass::from(self.render_pass.clone(), 0).unwrap()
     }
 
@@ -106,9 +109,10 @@ impl FrameSystem {
                 .build()
                 .unwrap(),
         );
-        let mut command_buffer_builder = AutoCommandBufferBuilder::primary_one_time_submit(
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.gfx_queue.device().clone(),
             self.gfx_queue.family(),
+            CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
         command_buffer_builder
@@ -134,7 +138,7 @@ pub struct Frame<'a> {
     num_pass: u8,
     before_main_cb_future: Option<Box<dyn GpuFuture>>,
     framebuffer: Arc<dyn FramebufferAbstract + Send + Sync>,
-    command_buffer_builder: Option<AutoCommandBufferBuilder>,
+    command_buffer_builder: Option<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>>,
     #[allow(dead_code)]
     world_to_framebuffer: Matrix4<f32>,
 }
@@ -176,16 +180,14 @@ impl<'f, 's: 'f> DrawPass<'f, 's> {
     #[inline]
     pub fn execute<C>(&mut self, command_buffer: C)
     where
-        C: CommandBuffer + Send + Sync + 'static,
+        C: SecondaryCommandBuffer + Send + Sync + 'static,
     {
-        unsafe {
-            self.frame
-                .command_buffer_builder
-                .as_mut()
-                .unwrap()
-                .execute_commands(command_buffer)
-                .unwrap();
-        }
+        self.frame
+            .command_buffer_builder
+            .as_mut()
+            .unwrap()
+            .execute_commands(command_buffer)
+            .unwrap();
     }
 
     #[allow(dead_code)]

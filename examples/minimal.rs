@@ -205,29 +205,25 @@ impl SimpleGuiRenderer {
         queue: Arc<Queue>,
         present_mode: PresentMode,
     ) -> (Arc<Swapchain<Window>>, Vec<Arc<ImageView<Arc<SwapchainImage<Window>>>>>) {
-        let (swap_chain, images) = {
-            let caps = surface.capabilities(physical).unwrap();
-            let alpha = caps.supported_composite_alpha.iter().next().unwrap();
-            let format = caps.supported_formats[0].0;
-            let dimensions: [u32; 2] = surface.window().inner_size().into();
-            Swapchain::new(
-                device,
-                surface,
-                caps.min_image_count,
-                format,
-                dimensions,
-                1,
-                ImageUsage::color_attachment(),
-                &queue,
-                SurfaceTransform::Identity,
-                alpha,
-                present_mode,
-                FullscreenExclusive::Default,
-                true,
-                ColorSpace::SrgbNonLinear,
-            )
-            .unwrap()
-        };
+        let caps = surface.capabilities(physical).unwrap();
+        let alpha = caps.supported_composite_alpha.iter().next().unwrap();
+        let format = caps.supported_formats[0].0;
+        let dimensions: [u32; 2] = surface.window().inner_size().into();
+        let (swap_chain, images) = Swapchain::start(device.clone(), surface.clone())
+            .num_images(caps.min_image_count)
+            .format(format)
+            .dimensions(dimensions)
+            .usage(ImageUsage::color_attachment())
+            .sharing_mode(&queue)
+            .composite_alpha(alpha)
+            .transform(SurfaceTransform::Identity)
+            .present_mode(present_mode)
+            .fullscreen_exclusive(FullscreenExclusive::Default)
+            .clipped(true)
+            .color_space(ColorSpace::SrgbNonLinear)
+            .layers(1)
+            .build()
+            .unwrap();
         let images =
             images.into_iter().map(|image| ImageView::new(image).unwrap()).collect::<Vec<_>>();
         (swap_chain, images)
@@ -273,12 +269,12 @@ impl SimpleGuiRenderer {
 
     fn recreate_swapchain(&mut self) {
         let dimensions: [u32; 2] = self.surface.window().inner_size().into();
-        let (new_swapchain, new_images) = match self.swap_chain.recreate_with_dimensions(dimensions)
-        {
-            Ok(r) => r,
-            Err(SwapchainCreationError::UnsupportedDimensions) => return,
-            Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
-        };
+        let (new_swapchain, new_images) =
+            match self.swap_chain.recreate().dimensions(dimensions).build() {
+                Ok(r) => r,
+                Err(SwapchainCreationError::UnsupportedDimensions) => return,
+                Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
+            };
         self.swap_chain = new_swapchain;
         let new_images =
             new_images.into_iter().map(|image| ImageView::new(image).unwrap()).collect::<Vec<_>>();

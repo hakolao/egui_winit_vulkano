@@ -12,20 +12,23 @@ use std::sync::Arc;
 use egui::{paint::Mesh, Rect};
 use vulkano::{
     buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer},
-    command_buffer::{AutoCommandBufferBuilder, DynamicState, SubpassContents},
+    command_buffer::{
+        AutoCommandBufferBuilder, CommandBufferUsage, DynamicState, PrimaryAutoCommandBuffer,
+        SubpassContents,
+    },
     descriptor::{
         descriptor_set::{PersistentDescriptorSet, UnsafeDescriptorSetLayout},
         DescriptorSet, PipelineLayoutAbstract,
     },
     device::Queue,
     format::Format,
-    framebuffer::{Framebuffer, RenderPassAbstract, Subpass},
     image::{view::ImageView, AttachmentImage, ImageViewAbstract},
     pipeline::{
         blend::{AttachmentBlend, BlendFactor, BlendOp},
         viewport::{Scissor, Viewport},
         GraphicsPipeline, GraphicsPipelineAbstract,
     },
+    render_pass::{Framebuffer, RenderPass, Subpass},
     sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode},
     sync::GpuFuture,
 };
@@ -47,7 +50,7 @@ vulkano::impl_vertex!(EguiVertex, position, tex_coords, color);
 
 pub struct Renderer {
     gfx_queue: Arc<Queue>,
-    render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
+    render_pass: Arc<RenderPass>,
 
     format: vulkano::format::Format,
 
@@ -356,7 +359,7 @@ impl Renderer {
         &mut self,
         final_image: I,
         clear_color: [f32; 4],
-    ) -> (AutoCommandBufferBuilder, [u32; 2])
+    ) -> (AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>, [u32; 2])
     where
         I: ImageViewAbstract + Clone + Send + Sync + 'static,
     {
@@ -384,9 +387,10 @@ impl Renderer {
                 .build()
                 .unwrap(),
         );
-        let mut command_buffer_builder = AutoCommandBufferBuilder::primary_one_time_submit(
+        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.gfx_queue.device().clone(),
             self.gfx_queue.family(),
+            CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
         // Add clear values here for attachments and begin render pass
@@ -425,7 +429,8 @@ impl Renderer {
         let mut builder = AutoCommandBufferBuilder::secondary_graphics(
             self.gfx_queue.device().clone(),
             self.gfx_queue.family(),
-            self.pipeline.clone().subpass(),
+            CommandBufferUsage::MultipleSubmit,
+            self.pipeline.subpass().clone(),
         )
         .unwrap();
 
@@ -507,16 +512,14 @@ impl Renderer {
         }
         // Execute draw commands
         let command_buffer = builder.build().unwrap();
-        unsafe {
-            command_buffer_builder.execute_commands(command_buffer).unwrap();
-        }
+        command_buffer_builder.execute_commands(command_buffer).unwrap();
         self.finish(command_buffer_builder, Box::new(before_future))
     }
 
     // Finishes the rendering pipeline
     fn finish(
         &self,
-        mut command_buffer_builder: AutoCommandBufferBuilder,
+        mut command_buffer_builder: AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
         before_main_cb_future: Box<dyn GpuFuture>,
     ) -> Box<dyn GpuFuture> {
         // We end render pass
