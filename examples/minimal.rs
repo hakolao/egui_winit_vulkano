@@ -209,7 +209,7 @@ impl SimpleGuiRenderer {
         let alpha = caps.supported_composite_alpha.iter().next().unwrap();
         let format = caps.supported_formats[0].0;
         let dimensions: [u32; 2] = surface.window().inner_size().into();
-        let (swap_chain, images) = Swapchain::start(device.clone(), surface.clone())
+        let (swap_chain, images) = Swapchain::start(device, surface)
             .num_images(caps.min_image_count)
             .format(format)
             .dimensions(dimensions)

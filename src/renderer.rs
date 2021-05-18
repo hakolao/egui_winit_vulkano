@@ -395,7 +395,7 @@ impl Renderer {
         .unwrap();
         // Add clear values here for attachments and begin render pass
         command_buffer_builder
-            .begin_render_pass(framebuffer.clone(), SubpassContents::SecondaryCommandBuffers, vec![
+            .begin_render_pass(framebuffer, SubpassContents::SecondaryCommandBuffers, vec![
                 clear_color.into(),
                 1.0f32.into(),
             ])
