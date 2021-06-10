@@ -11,7 +11,7 @@ use std::sync::Arc;
 use vulkano::{device::Queue, image::ImageViewAbstract, swapchain::Surface, sync::GpuFuture};
 use winit::{event::Event, window::Window};
 
-use crate::{context::Context, renderer::Renderer, utils::texture_from_file};
+use crate::{context::Context, renderer::Renderer, utils::{texture_from_file, texture_from_bytes}};
 
 pub struct Gui {
     context: Context,
@@ -98,6 +98,17 @@ impl Gui {
         format: vulkano::format::Format,
     ) -> egui::TextureId {
         let image = texture_from_file(self.renderer.queue(), image_file_bytes, format)
+            .expect("Failed to create image");
+        self.renderer.register_user_image(image)
+    }
+
+    pub fn register_user_image_from_bytes(
+        &mut self,
+        image_byte_data: &[u8],
+        dimensions: (u64, u64),
+        format: vulkano::format::Format,
+    ) -> egui::TextureId {
+        let image = texture_from_bytes(self.renderer.queue(), image_byte_data, dimensions, format)
             .expect("Failed to create image");
         self.renderer.register_user_image(image)
     }
