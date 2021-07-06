@@ -147,7 +147,7 @@ impl SimpleGuiRenderer {
         let surface = WindowBuilder::new()
             .with_inner_size(winit::dpi::LogicalSize::new(window_size[0], window_size[1]))
             .with_title(name)
-            .build_vk_surface(&event_loop, instance.clone())
+            .build_vk_surface(event_loop, instance.clone())
             .expect("Failed to create vulkan surface & window");
         // Create device
         let (device, queue) = Self::create_device(physical, surface.clone());
