@@ -22,6 +22,7 @@ use vulkano::{
     },
     sync,
     sync::{FlushError, GpuFuture},
+    Version,
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
@@ -62,15 +63,15 @@ impl Renderer {
         // Add instance extensions based on needs
         let instance_extensions = InstanceExtensions { ..vulkano_win::required_extensions() };
         // Create instance
-        let instance =
-            Instance::new(None, &instance_extensions, None).expect("Failed to create instance");
+        let instance = Instance::new(None, Version::V1_2, &instance_extensions, None)
+            .expect("Failed to create instance");
         // Get most performant device (physical)
         let physical = PhysicalDevice::enumerate(&instance)
             .fold(None, |acc, val| {
                 if acc.is_none() {
                     Some(val)
-                } else if acc.unwrap().limits().max_compute_shared_memory_size()
-                    >= val.limits().max_compute_shared_memory_size()
+                } else if acc.unwrap().properties().max_compute_shared_memory_size.as_ref().unwrap()
+                    >= val.properties().max_compute_shared_memory_size.as_ref().unwrap()
                 {
                     acc
                 } else {
@@ -78,7 +79,7 @@ impl Renderer {
                 }
             })
             .expect("No physical device found");
-        println!("Using device: {} (type: {:?})", physical.name(), physical.ty());
+        println!("Using device {}", physical.properties().device_name.as_ref().unwrap());
         // Create rendering surface along with window
         let surface = WindowBuilder::new()
             .with_inner_size(winit::dpi::LogicalSize::new(window_size[0], window_size[1]))
@@ -119,7 +120,6 @@ impl Renderer {
     }
 
     /// Creates vulkan device with required queue families and required extensions
-    /// We need khr_external_memory_fd for CUDA + Vulkan interoperability
     fn create_device(
         physical: PhysicalDevice,
         surface: Arc<Surface<Window>>,
@@ -130,14 +130,14 @@ impl Renderer {
             .expect("couldn't find a graphical queue family");
         // Add device extensions based on needs
         let device_extensions =
-            DeviceExtensions { ..DeviceExtensions::supported_by_device(physical) };
+            DeviceExtensions { khr_swapchain: true, ..DeviceExtensions::none() };
         // Add device features
-        let features = Features { ..*physical.supported_features() };
+        let features = Features::none();
         let (device, mut queues) = {
             Device::new(
                 physical,
                 &features,
-                &device_extensions,
+                &DeviceExtensions::required_extensions(physical).union(&device_extensions),
                 [(queue_family, 0.5)].iter().cloned(),
             )
             .expect("failed to create device")

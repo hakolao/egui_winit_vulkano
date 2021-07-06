@@ -18,7 +18,7 @@ use vulkano::{
     },
     descriptor::{
         descriptor_set::{PersistentDescriptorSet, UnsafeDescriptorSetLayout},
-        DescriptorSet, PipelineLayoutAbstract,
+        DescriptorSet,
     },
     device::Queue,
     format::Format,
@@ -159,7 +159,7 @@ impl Renderer {
         };
 
         // Create image attachments (temporary)
-        let layout = pipeline.descriptor_set_layout(0).unwrap();
+        let layout = pipeline.layout().descriptor_set_layout(0).unwrap();
         // Create temp font image (gets replaced in draw)
         let font_image = ImageView::new(
             AttachmentImage::sampled(gfx_queue.device().clone(), [1, 1], final_output_format)
@@ -223,7 +223,7 @@ impl Renderer {
         } else {
             self.user_texture_desc_sets.len() as u64
         };
-        let layout = self.pipeline.descriptor_set_layout(0).unwrap();
+        let layout = self.pipeline.layout().descriptor_set_layout(0).unwrap();
         let desc_set = Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, image);
         if id == self.user_texture_desc_sets.len() as u64 {
             self.user_texture_desc_sets.push(Some(desc_set));
@@ -258,7 +258,7 @@ impl Renderer {
         .expect("Failed to load font image");
         self.egui_texture_version = texture.version;
         // Update descriptor set
-        let layout = self.pipeline.descriptor_set_layout(0).unwrap();
+        let layout = self.pipeline.layout().descriptor_set_layout(0).unwrap();
         let font_desc_set =
             Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, font_image.clone());
         self.egui_texture_desc_set = font_desc_set;
