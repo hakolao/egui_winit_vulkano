@@ -138,6 +138,7 @@ impl Renderer {
                     .triangle_list()
                     .fragment_shader(fs.main_entry_point(), ())
                     .viewports_scissors_dynamic(1)
+                    .alpha_to_coverage_enabled()
                     .blend_collective(AttachmentBlend {
                         enabled: true,
                         color_op: BlendOp::Add,

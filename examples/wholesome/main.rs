@@ -30,9 +30,11 @@ mod triangle_draw_system;
 
 /// Example struct to contain the state of the UI
 pub struct GuiState {
-    show_texture_window: bool,
+    show_texture_window1: bool,
+    show_texture_window2: bool,
     show_scene_window: bool,
-    image_texture_id: egui::TextureId,
+    image_texture_id1: egui::TextureId,
+    image_texture_id2: egui::TextureId,
     scene_texture_ids: Vec<egui::TextureId>,
     scene_view_size: [u32; 2],
 }
@@ -44,8 +46,12 @@ impl GuiState {
         scene_view_size: [u32; 2],
     ) -> GuiState {
         // tree.png asset is from https://github.com/sotrh/learn-wgpu/tree/master/docs/beginner/tutorial5-textures
-        let image_texture_id = gui.register_user_image(
+        let image_texture_id1 = gui.register_user_image(
             include_bytes!("./assets/tree.png"),
+            vulkano::format::Format::R8G8B8A8Unorm,
+        );
+        let image_texture_id2 = gui.register_user_image(
+            include_bytes!("./assets/doge.png"),
             vulkano::format::Format::R8G8B8A8Unorm,
         );
         let mut scene_texture_ids = vec![];
@@ -53,9 +59,11 @@ impl GuiState {
             scene_texture_ids.push(gui.register_user_image_view(img.clone()));
         }
         GuiState {
-            show_texture_window: true,
+            show_texture_window1: true,
+            show_texture_window2: true,
             show_scene_window: true,
-            image_texture_id,
+            image_texture_id1,
+            image_texture_id2,
             scene_texture_ids,
             scene_view_size,
         }
@@ -73,15 +81,24 @@ impl GuiState {
         egui::SidePanel::left("Side Panel", 150.0).show(&egui_context, |ui| {
             ui.heading("Hello Tree");
             ui.separator();
-            ui.checkbox(&mut self.show_texture_window, "Show Tree");
+            ui.checkbox(&mut self.show_texture_window1, "Show Tree");
+            ui.checkbox(&mut self.show_texture_window2, "Show Doge");
             ui.checkbox(&mut self.show_scene_window, "Show Scene");
         });
-        let show_texture_window = &mut self.show_texture_window;
-        let image_texture_id = self.image_texture_id;
-        egui::Window::new("Mah Tree").resizable(true).scroll(true).open(show_texture_window).show(
+        let show_texture_window1 = &mut self.show_texture_window1;
+        let show_texture_window2 = &mut self.show_texture_window2;
+        let image_texture_id1 = self.image_texture_id1;
+        egui::Window::new("Mah Tree").resizable(true).scroll(true).open(show_texture_window1).show(
             &egui_context,
             |ui| {
-                ui.image(image_texture_id, [256.0, 256.0]);
+                ui.image(image_texture_id1, [256.0, 256.0]);
+            },
+        );
+        let image_texture_id2= self.image_texture_id2;
+        egui::Window::new("Mah Doge").resizable(true).scroll(true).open(show_texture_window2).show(
+            &egui_context,
+            |ui| {
+                ui.image(image_texture_id2, [256.0, 256.0]);
             },
         );
         let show_scene_window = &mut self.show_scene_window;
