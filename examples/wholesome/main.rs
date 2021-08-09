@@ -94,7 +94,7 @@ impl GuiState {
                 ui.image(image_texture_id1, [256.0, 256.0]);
             },
         );
-        let image_texture_id2= self.image_texture_id2;
+        let image_texture_id2 = self.image_texture_id2;
         egui::Window::new("Mah Doge").resizable(true).scroll(true).open(show_texture_window2).show(
             &egui_context,
             |ui| {

@@ -11,7 +11,11 @@ use std::sync::Arc;
 use vulkano::{device::Queue, image::ImageViewAbstract, swapchain::Surface, sync::GpuFuture};
 use winit::{event::Event, window::Window};
 
-use crate::{context::Context, renderer::Renderer, utils::{texture_from_file, texture_from_bytes}};
+use crate::{
+    context::Context,
+    renderer::Renderer,
+    utils::{texture_from_bytes, texture_from_file},
+};
 
 pub struct Gui {
     context: Context,
