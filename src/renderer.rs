@@ -24,7 +24,7 @@ use vulkano::{
     format::Format,
     image::{view::ImageView, AttachmentImage, ImageViewAbstract},
     pipeline::{
-        blend::{AttachmentBlend, BlendFactor, BlendOp},
+        blend::{AttachmentBlend, BlendFactor},
         viewport::{Scissor, Viewport},
         GraphicsPipeline, GraphicsPipelineAbstract,
     },
@@ -56,7 +56,6 @@ pub struct Renderer {
 
     vertex_buffer: Arc<CpuAccessibleBuffer<[EguiVertex]>>,
     index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
-    depth_buffer: Arc<ImageView<Arc<AttachmentImage>>>,
     pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
 
     egui_texture_version: u64,
@@ -78,33 +77,18 @@ impl Renderer {
                         store: Store,
                         format: final_output_format,
                         samples: 1,
-                    },
-                    depth: {
-                        load: Clear,
-                        store: DontCare,
-                        format: Format::D16Unorm,
-                        samples: 1,
                     }
                 },
                 passes: [
                     {
                         color: [final_color],
-                        depth_stencil: {depth},
+                        depth_stencil: {},
                         input: []
                     }
                 ]
             )
             .unwrap(),
         );
-        let depth_buffer = ImageView::new(
-            AttachmentImage::transient_input_attachment(
-                gfx_queue.device().clone(),
-                [1, 1],
-                Format::D16Unorm,
-            )
-            .unwrap(),
-        )
-        .unwrap();
         // Create vertex and index buffers
         let vertex_buffer = unsafe {
             CpuAccessibleBuffer::<[EguiVertex]>::uninitialized_array(
@@ -131,6 +115,10 @@ impl Renderer {
                 .expect("failed to create shader module");
             let fs = fs::Shader::load(gfx_queue.device().clone())
                 .expect("failed to create shader module");
+
+            let mut blend = AttachmentBlend::alpha_blending();
+            blend.color_source = BlendFactor::One;
+
             Arc::new(
                 GraphicsPipeline::start()
                     .vertex_input_single_buffer::<EguiVertex>()
@@ -138,20 +126,7 @@ impl Renderer {
                     .triangle_list()
                     .fragment_shader(fs.main_entry_point(), ())
                     .viewports_scissors_dynamic(1)
-                    .alpha_to_coverage_enabled()
-                    .blend_collective(AttachmentBlend {
-                        enabled: true,
-                        color_op: BlendOp::Add,
-                        color_source: BlendFactor::One,
-                        color_destination: BlendFactor::OneMinusSrcAlpha,
-                        alpha_op: BlendOp::Add,
-                        alpha_source: BlendFactor::One,
-                        alpha_destination: BlendFactor::OneMinusSrcAlpha,
-                        mask_red: true,
-                        mask_green: true,
-                        mask_blue: true,
-                        mask_alpha: true,
-                    })
+                    .blend_collective(blend)
                     .cull_mode_disabled()
                     .render_pass(subpass)
                     .build(gfx_queue.device().clone())
@@ -175,7 +150,6 @@ impl Renderer {
             render_pass,
             vertex_buffer,
             index_buffer,
-            depth_buffer,
             pipeline,
             egui_texture_version: 0,
             egui_texture_desc_set: font_desc_set,
@@ -366,27 +340,9 @@ impl Renderer {
     {
         // Get dimensions
         let img_dims = final_image.image().dimensions().width_height();
-        // Resize depth attachment to match final image's dimensions
-        if self.depth_buffer.image().dimensions().width_height() != img_dims {
-            self.depth_buffer = ImageView::new(
-                AttachmentImage::transient_input_attachment(
-                    self.gfx_queue.device().clone(),
-                    img_dims,
-                    Format::D16Unorm,
-                )
-                .unwrap(),
-            )
-            .unwrap();
-        }
         // Create framebuffer (must be in same order as render pass description in `new`
         let framebuffer = Arc::new(
-            Framebuffer::start(self.render_pass.clone())
-                .add(final_image)
-                .unwrap()
-                .add(self.depth_buffer.clone())
-                .unwrap()
-                .build()
-                .unwrap(),
+            Framebuffer::start(self.render_pass.clone()).add(final_image).unwrap().build().unwrap(),
         );
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.gfx_queue.device().clone(),
@@ -398,7 +354,6 @@ impl Renderer {
         command_buffer_builder
             .begin_render_pass(framebuffer, SubpassContents::SecondaryCommandBuffers, vec![
                 clear_color.into(),
-                1.0f32.into(),
             ])
             .unwrap();
         (command_buffer_builder, img_dims)
