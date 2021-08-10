@@ -51,7 +51,7 @@ impl GuiState {
             vulkano::format::Format::R8G8B8A8Unorm,
         );
         let image_texture_id2 = gui.register_user_image(
-            include_bytes!("./assets/doge.png"),
+            include_bytes!("./assets/doge2.png"),
             vulkano::format::Format::R8G8B8A8Unorm,
         );
         let mut scene_texture_ids = vec![];
@@ -98,7 +98,7 @@ impl GuiState {
         egui::Window::new("Mah Doge").resizable(true).scroll(true).open(show_texture_window2).show(
             &egui_context,
             |ui| {
-                ui.image(image_texture_id2, [256.0, 256.0]);
+                ui.image(image_texture_id2, [300.0, 200.0]);
             },
         );
         let show_scene_window = &mut self.show_scene_window;
