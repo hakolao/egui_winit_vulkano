@@ -14,13 +14,13 @@ use vulkano::{
     buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer},
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, DynamicState, PrimaryAutoCommandBuffer,
-        SubpassContents,
+        SecondaryAutoCommandBuffer, SubpassContents,
     },
     descriptor::{
         descriptor_set::{PersistentDescriptorSet, UnsafeDescriptorSetLayout},
         DescriptorSet,
     },
-    device::Queue,
+    device::{Device, Queue},
     format::Format,
     image::{view::ImageView, AttachmentImage, ImageViewAbstract},
     pipeline::{
@@ -50,7 +50,7 @@ vulkano::impl_vertex!(EguiVertex, position, tex_coords, color);
 
 pub struct Renderer {
     gfx_queue: Arc<Queue>,
-    render_pass: Arc<RenderPass>,
+    render_pass: Option<Arc<RenderPass>>,
 
     format: vulkano::format::Format,
 
@@ -65,9 +65,36 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    /// Creates a new [EguiVulkanoRenderer] which is responsible for rendering egui
+    pub fn new_with_subpass(
+        gfx_queue: Arc<Queue>,
+        final_output_format: Format,
+        subpass: Subpass,
+    ) -> Renderer {
+        let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
+        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass);
+        let layout = pipeline.layout().descriptor_set_layout(0).unwrap();
+        let font_image = ImageView::new(
+            AttachmentImage::sampled(gfx_queue.device().clone(), [1, 1], final_output_format)
+                .unwrap(),
+        )
+        .unwrap();
+        let font_desc_set = Self::sampled_image_desc_set(gfx_queue.clone(), layout, font_image);
+        Renderer {
+            gfx_queue,
+            format: final_output_format,
+            render_pass: None,
+            vertex_buffer,
+            index_buffer,
+            pipeline,
+            egui_texture_version: 0,
+            egui_texture_desc_set: font_desc_set,
+            user_texture_desc_sets: vec![],
+        }
+    }
+
+    /// Creates a new [EguiVulkanoRenderer] which is responsible for rendering egui with its own renderpass
     /// See examples
-    pub fn new(gfx_queue: Arc<Queue>, final_output_format: Format) -> Renderer {
+    pub fn new_with_render_pass(gfx_queue: Arc<Queue>, final_output_format: Format) -> Renderer {
         // Create Gui render pass with just depth and final color
         let render_pass = Arc::new(
             vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
@@ -89,51 +116,11 @@ impl Renderer {
             )
             .unwrap(),
         );
-        // Create vertex and index buffers
-        let vertex_buffer = unsafe {
-            CpuAccessibleBuffer::<[EguiVertex]>::uninitialized_array(
-                gfx_queue.device().clone(),
-                VERTEX_BUFFER_SIZE,
-                BufferUsage::vertex_buffer(),
-                false,
-            )
-            .expect("failed to create gui vertex buffer")
-        };
-        let index_buffer = unsafe {
-            CpuAccessibleBuffer::<[u32]>::uninitialized_array(
-                gfx_queue.device().clone(),
-                INDEX_BUFFER_SIZE,
-                BufferUsage::index_buffer(),
-                false,
-            )
-            .expect("failed to create gui vertex buffer")
-        };
-        // Create pipeline
+
+        let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
+
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
-        let pipeline = {
-            let vs = vs::Shader::load(gfx_queue.device().clone())
-                .expect("failed to create shader module");
-            let fs = fs::Shader::load(gfx_queue.device().clone())
-                .expect("failed to create shader module");
-
-            let mut blend = AttachmentBlend::alpha_blending();
-            blend.color_source = BlendFactor::One;
-
-            Arc::new(
-                GraphicsPipeline::start()
-                    .vertex_input_single_buffer::<EguiVertex>()
-                    .vertex_shader(vs.main_entry_point(), ())
-                    .triangle_list()
-                    .fragment_shader(fs.main_entry_point(), ())
-                    .viewports_scissors_dynamic(1)
-                    .blend_collective(blend)
-                    .cull_mode_disabled()
-                    .render_pass(subpass)
-                    .build(gfx_queue.device().clone())
-                    .unwrap(),
-            )
-        };
-
+        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass);
         // Create image attachments (temporary)
         let layout = pipeline.layout().descriptor_set_layout(0).unwrap();
         // Create temp font image (gets replaced in draw)
@@ -147,7 +134,7 @@ impl Renderer {
         Renderer {
             gfx_queue,
             format: final_output_format,
-            render_pass,
+            render_pass: Some(render_pass),
             vertex_buffer,
             index_buffer,
             pipeline,
@@ -155,6 +142,62 @@ impl Renderer {
             egui_texture_desc_set: font_desc_set,
             user_texture_desc_sets: vec![],
         }
+    }
+
+    pub fn has_renderpass(&self) -> bool {
+        self.render_pass.is_some()
+    }
+
+    fn create_buffers(
+        device: Arc<Device>,
+    ) -> (Arc<CpuAccessibleBuffer<[EguiVertex]>>, Arc<CpuAccessibleBuffer<[u32]>>) {
+        // Create vertex and index buffers
+        let vertex_buffer = unsafe {
+            CpuAccessibleBuffer::<[EguiVertex]>::uninitialized_array(
+                device.clone(),
+                VERTEX_BUFFER_SIZE,
+                BufferUsage::vertex_buffer(),
+                false,
+            )
+            .expect("failed to create gui vertex buffer")
+        };
+        let index_buffer = unsafe {
+            CpuAccessibleBuffer::<[u32]>::uninitialized_array(
+                device.clone(),
+                INDEX_BUFFER_SIZE,
+                BufferUsage::index_buffer(),
+                false,
+            )
+            .expect("failed to create gui vertex buffer")
+        };
+        (vertex_buffer, index_buffer)
+    }
+
+    fn create_pipeline(
+        gfx_queue: Arc<Queue>,
+        subpass: Subpass,
+    ) -> Arc<dyn GraphicsPipelineAbstract + Send + Sync> {
+        let vs =
+            vs::Shader::load(gfx_queue.device().clone()).expect("failed to create shader module");
+        let fs =
+            fs::Shader::load(gfx_queue.device().clone()).expect("failed to create shader module");
+
+        let mut blend = AttachmentBlend::alpha_blending();
+        blend.color_source = BlendFactor::One;
+
+        Arc::new(
+            GraphicsPipeline::start()
+                .vertex_input_single_buffer::<EguiVertex>()
+                .vertex_shader(vs.main_entry_point(), ())
+                .triangle_list()
+                .fragment_shader(fs.main_entry_point(), ())
+                .viewports_scissors_dynamic(1)
+                .blend_collective(blend)
+                .cull_mode_disabled()
+                .render_pass(subpass)
+                .build(gfx_queue.device().clone())
+                .unwrap(),
+        )
     }
 
     /// Creates a descriptor set for images
@@ -329,6 +372,18 @@ impl Renderer {
             || index_end * idx_size >= self.index_buffer.size()
     }
 
+    fn create_secondary_command_buffer_builder(
+        &self,
+    ) -> AutoCommandBufferBuilder<SecondaryAutoCommandBuffer> {
+        AutoCommandBufferBuilder::secondary_graphics(
+            self.gfx_queue.device().clone(),
+            self.gfx_queue.family(),
+            CommandBufferUsage::MultipleSubmit,
+            self.pipeline.subpass().clone(),
+        )
+        .unwrap()
+    }
+
     // Starts the rendering pipeline and returns [`AutoCommandBufferBuilder`] for drawing
     fn start<I>(
         &mut self,
@@ -342,7 +397,19 @@ impl Renderer {
         let img_dims = final_image.image().dimensions().width_height();
         // Create framebuffer (must be in same order as render pass description in `new`
         let framebuffer = Arc::new(
-            Framebuffer::start(self.render_pass.clone()).add(final_image).unwrap().build().unwrap(),
+            Framebuffer::start(
+                self.render_pass
+                    .as_ref()
+                    .expect(
+                        "No renderpass on this renderer (created with subpass), use \
+                         'draw_subpass' instead",
+                    )
+                    .clone(),
+            )
+            .add(final_image)
+            .unwrap()
+            .build()
+            .unwrap(),
         );
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.gfx_queue.device().clone(),
@@ -360,7 +427,7 @@ impl Renderer {
     }
 
     /// Executes our draw commands on the final image and returns a `GpuFuture` to wait on
-    pub fn draw<F, I>(
+    pub fn draw_on_image<F, I>(
         &mut self,
         egui_context: &mut Context,
         clipped_meshes: Vec<egui::ClippedMesh>,
@@ -376,19 +443,60 @@ impl Renderer {
             self.start(final_image, clear_color);
         egui_context.update_elapsed_time();
         self.update_font_texture(egui_context);
+
+        let mut builder = self.create_secondary_command_buffer_builder();
+        self.draw_egui(egui_context, clipped_meshes, framebuffer_dimensions, &mut builder);
+
+        // Execute draw commands
+        let command_buffer = builder.build().unwrap();
+        command_buffer_builder.execute_commands(command_buffer).unwrap();
+        self.finish(command_buffer_builder, Box::new(before_future))
+    }
+
+    // Finishes the rendering pipeline
+    fn finish(
+        &self,
+        mut command_buffer_builder: AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+        before_main_cb_future: Box<dyn GpuFuture>,
+    ) -> Box<dyn GpuFuture> {
+        // We end render pass
+        command_buffer_builder.end_render_pass().unwrap();
+        // Then execute our whole command buffer
+        let command_buffer = command_buffer_builder.build().unwrap();
+        let after_main_cb =
+            before_main_cb_future.then_execute(self.gfx_queue.clone(), command_buffer).unwrap();
+        let future =
+            after_main_cb.then_signal_fence_and_flush().expect("Failed to signal fence and flush");
+        // Return our future
+        Box::new(future)
+    }
+
+    pub fn draw_on_subpass_image(
+        &mut self,
+        egui_context: &mut Context,
+        clipped_meshes: Vec<egui::ClippedMesh>,
+        framebuffer_dimensions: [u32; 2],
+    ) -> SecondaryAutoCommandBuffer {
+        egui_context.update_elapsed_time();
+        self.update_font_texture(egui_context);
+        let mut builder = self.create_secondary_command_buffer_builder();
+        self.draw_egui(egui_context, clipped_meshes, framebuffer_dimensions, &mut builder);
+        builder.build().unwrap()
+    }
+
+    fn draw_egui(
+        &mut self,
+        egui_context: &mut Context,
+        clipped_meshes: Vec<egui::ClippedMesh>,
+        framebuffer_dimensions: [u32; 2],
+        builder: &mut AutoCommandBufferBuilder<SecondaryAutoCommandBuffer>,
+    ) {
         let push_constants = vs::ty::PushConstants {
             screen_size: [
                 framebuffer_dimensions[0] as f32 / egui_context.scale_factor() as f32,
                 framebuffer_dimensions[1] as f32 / egui_context.scale_factor() as f32,
             ],
         };
-        let mut builder = AutoCommandBufferBuilder::secondary_graphics(
-            self.gfx_queue.device().clone(),
-            self.gfx_queue.family(),
-            CommandBufferUsage::MultipleSubmit,
-            self.pipeline.subpass().clone(),
-        )
-        .unwrap();
 
         let mut vertex_start = 0;
         let mut index_start = 0;
@@ -466,28 +574,6 @@ impl Renderer {
             vertex_start += vertices_count;
             index_start += indices_count;
         }
-        // Execute draw commands
-        let command_buffer = builder.build().unwrap();
-        command_buffer_builder.execute_commands(command_buffer).unwrap();
-        self.finish(command_buffer_builder, Box::new(before_future))
-    }
-
-    // Finishes the rendering pipeline
-    fn finish(
-        &self,
-        mut command_buffer_builder: AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
-        before_main_cb_future: Box<dyn GpuFuture>,
-    ) -> Box<dyn GpuFuture> {
-        // We end render pass
-        command_buffer_builder.end_render_pass().unwrap();
-        // Then execute our whole command buffer
-        let command_buffer = command_buffer_builder.build().unwrap();
-        let after_main_cb =
-            before_main_cb_future.then_execute(self.gfx_queue.clone(), command_buffer).unwrap();
-        let future =
-            after_main_cb.then_signal_fence_and_flush().expect("Failed to signal fence and flush");
-        // Return our future
-        Box::new(future)
     }
 
     pub fn queue(&self) -> Arc<Queue> {

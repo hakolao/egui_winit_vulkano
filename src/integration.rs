@@ -8,7 +8,10 @@
 // according to those terms.
 use std::sync::Arc;
 
-use vulkano::{device::Queue, image::ImageViewAbstract, swapchain::Surface, sync::GpuFuture};
+use vulkano::{
+    command_buffer::SecondaryAutoCommandBuffer, device::Queue, image::ImageViewAbstract,
+    render_pass::Subpass, swapchain::Surface, sync::GpuFuture,
+};
 use winit::{event::Event, window::Window};
 
 use crate::{
@@ -26,14 +29,28 @@ pub struct Gui {
 impl Gui {
     /// Creates new Egui to Vulkano integration by setting the necessary parameters
     /// This is to be called once we have access to vulkano_win's winit window surface
-    /// and gfx queue
+    /// and gfx queue. Created with this, the renderer will own a render pass which is useful to e.g. place your render pass' images
+    /// onto egui windows
     /// - `surface`: Vulkano's Winit Surface [`Arc<Surface<Window>>`]
     /// - `gfx_queue`: Vulkano's [`Queue`]
     pub fn new(surface: Arc<Surface<Window>>, gfx_queue: Arc<Queue>) -> Gui {
         let caps = surface.capabilities(gfx_queue.device().physical_device()).unwrap();
         let format = caps.supported_formats[0].0;
         let context = Context::new(surface.window().inner_size(), surface.window().scale_factor());
-        let renderer = Renderer::new(gfx_queue, format);
+        let renderer = Renderer::new_with_render_pass(gfx_queue, format);
+        Gui { context, renderer, surface }
+    }
+
+    /// Same as `new` but instead of integration owning a render pass, egui renders on your subpass
+    pub fn new_with_subpass(
+        surface: Arc<Surface<Window>>,
+        gfx_queue: Arc<Queue>,
+        subpass: Subpass,
+    ) -> Gui {
+        let caps = surface.capabilities(gfx_queue.device().physical_device()).unwrap();
+        let format = caps.supported_formats[0].0;
+        let context = Context::new(surface.window().inner_size(), surface.window().scale_factor());
+        let renderer = Renderer::new_with_subpass(gfx_queue, format, subpass);
         Gui { context, renderer, surface }
     }
 
@@ -61,7 +78,7 @@ impl Gui {
     /// - `before_future` = Vulkano's GpuFuture
     /// - `final_image` = Vulkano's image (render target)
     /// - `clear_color` = e.g. [0.0, 0.0, 0.0, 0.0], color at range 0.0-1.0
-    pub fn draw<F, I>(
+    pub fn draw_on_image<F, I>(
         &mut self,
         before_future: F,
         final_image: I,
@@ -71,18 +88,41 @@ impl Gui {
         F: GpuFuture + 'static,
         I: ImageViewAbstract + Clone + Send + Sync + 'static,
     {
-        // Get outputs of `immediate_ui`
+        if !self.renderer.has_renderpass() {
+            panic!(
+                "Gui integration has been created with subpass, use `draw_on_subpass_image` \
+                 instead"
+            )
+        }
         let (output, clipped_meshes) = self.context.end_frame();
-        // Update cursor icon
         self.context.update_cursor_icon(self.surface.window(), output.cursor_icon);
         // Draw egui meshes
-        self.renderer.draw(
+        self.renderer.draw_on_image(
             &mut self.context,
             clipped_meshes,
             before_future,
             final_image,
             clear_color,
         )
+    }
+
+    /// Creates commands for rendering ui on subpass' image and returns the command buffer for execution on your side
+    /// Finishes Egui frame
+    /// - `final_image` = Vulkano's image (render target)
+    pub fn draw_on_subpass_image(
+        &mut self,
+        image_dimensions: [u32; 2],
+    ) -> SecondaryAutoCommandBuffer {
+        if self.renderer.has_renderpass() {
+            panic!(
+                "Gui integration has been created with its own render pass, use `draw_on_image` \
+                 instead"
+            )
+        }
+        let (output, clipped_meshes) = self.context.end_frame();
+        self.context.update_cursor_icon(self.surface.window(), output.cursor_icon);
+        // You still need to execute that command buffer yourself
+        self.renderer.draw_on_subpass_image(&mut self.context, clipped_meshes, image_dimensions)
     }
 
     /// Registers a user image from Vulkano image view to be used by egui

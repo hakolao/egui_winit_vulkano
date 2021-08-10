@@ -252,7 +252,7 @@ impl Renderer {
         // Finally render GUI on our swapchain color image attachments
         let future = self.previous_frame_end.take().unwrap().join(acquire_future);
         let after_future =
-            gui.draw(future, self.final_images[image_num].clone(), [0.0, 0.0, 0.0, 0.0]);
+            gui.draw_on_image(future, self.final_images[image_num].clone(), [0.0, 0.0, 0.0, 0.0]);
         // Finish render
         self.finish(after_future, image_num);
     }

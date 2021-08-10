@@ -13,7 +13,10 @@ The aim of this is to allow a simple enough API to separate UI nicely out of you
 1. Create your own renderer with Vulkano, and allow access to Vulkano's gfx queue `Arc<Queue>` and Vulkano's winit surface `Arc<Surface<Window>>`
 2. Create Gui integration with the surface & gfx queue
 ```rust
+// Has its own renderpass
 let mut gui = Gui::new(renderer.surface(), renderer.queue());
+// Or with subpass
+let mut gui = Gui::new_with_subpass(renderer.surface(), renderer.queue(), subpass);
 ```
 3. Inside your event loop, update `gui` integration
 ```rust
@@ -39,9 +42,14 @@ renderer.render(&mut gui); //... and inside render function:
 // image_view_to_draw_on = the final image onto which you wish to render UI, usually e.g.
 // self.final_images[image_num].clone() = one of your swap chain images.
 // [0.0, 0.0, 0.0, 0.0] = clear color
-let after_future = gui.draw(future, image_view_to_draw_on, [0.0, 0.0, 0.0, 0.0]);
+let after_future = gui.draw_on_image(future, image_view_to_draw_on, [0.0, 0.0, 0.0, 0.0]);
+
+// Or if you created the integration with subpass
+let cb = gui.draw_on_subpass_image(framebuffer_dimensions);
+draw_pass.execute(cb);
 ```
-6. Finish your render by waiting on the future `gui.draw` returns. See `finish` function in example renderers
+6. Finish your render by waiting on the future `gui.draw` returns. See `finish` function in example renderers.
+Or in the case of subpass, execute your commands.
 
 See the examples directory for a more wholesome example which uses Vulkano developers' frame system to organize rendering.
 
