@@ -9,6 +9,7 @@
 
 use std::sync::Arc;
 
+use image::RgbaImage;
 use vulkano::{
     device::Queue,
     image::{
@@ -47,16 +48,25 @@ pub fn texture_from_file(
     use image::GenericImageView;
 
     let img = image::load_from_memory(file_bytes).expect("Failed to load image from bytes");
-    let rgba = img.as_rgba8().unwrap().to_owned();
+    let rgba = if let Some(rgba) = img.as_rgba8() {
+        rgba.to_owned().to_vec()
+    } else {
+        // Convert rgb to rgba
+        let rgb = img.as_rgb8().unwrap().to_owned();
+        let mut raw_data = vec![];
+        for val in rgb.chunks(3) {
+            raw_data.push(val[0]);
+            raw_data.push(val[1]);
+            raw_data.push(val[2]);
+            raw_data.push(255);
+        }
+        let new_rgba = RgbaImage::from_raw(rgb.width(), rgb.height(), raw_data).unwrap();
+        new_rgba.to_vec()
+    };
     let dimensions = img.dimensions();
     let vko_dims =
         ImageDimensions::Dim2d { width: dimensions.0, height: dimensions.1, array_layers: 1 };
-    let (texture, _tex_fut) = ImmutableImage::from_iter(
-        rgba.into_raw().into_iter(),
-        vko_dims,
-        MipmapsCount::One,
-        format,
-        queue,
-    )?;
+    let (texture, _tex_fut) =
+        ImmutableImage::from_iter(rgba.into_iter(), vko_dims, MipmapsCount::One, format, queue)?;
     Ok(ImageView::new(texture).unwrap())
 }
