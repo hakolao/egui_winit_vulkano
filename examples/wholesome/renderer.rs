@@ -12,9 +12,9 @@ use std::sync::Arc;
 use cgmath::{Matrix4, SquareMatrix};
 use egui_winit_vulkano::Gui;
 use vulkano::{
-    device::{Device, DeviceExtensions, Features, Queue},
+    device::{Device, DeviceExtensions, Features, Queue, physical::PhysicalDevice},
     image::{view::ImageView, AttachmentImage, ImageUsage, ImageViewAbstract, SwapchainImage},
-    instance::{Instance, InstanceExtensions, PhysicalDevice},
+    instance::{Instance, InstanceExtensions},
     swapchain,
     swapchain::{
         AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform,
@@ -70,8 +70,8 @@ impl Renderer {
             .fold(None, |acc, val| {
                 if acc.is_none() {
                     Some(val)
-                } else if acc.unwrap().properties().max_compute_shared_memory_size.as_ref().unwrap()
-                    >= val.properties().max_compute_shared_memory_size.as_ref().unwrap()
+                } else if acc.unwrap().properties().max_compute_shared_memory_size
+                    >= val.properties().max_compute_shared_memory_size
                 {
                     acc
                 } else {
@@ -79,7 +79,7 @@ impl Renderer {
                 }
             })
             .expect("No physical device found");
-        println!("Using device {}", physical.properties().device_name.as_ref().unwrap());
+        println!("Using device {}", physical.properties().device_name);
         // Create rendering surface along with window
         let surface = WindowBuilder::new()
             .with_inner_size(winit::dpi::LogicalSize::new(window_size[0], window_size[1]))
@@ -137,7 +137,7 @@ impl Renderer {
             Device::new(
                 physical,
                 &features,
-                &DeviceExtensions::required_extensions(physical).union(&device_extensions),
+                &physical.required_extensions().union(&device_extensions),
                 [(queue_family, 0.5)].iter().cloned(),
             )
             .expect("failed to create device")

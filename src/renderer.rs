@@ -16,10 +16,7 @@ use vulkano::{
         AutoCommandBufferBuilder, CommandBufferUsage, DynamicState, PrimaryAutoCommandBuffer,
         SecondaryAutoCommandBuffer, SubpassContents,
     },
-    descriptor::{
-        descriptor_set::{PersistentDescriptorSet, UnsafeDescriptorSetLayout},
-        DescriptorSet,
-    },
+    descriptor_set::{DescriptorSet, PersistentDescriptorSet, layout::DescriptorSetLayout},
     device::{Device, Queue},
     format::Format,
     image::{view::ImageView, AttachmentImage, ImageViewAbstract},
@@ -31,13 +28,14 @@ use vulkano::{
     render_pass::{Framebuffer, RenderPass, Subpass},
     sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode},
     sync::GpuFuture,
+    DeviceSize,
 };
 
 use crate::{context::Context, utils::texture_from_bytes};
 
-const VERTICES_PER_QUAD: usize = 4;
-const VERTEX_BUFFER_SIZE: usize = 1024 * 1024 * VERTICES_PER_QUAD;
-const INDEX_BUFFER_SIZE: usize = 1024 * 1024 * 2;
+const VERTICES_PER_QUAD: DeviceSize = 4;
+const VERTEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * VERTICES_PER_QUAD;
+const INDEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * 2;
 
 /// Should match vertex definition of egui (except color is `[f32; 4]`)
 #[derive(Default, Debug, Clone, Copy)]
@@ -72,7 +70,7 @@ impl Renderer {
     ) -> Renderer {
         let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass);
-        let layout = pipeline.layout().descriptor_set_layout(0).unwrap();
+        let layout = &pipeline.layout().descriptor_set_layouts()[0];
         let font_image = ImageView::new(
             AttachmentImage::sampled(gfx_queue.device().clone(), [1, 1], final_output_format)
                 .unwrap(),
@@ -122,7 +120,7 @@ impl Renderer {
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass);
         // Create image attachments (temporary)
-        let layout = pipeline.layout().descriptor_set_layout(0).unwrap();
+        let layout = &pipeline.layout().descriptor_set_layouts()[0];
         // Create temp font image (gets replaced in draw)
         let font_image = ImageView::new(
             AttachmentImage::sampled(gfx_queue.device().clone(), [1, 1], final_output_format)
@@ -203,7 +201,7 @@ impl Renderer {
     /// Creates a descriptor set for images
     fn sampled_image_desc_set(
         gfx_queue: Arc<Queue>,
-        layout: &Arc<UnsafeDescriptorSetLayout>,
+        layout: &Arc<DescriptorSetLayout>,
         image: Arc<dyn ImageViewAbstract + Send + Sync>,
     ) -> Arc<dyn DescriptorSet + Send + Sync> {
         let sampler = Sampler::new(
@@ -241,7 +239,7 @@ impl Renderer {
         } else {
             self.user_texture_desc_sets.len() as u64
         };
-        let layout = self.pipeline.layout().descriptor_set_layout(0).unwrap();
+        let layout = &self.pipeline.layout().descriptor_set_layouts()[0];
         let desc_set = Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, image);
         if id == self.user_texture_desc_sets.len() as u64 {
             self.user_texture_desc_sets.push(Some(desc_set));
@@ -276,7 +274,7 @@ impl Renderer {
         .expect("Failed to load font image");
         self.egui_texture_version = texture.version;
         // Update descriptor set
-        let layout = self.pipeline.layout().descriptor_set_layout(0).unwrap();
+        let layout = &self.pipeline.layout().descriptor_set_layouts()[0];
         let font_desc_set =
             Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, font_image.clone());
         self.egui_texture_desc_set = font_desc_set;
@@ -312,7 +310,7 @@ impl Renderer {
         }
     }
 
-    fn resize_allocations(&mut self, new_vertices_size: usize, new_indices_size: usize) {
+    fn resize_allocations(&mut self, new_vertices_size: DeviceSize, new_indices_size: DeviceSize) {
         let vertex_buffer = unsafe {
             CpuAccessibleBuffer::<[EguiVertex]>::uninitialized_array(
                 self.gfx_queue.device().clone(),
@@ -335,14 +333,14 @@ impl Renderer {
         self.index_buffer = index_buffer;
     }
 
-    fn copy_mesh(&self, mesh: Mesh, vertex_start: usize, index_start: usize) {
+    fn copy_mesh(&self, mesh: Mesh, vertex_start: DeviceSize, index_start: DeviceSize) {
         // Copy vertices to buffer
         let v_slice = &mesh.vertices;
         let mut vertex_content = self.vertex_buffer.write().unwrap();
         let mut slice_i = 0;
-        for i in vertex_start..(vertex_start + v_slice.len()) {
+        for i in vertex_start..(vertex_start + v_slice.len() as DeviceSize) {
             let v = v_slice[slice_i];
-            vertex_content[i] = EguiVertex {
+            vertex_content[i as usize] = EguiVertex {
                 position: [v.pos.x, v.pos.y],
                 tex_coords: [v.uv.x, v.uv.y],
                 color: [
@@ -358,16 +356,16 @@ impl Renderer {
         let i_slice = &mesh.indices;
         let mut index_content = self.index_buffer.write().unwrap();
         slice_i = 0;
-        for i in index_start..(index_start + i_slice.len()) {
+        for i in index_start..(index_start + i_slice.len() as DeviceSize) {
             let index = i_slice[slice_i];
-            index_content[i] = index;
+            index_content[i as usize] = index;
             slice_i += 1;
         }
     }
 
-    fn resize_needed(&self, vertex_end: usize, index_end: usize) -> bool {
-        let vtx_size = std::mem::size_of::<EguiVertex>();
-        let idx_size = std::mem::size_of::<u32>();
+    fn resize_needed(&self, vertex_end: DeviceSize, index_end: DeviceSize) -> bool {
+        let vtx_size = std::mem::size_of::<EguiVertex>() as DeviceSize;
+        let idx_size = std::mem::size_of::<u32>() as DeviceSize;
         vertex_end * vtx_size >= self.vertex_buffer.size()
             || index_end * idx_size >= self.index_buffer.size()
     }
@@ -528,8 +526,8 @@ impl Renderer {
                 scissors: Some(scissors),
                 ..DynamicState::none()
             };
-            let vertices_count = mesh.vertices.len();
-            let indices_count = mesh.indices.len();
+            let vertices_count = mesh.vertices.len() as DeviceSize;
+            let indices_count = mesh.indices.len() as DeviceSize;
             // Resize buffers if needed
             if self.resize_needed(vertex_start + vertices_count, index_start + indices_count) {
                 self.resize_allocations(
@@ -568,7 +566,6 @@ impl Renderer {
                     indices.clone(),
                     desc_set,
                     push_constants,
-                    vec![],
                 )
                 .unwrap();
             vertex_start += vertices_count;

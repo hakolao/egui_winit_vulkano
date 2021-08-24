@@ -116,10 +116,11 @@ impl FrameSystem {
         )
         .unwrap();
         command_buffer_builder
-            .begin_render_pass(framebuffer.clone(), SubpassContents::SecondaryCommandBuffers, vec![
-                [0.0, 0.0, 0.0, 0.0].into(),
-                1.0f32.into(),
-            ])
+            .begin_render_pass(
+                framebuffer.clone(),
+                SubpassContents::SecondaryCommandBuffers,
+                vec![[0.0, 0.0, 0.0, 0.0].into(), 1.0f32.into()],
+            )
             .unwrap();
 
         Frame {
