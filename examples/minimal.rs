@@ -12,7 +12,7 @@ use std::sync::Arc;
 use egui::{ScrollArea, TextEdit, TextStyle};
 use egui_winit_vulkano::Gui;
 use vulkano::{
-    device::{Device, DeviceExtensions, Features, Queue, physical::PhysicalDevice},
+    device::{physical::PhysicalDevice, Device, DeviceExtensions, Features, Queue},
     image::{view::ImageView, ImageUsage, SwapchainImage},
     instance::{Instance, InstanceExtensions},
     swapchain,
@@ -39,7 +39,7 @@ pub fn main() {
     let mut renderer =
         SimpleGuiRenderer::new(&event_loop, window_size, PresentMode::Immediate, "Minimal");
     // After creating the renderer (window, gfx_queue) create out gui integration
-    let mut gui = Gui::new(renderer.surface(), renderer.queue());
+    let mut gui = Gui::new(renderer.surface(), renderer.queue(), false);
     // Create gui state (pass anything your state requires)
     let mut code = CODE.to_owned();
     event_loop.run(move |event, _, control_flow| {
@@ -261,8 +261,7 @@ impl SimpleGuiRenderer {
         }
         // Render GUI
         let future = self.previous_frame_end.take().unwrap().join(acquire_future);
-        let after_future =
-            gui.draw_on_image(future, self.final_images[image_num].clone(), [0.0, 0.0, 0.0, 0.0]);
+        let after_future = gui.draw_on_image(future, self.final_images[image_num].clone());
         // Finish render
         self.finish(after_future, image_num);
     }

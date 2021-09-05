@@ -135,7 +135,7 @@ pub fn main() {
     );
     // After creating the renderer (window, gfx_queue) create out gui integration
     // It requires access to surface (Window, devices etc.) and Vulkano's gfx queue
-    let mut gui = Gui::new(renderer.surface(), renderer.queue());
+    let mut gui = Gui::new(renderer.surface(), renderer.queue(), false);
     // Renderer created AttachmentImages for our scene, let's access them
     let scene_images = renderer.scene_images();
     // Create gui state (pass anything your state requires)

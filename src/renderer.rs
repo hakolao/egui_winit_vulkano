@@ -16,9 +16,9 @@ use vulkano::{
         AutoCommandBufferBuilder, CommandBufferUsage, DynamicState, PrimaryAutoCommandBuffer,
         SecondaryAutoCommandBuffer, SubpassContents,
     },
-    descriptor_set::{DescriptorSet, PersistentDescriptorSet, layout::DescriptorSetLayout},
+    descriptor_set::{layout::DescriptorSetLayout, DescriptorSet, PersistentDescriptorSet},
     device::{Device, Queue},
-    format::Format,
+    format::{ClearValue, Format},
     image::{view::ImageView, AttachmentImage, ImageViewAbstract},
     pipeline::{
         blend::{AttachmentBlend, BlendFactor},
@@ -49,6 +49,7 @@ vulkano::impl_vertex!(EguiVertex, position, tex_coords, color);
 pub struct Renderer {
     gfx_queue: Arc<Queue>,
     render_pass: Option<Arc<RenderPass>>,
+    is_overlay: bool,
 
     format: vulkano::format::Format,
 
@@ -87,15 +88,36 @@ impl Renderer {
             egui_texture_version: 0,
             egui_texture_desc_set: font_desc_set,
             user_texture_desc_sets: vec![],
+            is_overlay: false,
         }
     }
 
-    /// Creates a new [EguiVulkanoRenderer] which is responsible for rendering egui with its own renderpass
+    /// Creates a new [Renderer] which is responsible for rendering egui with its own renderpass
     /// See examples
-    pub fn new_with_render_pass(gfx_queue: Arc<Queue>, final_output_format: Format) -> Renderer {
+    pub fn new_with_render_pass(
+        gfx_queue: Arc<Queue>,
+        final_output_format: Format,
+        is_overlay: bool,
+    ) -> Renderer {
         // Create Gui render pass with just depth and final color
-        let render_pass = Arc::new(
-            vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
+        let render_pass = Arc::new(if is_overlay {
+            vulkano::single_pass_renderpass!(gfx_queue.device().clone(),
+                attachments: {
+                    final_color: {
+                        load: Load,
+                        store: Store,
+                        format: final_output_format,
+                        samples: 1,
+                    }
+                },
+                pass: {
+                        color: [final_color],
+                        depth_stencil: {}
+                }
+            )
+            .unwrap()
+        } else {
+            vulkano::single_pass_renderpass!(gfx_queue.device().clone(),
                 attachments: {
                     final_color: {
                         load: Clear,
@@ -104,16 +126,13 @@ impl Renderer {
                         samples: 1,
                     }
                 },
-                passes: [
-                    {
+                pass: {
                         color: [final_color],
-                        depth_stencil: {},
-                        input: []
-                    }
-                ]
+                        depth_stencil: {}
+                }
             )
-            .unwrap(),
-        );
+            .unwrap()
+        });
 
         let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
 
@@ -139,6 +158,7 @@ impl Renderer {
             egui_texture_version: 0,
             egui_texture_desc_set: font_desc_set,
             user_texture_desc_sets: vec![],
+            is_overlay,
         }
     }
 
@@ -386,7 +406,6 @@ impl Renderer {
     fn start<I>(
         &mut self,
         final_image: I,
-        clear_color: [f32; 4],
     ) -> (AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>, [u32; 2])
     where
         I: ImageViewAbstract + Clone + Send + Sync + 'static,
@@ -418,7 +437,7 @@ impl Renderer {
         // Add clear values here for attachments and begin render pass
         command_buffer_builder
             .begin_render_pass(framebuffer, SubpassContents::SecondaryCommandBuffers, vec![
-                clear_color.into(),
+                if !self.is_overlay { [0.0; 4].into() } else { ClearValue::None },
             ])
             .unwrap();
         (command_buffer_builder, img_dims)
@@ -431,14 +450,12 @@ impl Renderer {
         clipped_meshes: Vec<egui::ClippedMesh>,
         before_future: F,
         final_image: I,
-        clear_color: [f32; 4],
     ) -> Box<dyn GpuFuture>
     where
         F: GpuFuture + 'static,
         I: ImageViewAbstract + Clone + Send + Sync + 'static,
     {
-        let (mut command_buffer_builder, framebuffer_dimensions) =
-            self.start(final_image, clear_color);
+        let (mut command_buffer_builder, framebuffer_dimensions) = self.start(final_image);
         egui_context.update_elapsed_time();
         self.update_font_texture(egui_context);
 

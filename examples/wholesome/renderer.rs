@@ -12,7 +12,7 @@ use std::sync::Arc;
 use cgmath::{Matrix4, SquareMatrix};
 use egui_winit_vulkano::Gui;
 use vulkano::{
-    device::{Device, DeviceExtensions, Features, Queue, physical::PhysicalDevice},
+    device::{physical::PhysicalDevice, Device, DeviceExtensions, Features, Queue},
     image::{view::ImageView, AttachmentImage, ImageUsage, ImageViewAbstract, SwapchainImage},
     instance::{Instance, InstanceExtensions},
     swapchain,
@@ -251,8 +251,7 @@ impl Renderer {
         self.render_scene();
         // Finally render GUI on our swapchain color image attachments
         let future = self.previous_frame_end.take().unwrap().join(acquire_future);
-        let after_future =
-            gui.draw_on_image(future, self.final_images[image_num].clone(), [0.0, 0.0, 0.0, 0.0]);
+        let after_future = gui.draw_on_image(future, self.final_images[image_num].clone());
         // Finish render
         self.finish(after_future, image_num);
     }

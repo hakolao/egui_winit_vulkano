@@ -33,11 +33,12 @@ impl Gui {
     /// onto egui windows
     /// - `surface`: Vulkano's Winit Surface [`Arc<Surface<Window>>`]
     /// - `gfx_queue`: Vulkano's [`Queue`]
-    pub fn new(surface: Arc<Surface<Window>>, gfx_queue: Arc<Queue>) -> Gui {
+    /// - `is_overlay`: If true, you should be responsible for clearing the image before `draw_on_image`, else it gets cleared
+    pub fn new(surface: Arc<Surface<Window>>, gfx_queue: Arc<Queue>, is_overlay: bool) -> Gui {
         let caps = surface.capabilities(gfx_queue.device().physical_device()).unwrap();
         let format = caps.supported_formats[0].0;
         let context = Context::new(surface.window().inner_size(), surface.window().scale_factor());
-        let renderer = Renderer::new_with_render_pass(gfx_queue, format);
+        let renderer = Renderer::new_with_render_pass(gfx_queue, format, is_overlay);
         Gui { context, renderer, surface }
     }
 
@@ -77,13 +78,7 @@ impl Gui {
     /// Finishes Egui frame
     /// - `before_future` = Vulkano's GpuFuture
     /// - `final_image` = Vulkano's image (render target)
-    /// - `clear_color` = e.g. [0.0, 0.0, 0.0, 0.0], color at range 0.0-1.0
-    pub fn draw_on_image<F, I>(
-        &mut self,
-        before_future: F,
-        final_image: I,
-        clear_color: [f32; 4],
-    ) -> Box<dyn GpuFuture>
+    pub fn draw_on_image<F, I>(&mut self, before_future: F, final_image: I) -> Box<dyn GpuFuture>
     where
         F: GpuFuture + 'static,
         I: ImageViewAbstract + Clone + Send + Sync + 'static,
@@ -97,13 +92,7 @@ impl Gui {
         let (output, clipped_meshes) = self.context.end_frame();
         self.context.update_cursor_icon(self.surface.window(), output.cursor_icon);
         // Draw egui meshes
-        self.renderer.draw_on_image(
-            &mut self.context,
-            clipped_meshes,
-            before_future,
-            final_image,
-            clear_color,
-        )
+        self.renderer.draw_on_image(&mut self.context, clipped_meshes, before_future, final_image)
     }
 
     /// Creates commands for rendering ui on subpass' image and returns the command buffer for execution on your side
