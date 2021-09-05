@@ -12,13 +12,17 @@ The aim of this is to allow a simple enough API to separate UI nicely out of you
 # Usage
 1. Create your own renderer with Vulkano, and allow access to Vulkano's gfx queue `Arc<Queue>` and Vulkano's winit surface `Arc<Surface<Window>>`
 2. Create Gui integration with the surface & gfx queue
+
 ```rust
-// Has its own renderpass
-let mut gui = Gui::new(renderer.surface(), renderer.queue());
+// Has its own renderpass (is_overlay = false means that the renderpass will clear the image, true means
+// that the caller is responsible for clearing the image
+let mut gui = Gui::new(renderer.surface(), renderer.queue(), false);
 // Or with subpass
 let mut gui = Gui::new_with_subpass(renderer.surface(), renderer.queue(), subpass);
 ```
+
 3. Inside your event loop, update `gui` integration
+
 ```rust
 event_loop.run(move |event, _, control_flow| {
     // Update Egui integration so the UI works!
@@ -26,6 +30,7 @@ event_loop.run(move |event, _, control_flow| {
     // ...match event {..}
 });
 ```
+
 4. Fill immediate mode UI through the integration in `Event::RedrawRequested` before you render
 ```rust
 gui.immediate_ui(|gui| {
@@ -41,8 +46,7 @@ renderer.render(&mut gui); //... and inside render function:
 // future = acquired future from previous_frame_end.join(swapchain_acquire_future) and
 // image_view_to_draw_on = the final image onto which you wish to render UI, usually e.g.
 // self.final_images[image_num].clone() = one of your swap chain images.
-// [0.0, 0.0, 0.0, 0.0] = clear color
-let after_future = gui.draw_on_image(future, image_view_to_draw_on, [0.0, 0.0, 0.0, 0.0]);
+let after_future = gui.draw_on_image(future, image_view_to_draw_on);
 
 // Or if you created the integration with subpass
 let cb = gui.draw_on_subpass_image(framebuffer_dimensions);

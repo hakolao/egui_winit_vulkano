@@ -14,7 +14,7 @@ use egui_winit_vulkano::Gui;
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer},
     command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, DynamicState, SubpassContents},
-    device::{Device, DeviceExtensions, Features, Queue, physical::PhysicalDevice},
+    device::{physical::PhysicalDevice, Device, DeviceExtensions, Features, Queue},
     format::Format,
     image::{view::ImageView, ImageUsage, SwapchainImage},
     instance::{Instance, InstanceExtensions},
@@ -385,13 +385,7 @@ impl SimpleGuiRenderer {
         )
         .unwrap();
         secondary_builder
-            .draw(
-                self.pipeline.clone(),
-                &dynamic_state,
-                vec![self.vertex_buffer.clone()],
-                (),
-                (),
-            )
+            .draw(self.pipeline.clone(), &dynamic_state, vec![self.vertex_buffer.clone()], (), ())
             .unwrap();
         let cb = secondary_builder.build().unwrap();
         builder.execute_commands(cb).unwrap();
