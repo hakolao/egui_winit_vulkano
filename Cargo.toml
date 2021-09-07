@@ -12,9 +12,9 @@ repository = "https://github.com/hakolao/egui_winit_vulkano"
 copypasta = "0.7.1"
 egui = "0.12.0"
 image = "0.23.14"
-vulkano = "0.25.0"
-vulkano-win = "0.25.0"
-vulkano-shaders = "0.25.0"
+vulkano = { git = "https://github.com/hakolao/vulkano.git" }
+vulkano-win = { git = "https://github.com/hakolao/vulkano.git" }
+vulkano-shaders = { git = "https://github.com/hakolao/vulkano.git" }
 webbrowser = "0.5.5"
 winit = "0.25.0"
 egui_demo_lib = "0.12.0"
