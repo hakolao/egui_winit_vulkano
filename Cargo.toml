@@ -1,6 +1,6 @@
 [package]
 name = "egui_winit_vulkano"
-version = "0.1.0"
+version = "0.11.0"
 authors = ["hakolao <okkohakola@gmail.com>"]
 edition = "2018"
 description = "Egui immediate mode gui integration with winit and Vulkano"
@@ -10,14 +10,14 @@ repository = "https://github.com/hakolao/egui_winit_vulkano"
 
 [dependencies]
 copypasta = "0.7.1"
-egui = "0.12.0"
+egui = "0.14.0"
 image = "0.23.14"
 vulkano = { git = "https://github.com/hakolao/vulkano.git" }
 vulkano-win = { git = "https://github.com/hakolao/vulkano.git" }
 vulkano-shaders = { git = "https://github.com/hakolao/vulkano.git" }
 webbrowser = "0.5.5"
 winit = "0.25.0"
-egui_demo_lib = "0.12.0"
 
 [dev-dependencies]
 cgmath = "0.18.0"
+egui_demo_lib = "0.14.0"

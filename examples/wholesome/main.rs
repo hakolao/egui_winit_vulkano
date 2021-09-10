@@ -78,7 +78,7 @@ impl GuiState {
         fps: f32,
     ) {
         egui_context.set_visuals(Visuals::dark());
-        egui::SidePanel::left("Side Panel", 150.0).show(&egui_context, |ui| {
+        egui::SidePanel::left("Side Panel").default_width(150.0).show(&egui_context, |ui| {
             ui.heading("Hello Tree");
             ui.separator();
             ui.checkbox(&mut self.show_texture_window1, "Show Tree");
