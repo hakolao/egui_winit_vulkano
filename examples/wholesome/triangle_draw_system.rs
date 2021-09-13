@@ -14,19 +14,17 @@
 use std::sync::Arc;
 
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer},
-    command_buffer::{
-        AutoCommandBufferBuilder, CommandBufferUsage, DynamicState, SecondaryAutoCommandBuffer,
-    },
+    buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
+    command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, SecondaryAutoCommandBuffer},
     device::Queue,
-    pipeline::{viewport::Viewport, GraphicsPipeline, GraphicsPipelineAbstract},
+    pipeline::{viewport::Viewport, GraphicsPipeline},
     render_pass::Subpass,
 };
 
 pub struct TriangleDrawSystem {
     gfx_queue: Arc<Queue>,
     vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
-    pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
+    pipeline: Arc<GraphicsPipeline>,
 }
 
 impl TriangleDrawSystem {
@@ -78,20 +76,14 @@ impl TriangleDrawSystem {
         )
         .unwrap();
         builder
-            .draw(
-                self.pipeline.clone(),
-                &DynamicState {
-                    viewports: Some(vec![Viewport {
-                        origin: [0.0, 0.0],
-                        dimensions: [viewport_dimensions[0] as f32, viewport_dimensions[1] as f32],
-                        depth_range: 0.0..1.0,
-                    }]),
-                    ..DynamicState::none()
-                },
-                vec![self.vertex_buffer.clone()],
-                (),
-                (),
-            )
+            .bind_pipeline_graphics(self.pipeline.clone())
+            .set_viewport(0, [Viewport {
+                origin: [0.0, 0.0],
+                dimensions: [viewport_dimensions[0] as f32, viewport_dimensions[1] as f32],
+                depth_range: 0.0..1.0,
+            }])
+            .bind_vertex_buffers(0, self.vertex_buffer.clone())
+            .draw(self.vertex_buffer.len() as u32, 1, 0, 0)
             .unwrap();
         builder.build().unwrap()
     }

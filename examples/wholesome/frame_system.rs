@@ -47,7 +47,7 @@ impl FrameSystem {
                     depth: {
                         load: Clear,
                         store: DontCare,
-                        format: Format::D16Unorm,
+                        format: Format::D16_UNORM,
                         samples: 1,
                     }
                 },
@@ -65,7 +65,7 @@ impl FrameSystem {
             AttachmentImage::transient_input_attachment(
                 gfx_queue.device().clone(),
                 [1, 1],
-                Format::D16Unorm,
+                Format::D16_UNORM,
             )
             .unwrap(),
         )
@@ -94,7 +94,7 @@ impl FrameSystem {
                 AttachmentImage::transient_input_attachment(
                     self.gfx_queue.device().clone(),
                     img_dims,
-                    Format::D16Unorm,
+                    Format::D16_UNORM,
                 )
                 .unwrap(),
             )

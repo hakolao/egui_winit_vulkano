@@ -12,6 +12,7 @@ use std::sync::Arc;
 use egui::{CtxRef, Visuals};
 use egui_winit_vulkano::Gui;
 use vulkano::{
+    format::Format,
     image::{view::ImageView, AttachmentImage},
     swapchain::PresentMode,
 };
@@ -46,14 +47,10 @@ impl GuiState {
         scene_view_size: [u32; 2],
     ) -> GuiState {
         // tree.png asset is from https://github.com/sotrh/learn-wgpu/tree/master/docs/beginner/tutorial5-textures
-        let image_texture_id1 = gui.register_user_image(
-            include_bytes!("./assets/tree.png"),
-            vulkano::format::Format::R8G8B8A8Unorm,
-        );
-        let image_texture_id2 = gui.register_user_image(
-            include_bytes!("./assets/doge2.png"),
-            vulkano::format::Format::R8G8B8A8Unorm,
-        );
+        let image_texture_id1 =
+            gui.register_user_image(include_bytes!("./assets/tree.png"), Format::R8G8B8A8_UNORM);
+        let image_texture_id2 =
+            gui.register_user_image(include_bytes!("./assets/doge2.png"), Format::R8G8B8A8_UNORM);
         let mut scene_texture_ids = vec![];
         for img in scene_images {
             scene_texture_ids.push(gui.register_user_image_view(img.clone()));
