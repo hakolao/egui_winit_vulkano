@@ -12,13 +12,13 @@ use std::sync::Arc;
 use egui::{ScrollArea, TextEdit, TextStyle};
 use egui_winit_vulkano::Gui;
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer},
-    command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, DynamicState, SubpassContents},
+    buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
+    command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, SubpassContents},
     device::{physical::PhysicalDevice, Device, DeviceExtensions, Features, Queue},
     format::Format,
     image::{view::ImageView, ImageUsage, SwapchainImage},
     instance::{Instance, InstanceExtensions},
-    pipeline::{viewport::Viewport, GraphicsPipeline, GraphicsPipelineAbstract},
+    pipeline::{viewport::Viewport, GraphicsPipeline},
     render_pass::{Framebuffer, RenderPass, Subpass},
     swapchain,
     swapchain::{
@@ -118,7 +118,7 @@ struct SimpleGuiRenderer {
     surface: Arc<Surface<Window>>,
     queue: Arc<Queue>,
     render_pass: Arc<RenderPass>,
-    pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
+    pipeline: Arc<GraphicsPipeline>,
     swap_chain: Arc<Swapchain<Window>>,
     final_images: Vec<Arc<ImageView<Arc<SwapchainImage<Window>>>>>,
     recreate_swapchain: bool,
@@ -286,10 +286,7 @@ impl SimpleGuiRenderer {
         Subpass::from(self.render_pass.clone(), 1).unwrap()
     }
 
-    fn create_pipeline(
-        device: Arc<Device>,
-        render_pass: Arc<RenderPass>,
-    ) -> Arc<dyn GraphicsPipelineAbstract + Send + Sync> {
+    fn create_pipeline(device: Arc<Device>, render_pass: Arc<RenderPass>) -> Arc<GraphicsPipeline> {
         let vs = vs::Shader::load(device.clone()).expect("failed to create shader module");
         let fs = fs::Shader::load(device.clone()).expect("failed to create shader module");
 
@@ -345,19 +342,6 @@ impl SimpleGuiRenderer {
         .unwrap();
 
         let dimensions = self.final_images[0].image().dimensions();
-        let scale_factor = self.surface.window().scale_factor();
-        let dynamic_state = DynamicState {
-            viewports: Some(vec![Viewport {
-                origin: [0.0, 0.0],
-                dimensions: [
-                    dimensions[0] as f32 / scale_factor as f32,
-                    dimensions[1] as f32 / scale_factor as f32,
-                ],
-                depth_range: 0.0..1.0,
-            }]),
-            ..DynamicState::none()
-        };
-
         let framebuffer = Arc::new(
             Framebuffer::start(self.render_pass.clone())
                 .add(self.final_images[image_num].clone())
@@ -385,7 +369,14 @@ impl SimpleGuiRenderer {
         )
         .unwrap();
         secondary_builder
-            .draw(self.pipeline.clone(), &dynamic_state, vec![self.vertex_buffer.clone()], (), ())
+            .bind_pipeline_graphics(self.pipeline.clone())
+            .set_viewport(0, vec![Viewport {
+                origin: [0.0, 0.0],
+                dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+                depth_range: 0.0..1.0,
+            }])
+            .bind_vertex_buffers(0, self.vertex_buffer.clone())
+            .draw(self.vertex_buffer.len() as u32, 1, 0, 0)
             .unwrap();
         let cb = secondary_builder.build().unwrap();
         builder.execute_commands(cb).unwrap();

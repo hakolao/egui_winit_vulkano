@@ -13,7 +13,7 @@ use egui::{paint::Mesh, Rect};
 use vulkano::{
     buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer},
     command_buffer::{
-        AutoCommandBufferBuilder, CommandBufferUsage, DynamicState, PrimaryAutoCommandBuffer,
+        AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
         SecondaryAutoCommandBuffer, SubpassContents,
     },
     descriptor_set::{layout::DescriptorSetLayout, DescriptorSet, PersistentDescriptorSet},
@@ -23,7 +23,7 @@ use vulkano::{
     pipeline::{
         blend::{AttachmentBlend, BlendFactor},
         viewport::{Scissor, Viewport},
-        GraphicsPipeline, GraphicsPipelineAbstract,
+        GraphicsPipeline, PipelineBindPoint,
     },
     render_pass::{Framebuffer, RenderPass, Subpass},
     sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode},
@@ -55,7 +55,7 @@ pub struct Renderer {
 
     vertex_buffer: Arc<CpuAccessibleBuffer<[EguiVertex]>>,
     index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
-    pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
+    pipeline: Arc<GraphicsPipeline>,
 
     egui_texture_version: u64,
     egui_texture_desc_set: Arc<dyn DescriptorSet + Send + Sync>,
@@ -191,10 +191,7 @@ impl Renderer {
         (vertex_buffer, index_buffer)
     }
 
-    fn create_pipeline(
-        gfx_queue: Arc<Queue>,
-        subpass: Subpass,
-    ) -> Arc<dyn GraphicsPipelineAbstract + Send + Sync> {
+    fn create_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
         let vs =
             vs::Shader::load(gfx_queue.device().clone()).expect("failed to create shader module");
         let fs =
@@ -238,13 +235,10 @@ impl Renderer {
             0.0,
         )
         .expect("Failed to create sampler");
-        Arc::new(
-            PersistentDescriptorSet::start(layout.clone())
-                .add_sampled_image(image.clone(), sampler)
-                .unwrap()
-                .build()
-                .expect("Failed to create descriptor set with sampler"),
-        )
+        let mut builder = PersistentDescriptorSet::start(layout.clone());
+        builder.add_sampled_image(image.clone(), sampler).unwrap();
+        let set = builder.build().unwrap();
+        Arc::new(set)
     }
 
     /// Registers a user texture. User texture needs to be unregistered when it is no longer needed
@@ -325,7 +319,7 @@ impl Renderer {
             y: max.y.clamp(min.y, framebuffer_dimensions[1] as f32),
         };
         Scissor {
-            origin: [min.x.round() as i32, min.y.round() as i32],
+            origin: [min.x.round() as u32, min.y.round() as u32],
             dimensions: [(max.x.round() - min.x) as u32, (max.y.round() - min.y) as u32],
         }
     }
@@ -531,18 +525,6 @@ impl Renderer {
             }
 
             let scissors = vec![self.get_rect_scissor(egui_context, framebuffer_dimensions, rect)];
-            let dynamic_state = DynamicState {
-                viewports: Some(vec![Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions: [
-                        framebuffer_dimensions[0] as f32,
-                        framebuffer_dimensions[1] as f32,
-                    ],
-                    depth_range: 0.0..1.0,
-                }]),
-                scissors: Some(scissors),
-                ..DynamicState::none()
-            };
             let vertices_count = mesh.vertices.len() as DeviceSize;
             let indices_count = mesh.indices.len() as DeviceSize;
             // Resize buffers if needed
@@ -576,14 +558,26 @@ impl Renderer {
                 self.egui_texture_desc_set.clone()
             };
             builder
-                .draw_indexed(
-                    self.pipeline.clone(),
-                    &dynamic_state,
-                    vec![vertices.clone()],
-                    indices.clone(),
+                .bind_pipeline_graphics(self.pipeline.clone())
+                .set_viewport(0, vec![Viewport {
+                    origin: [0.0, 0.0],
+                    dimensions: [
+                        framebuffer_dimensions[0] as f32,
+                        framebuffer_dimensions[1] as f32,
+                    ],
+                    depth_range: 0.0..1.0,
+                }])
+                .set_scissor(0, scissors)
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Graphics,
+                    self.pipeline.layout().clone(),
+                    0,
                     desc_set,
-                    push_constants,
                 )
+                .push_constants(self.pipeline.layout().clone(), 0, push_constants)
+                .bind_vertex_buffers(0, vertices.clone())
+                .bind_index_buffer(indices.clone())
+                .draw_indexed(indices.len() as u32, 1, 0, 0, 0)
                 .unwrap();
             vertex_start += vertices_count;
             index_start += indices_count;
