@@ -73,7 +73,7 @@ pub fn main() {
                         });
                         ui.separator();
                         ui.columns(2, |columns| {
-                            ScrollArea::auto_sized().id_source("source").show(
+                            ScrollArea::vertical().id_source("source").show(
                                 &mut columns[0],
                                 |ui| {
                                     ui.add(
@@ -82,7 +82,7 @@ pub fn main() {
                                     );
                                 },
                             );
-                            ScrollArea::auto_sized().id_source("rendered").show(
+                            ScrollArea::vertical().id_source("rendered").show(
                                 &mut columns[1],
                                 |ui| {
                                     egui_demo_lib::easy_mark::easy_mark(ui, &code);
