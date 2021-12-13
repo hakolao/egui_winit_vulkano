@@ -78,10 +78,13 @@ impl Gui {
     /// Finishes Egui frame
     /// - `before_future` = Vulkano's GpuFuture
     /// - `final_image` = Vulkano's image (render target)
-    pub fn draw_on_image<F, I>(&mut self, before_future: F, final_image: I) -> Box<dyn GpuFuture>
+    pub fn draw_on_image<F>(
+        &mut self,
+        before_future: F,
+        final_image: Arc<dyn ImageViewAbstract + 'static>,
+    ) -> Box<dyn GpuFuture>
     where
         F: GpuFuture + 'static,
-        I: ImageViewAbstract + Clone + Send + Sync + 'static,
     {
         if !self.renderer.has_renderpass() {
             panic!(

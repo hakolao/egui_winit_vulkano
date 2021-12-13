@@ -43,7 +43,7 @@ pub struct GuiState {
 impl GuiState {
     pub fn new(
         gui: &mut Gui,
-        scene_images: &Vec<Arc<ImageView<Arc<AttachmentImage>>>>,
+        scene_images: &Vec<Arc<ImageView<AttachmentImage>>>,
         scene_view_size: [u32; 2],
     ) -> GuiState {
         // tree.png asset is from https://github.com/sotrh/learn-wgpu/tree/master/docs/beginner/tutorial5-textures
@@ -85,23 +85,25 @@ impl GuiState {
         let show_texture_window1 = &mut self.show_texture_window1;
         let show_texture_window2 = &mut self.show_texture_window2;
         let image_texture_id1 = self.image_texture_id1;
-        egui::Window::new("Mah Tree").resizable(true).scroll(true).open(show_texture_window1).show(
-            &egui_context,
-            |ui| {
+        egui::Window::new("Mah Tree")
+            .resizable(true)
+            .vscroll(true)
+            .open(show_texture_window1)
+            .show(&egui_context, |ui| {
                 ui.image(image_texture_id1, [256.0, 256.0]);
-            },
-        );
+            });
         let image_texture_id2 = self.image_texture_id2;
-        egui::Window::new("Mah Doge").resizable(true).scroll(true).open(show_texture_window2).show(
-            &egui_context,
-            |ui| {
+        egui::Window::new("Mah Doge")
+            .resizable(true)
+            .vscroll(true)
+            .open(show_texture_window2)
+            .show(&egui_context, |ui| {
                 ui.image(image_texture_id2, [300.0, 200.0]);
-            },
-        );
+            });
         let show_scene_window = &mut self.show_scene_window;
         let scene_texture_id = self.scene_texture_ids[last_image_num];
         let scene_view_size = self.scene_view_size;
-        egui::Window::new("Scene").resizable(true).scroll(true).open(show_scene_window).show(
+        egui::Window::new("Scene").resizable(true).vscroll(true).open(show_scene_window).show(
             &egui_context,
             |ui| {
                 ui.image(scene_texture_id, [scene_view_size[0] as f32, scene_view_size[1] as f32]);

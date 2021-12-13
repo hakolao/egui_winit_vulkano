@@ -18,7 +18,14 @@ use vulkano::{
     format::Format,
     image::{view::ImageView, ImageUsage, SwapchainImage},
     instance::{Instance, InstanceExtensions},
-    pipeline::{viewport::Viewport, GraphicsPipeline},
+    pipeline::{
+        graphics::{
+            input_assembly::InputAssemblyState, vertex_input::BuffersDefinition,
+            viewport::ViewportState,
+        },
+        viewport::Viewport,
+        GraphicsPipeline,
+    },
     render_pass::{Framebuffer, RenderPass, Subpass},
     swapchain,
     swapchain::{
@@ -287,20 +294,18 @@ impl SimpleGuiRenderer {
     }
 
     fn create_pipeline(device: Arc<Device>, render_pass: Arc<RenderPass>) -> Arc<GraphicsPipeline> {
-        let vs = vs::Shader::load(device.clone()).expect("failed to create shader module");
-        let fs = fs::Shader::load(device.clone()).expect("failed to create shader module");
+        let vs = vs::load(device.clone()).expect("failed to create shader module");
+        let fs = fs::load(device.clone()).expect("failed to create shader module");
 
-        Arc::new(
-            GraphicsPipeline::start()
-                .vertex_input_single_buffer::<Vertex>()
-                .vertex_shader(vs.main_entry_point(), ())
-                .triangle_list()
-                .viewports_dynamic_scissors_irrelevant(1)
-                .fragment_shader(fs.main_entry_point(), ())
-                .render_pass(Subpass::from(render_pass, 0).unwrap())
-                .build(device)
-                .unwrap(),
-        )
+        GraphicsPipeline::start()
+            .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
+            .vertex_shader(vs.entry_point("main").unwrap(), ())
+            .input_assembly_state(InputAssemblyState::new())
+            .fragment_shader(fs.entry_point("main").unwrap(), ())
+            .viewport_state(ViewportState::viewport_dynamic_scissor_dynamic(1))
+            .render_pass(Subpass::from(render_pass, 0).unwrap())
+            .build(device)
+            .unwrap()
     }
 
     pub fn queue(&self) -> Arc<Queue> {
