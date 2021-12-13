@@ -16,14 +16,19 @@ use vulkano::{
         AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
         SecondaryAutoCommandBuffer, SubpassContents,
     },
-    descriptor_set::{layout::DescriptorSetLayout, DescriptorSet, PersistentDescriptorSet},
+    descriptor_set::{layout::DescriptorSetLayout, PersistentDescriptorSet},
     device::{Device, Queue},
     format::{ClearValue, Format},
     image::{view::ImageView, AttachmentImage, ImageViewAbstract},
     pipeline::{
-        blend::{AttachmentBlend, BlendFactor},
-        viewport::{Scissor, Viewport},
-        GraphicsPipeline, PipelineBindPoint,
+        graphics::{
+            color_blend::{AttachmentBlend, BlendFactor, ColorBlendState},
+            input_assembly::InputAssemblyState,
+            rasterization::{CullMode as CullModeEnum, RasterizationState},
+            vertex_input::BuffersDefinition,
+            viewport::{Scissor, Viewport, ViewportState},
+        },
+        GraphicsPipeline, Pipeline, PipelineBindPoint,
     },
     render_pass::{Framebuffer, RenderPass, Subpass},
     sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode},
@@ -58,9 +63,9 @@ pub struct Renderer {
     pipeline: Arc<GraphicsPipeline>,
 
     egui_texture_version: u64,
-    egui_texture_desc_set: Arc<dyn DescriptorSet + Send + Sync>,
+    egui_texture_desc_set: Arc<PersistentDescriptorSet>,
 
-    user_texture_desc_sets: Vec<Option<Arc<dyn DescriptorSet + Send + Sync>>>,
+    user_texture_desc_sets: Vec<Option<Arc<PersistentDescriptorSet>>>,
 }
 
 impl Renderer {
@@ -100,7 +105,7 @@ impl Renderer {
         is_overlay: bool,
     ) -> Renderer {
         // Create Gui render pass with just depth and final color
-        let render_pass = Arc::new(if is_overlay {
+        let render_pass = if is_overlay {
             vulkano::single_pass_renderpass!(gfx_queue.device().clone(),
                 attachments: {
                     final_color: {
@@ -132,7 +137,7 @@ impl Renderer {
                 }
             )
             .unwrap()
-        });
+        };
 
         let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
 
@@ -192,35 +197,32 @@ impl Renderer {
     }
 
     fn create_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
-        let vs =
-            vs::Shader::load(gfx_queue.device().clone()).expect("failed to create shader module");
-        let fs =
-            fs::Shader::load(gfx_queue.device().clone()).expect("failed to create shader module");
+        let vs = vs::load(gfx_queue.device().clone()).expect("failed to create shader module");
+        let fs = fs::load(gfx_queue.device().clone()).expect("failed to create shader module");
 
-        let mut blend = AttachmentBlend::alpha_blending();
+        let mut blend = AttachmentBlend::alpha();
         blend.color_source = BlendFactor::One;
+        let blend_state = ColorBlendState::new(1).blend(blend);
 
-        Arc::new(
-            GraphicsPipeline::start()
-                .vertex_input_single_buffer::<EguiVertex>()
-                .vertex_shader(vs.main_entry_point(), ())
-                .triangle_list()
-                .fragment_shader(fs.main_entry_point(), ())
-                .viewports_scissors_dynamic(1)
-                .blend_collective(blend)
-                .cull_mode_disabled()
-                .render_pass(subpass)
-                .build(gfx_queue.device().clone())
-                .unwrap(),
-        )
+        GraphicsPipeline::start()
+            .vertex_input_state(BuffersDefinition::new().vertex::<EguiVertex>())
+            .vertex_shader(vs.entry_point("main").unwrap(), ())
+            .input_assembly_state(InputAssemblyState::new())
+            .fragment_shader(fs.entry_point("main").unwrap(), ())
+            .viewport_state(ViewportState::viewport_dynamic_scissor_dynamic(1))
+            .color_blend_state(blend_state)
+            .rasterization_state(RasterizationState::new().cull_mode(CullModeEnum::None))
+            .render_pass(subpass)
+            .build(gfx_queue.device().clone())
+            .unwrap()
     }
 
     /// Creates a descriptor set for images
     fn sampled_image_desc_set(
         gfx_queue: Arc<Queue>,
         layout: &Arc<DescriptorSetLayout>,
-        image: Arc<dyn ImageViewAbstract + Send + Sync>,
-    ) -> Arc<dyn DescriptorSet + Send + Sync> {
+        image: Arc<dyn ImageViewAbstract + 'static>,
+    ) -> Arc<PersistentDescriptorSet> {
         let sampler = Sampler::new(
             gfx_queue.device().clone(),
             Filter::Linear,
@@ -237,8 +239,7 @@ impl Renderer {
         .expect("Failed to create sampler");
         let mut builder = PersistentDescriptorSet::start(layout.clone());
         builder.add_sampled_image(image.clone(), sampler).unwrap();
-        let set = builder.build().unwrap();
-        Arc::new(set)
+        builder.build().unwrap()
     }
 
     /// Registers a user texture. User texture needs to be unregistered when it is no longer needed
@@ -397,31 +398,26 @@ impl Renderer {
     }
 
     // Starts the rendering pipeline and returns [`AutoCommandBufferBuilder`] for drawing
-    fn start<I>(
+    fn start(
         &mut self,
-        final_image: I,
-    ) -> (AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>, [u32; 2])
-    where
-        I: ImageViewAbstract + Clone + Send + Sync + 'static,
-    {
+        final_image: Arc<dyn ImageViewAbstract + 'static>,
+    ) -> (AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>, [u32; 2]) {
         // Get dimensions
         let img_dims = final_image.image().dimensions().width_height();
         // Create framebuffer (must be in same order as render pass description in `new`
-        let framebuffer = Arc::new(
-            Framebuffer::start(
-                self.render_pass
-                    .as_ref()
-                    .expect(
-                        "No renderpass on this renderer (created with subpass), use \
-                         'draw_subpass' instead",
-                    )
-                    .clone(),
-            )
-            .add(final_image)
-            .unwrap()
-            .build()
-            .unwrap(),
-        );
+        let framebuffer = Framebuffer::start(
+            self.render_pass
+                .as_ref()
+                .expect(
+                    "No renderpass on this renderer (created with subpass), use 'draw_subpass' \
+                     instead",
+                )
+                .clone(),
+        )
+        .add(final_image)
+        .unwrap()
+        .build()
+        .unwrap();
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.gfx_queue.device().clone(),
             self.gfx_queue.family(),
@@ -438,16 +434,15 @@ impl Renderer {
     }
 
     /// Executes our draw commands on the final image and returns a `GpuFuture` to wait on
-    pub fn draw_on_image<F, I>(
+    pub fn draw_on_image<F>(
         &mut self,
         egui_context: &mut Context,
         clipped_meshes: Vec<egui::ClippedMesh>,
         before_future: F,
-        final_image: I,
+        final_image: Arc<dyn ImageViewAbstract + 'static>,
     ) -> Box<dyn GpuFuture>
     where
         F: GpuFuture + 'static,
-        I: ImageViewAbstract + Clone + Send + Sync + 'static,
     {
         let (mut command_buffer_builder, framebuffer_dimensions) = self.start(final_image);
         egui_context.update_elapsed_time();
@@ -572,7 +567,7 @@ impl Renderer {
                     PipelineBindPoint::Graphics,
                     self.pipeline.layout().clone(),
                     0,
-                    desc_set,
+                    desc_set.clone(),
                 )
                 .push_constants(self.pipeline.layout().clone(), 0, push_constants)
                 .bind_vertex_buffers(0, vertices.clone())

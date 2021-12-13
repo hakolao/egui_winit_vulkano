@@ -42,8 +42,8 @@ pub struct Renderer {
     surface: Arc<Surface<Window>>,
     queue: Arc<Queue>,
     swap_chain: Arc<Swapchain<Window>>,
-    final_images: Vec<Arc<ImageView<Arc<SwapchainImage<Window>>>>>,
-    scene_images: Vec<Arc<ImageView<Arc<AttachmentImage>>>>,
+    final_images: Vec<Arc<ImageView<SwapchainImage<Window>>>>,
+    scene_images: Vec<Arc<ImageView<AttachmentImage>>>,
     image_num: usize,
     scene_view_size: [u32; 2],
     recreate_swapchain: bool,
@@ -151,7 +151,7 @@ impl Renderer {
         device: Arc<Device>,
         queue: Arc<Queue>,
         present_mode: PresentMode,
-    ) -> (Arc<Swapchain<Window>>, Vec<Arc<ImageView<Arc<SwapchainImage<Window>>>>>) {
+    ) -> (Arc<Swapchain<Window>>, Vec<Arc<ImageView<SwapchainImage<Window>>>>) {
         let caps = surface.capabilities(physical).unwrap();
         let alpha = caps.supported_composite_alpha.iter().next().unwrap();
         let format = caps.supported_formats[0].0;
@@ -178,9 +178,9 @@ impl Renderer {
 
     fn create_scene_images(
         device: Arc<Device>,
-        swapchain_images: &Vec<Arc<ImageView<Arc<SwapchainImage<Window>>>>>,
+        swapchain_images: &Vec<Arc<ImageView<SwapchainImage<Window>>>>,
         scene_view_size: [u32; 2],
-    ) -> Vec<Arc<ImageView<Arc<AttachmentImage>>>> {
+    ) -> Vec<Arc<ImageView<AttachmentImage>>> {
         let mut scene_images = vec![];
         for si in swapchain_images {
             let image = ImageView::new(
@@ -222,7 +222,7 @@ impl Renderer {
         self.image_num
     }
 
-    pub fn scene_images(&mut self) -> &Vec<Arc<ImageView<Arc<AttachmentImage>>>> {
+    pub fn scene_images(&mut self) -> &Vec<Arc<ImageView<AttachmentImage>>> {
         &self.scene_images
     }
 

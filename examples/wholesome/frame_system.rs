@@ -21,8 +21,8 @@ use vulkano::{
     },
     device::Queue,
     format::Format,
-    image::{view::ImageView, AttachmentImage, ImageViewAbstract},
-    render_pass::{Framebuffer, FramebufferAbstract, RenderPass, Subpass},
+    image::{view::ImageView, AttachmentImage, ImageAccess, ImageViewAbstract},
+    render_pass::{Framebuffer, RenderPass, Subpass},
     sync::GpuFuture,
 };
 
@@ -30,37 +30,35 @@ use vulkano::{
 pub struct FrameSystem {
     gfx_queue: Arc<Queue>,
     render_pass: Arc<RenderPass>,
-    depth_buffer: Arc<ImageView<Arc<AttachmentImage>>>,
+    depth_buffer: Arc<ImageView<AttachmentImage>>,
 }
 
 impl FrameSystem {
     pub fn new(gfx_queue: Arc<Queue>, final_output_format: Format) -> FrameSystem {
-        let render_pass = Arc::new(
-            vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
-                attachments: {
-                    final_color: {
-                        load: Clear,
-                        store: Store,
-                        format: final_output_format,
-                        samples: 1,
-                    },
-                    depth: {
-                        load: Clear,
-                        store: DontCare,
-                        format: Format::D16_UNORM,
-                        samples: 1,
-                    }
+        let render_pass = vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
+            attachments: {
+                final_color: {
+                    load: Clear,
+                    store: Store,
+                    format: final_output_format,
+                    samples: 1,
                 },
-                passes: [
-                    {
-                        color: [final_color],
-                        depth_stencil: {depth},
-                        input: []
-                    }
-                ]
-            )
-            .unwrap(),
-        );
+                depth: {
+                    load: Clear,
+                    store: DontCare,
+                    format: Format::D16_UNORM,
+                    samples: 1,
+                }
+            },
+            passes: [
+                {
+                    color: [final_color],
+                    depth_stencil: {depth},
+                    input: []
+                }
+            ]
+        )
+        .unwrap();
         let depth_buffer = ImageView::new(
             AttachmentImage::transient_input_attachment(
                 gfx_queue.device().clone(),
@@ -70,7 +68,7 @@ impl FrameSystem {
             .unwrap(),
         )
         .unwrap();
-        FrameSystem { gfx_queue, render_pass: render_pass as Arc<_>, depth_buffer }
+        FrameSystem { gfx_queue, render_pass, depth_buffer }
     }
 
     #[inline]
@@ -78,15 +76,14 @@ impl FrameSystem {
         Subpass::from(self.render_pass.clone(), 0).unwrap()
     }
 
-    pub fn frame<F, I>(
+    pub fn frame<F>(
         &mut self,
         before_future: F,
-        final_image: I,
+        final_image: Arc<dyn ImageViewAbstract + 'static>,
         world_to_framebuffer: Matrix4<f32>,
     ) -> Frame
     where
         F: GpuFuture + 'static,
-        I: ImageViewAbstract + Clone + Send + Sync + 'static,
     {
         let img_dims = final_image.image().dimensions().width_height();
         if self.depth_buffer.image().dimensions().width_height() != img_dims {
@@ -100,15 +97,13 @@ impl FrameSystem {
             )
             .unwrap();
         }
-        let framebuffer = Arc::new(
-            Framebuffer::start(self.render_pass.clone())
-                .add(final_image)
-                .unwrap()
-                .add(self.depth_buffer.clone())
-                .unwrap()
-                .build()
-                .unwrap(),
-        );
+        let framebuffer = Framebuffer::start(self.render_pass.clone())
+            .add(final_image)
+            .unwrap()
+            .add(self.depth_buffer.clone())
+            .unwrap()
+            .build()
+            .unwrap();
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.gfx_queue.device().clone(),
             self.gfx_queue.family(),
@@ -137,7 +132,7 @@ pub struct Frame<'a> {
     system: &'a mut FrameSystem,
     num_pass: u8,
     before_main_cb_future: Option<Box<dyn GpuFuture>>,
-    framebuffer: Arc<dyn FramebufferAbstract + Send + Sync>,
+    framebuffer: Arc<Framebuffer>,
     command_buffer_builder: Option<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>>,
     #[allow(dead_code)]
     world_to_framebuffer: Matrix4<f32>,
