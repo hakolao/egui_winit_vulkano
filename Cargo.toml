@@ -1,6 +1,6 @@
 [package]
 name = "egui_winit_vulkano"
-version = "0.13.0"
+version = "0.14.0"
 authors = ["hakolao <okkohakola@gmail.com>"]
 edition = "2018"
 description = "Egui immediate mode gui integration with winit and Vulkano"
