@@ -68,7 +68,7 @@ pub fn main() {
                         });
                         ui.separator();
                         ui.columns(2, |columns| {
-                            ScrollArea::auto_sized().id_source("source").show(
+                            ScrollArea::vertical().id_source("source").show(
                                 &mut columns[0],
                                 |ui| {
                                     ui.add(
@@ -77,7 +77,7 @@ pub fn main() {
                                     );
                                 },
                             );
-                            ScrollArea::auto_sized().id_source("rendered").show(
+                            ScrollArea::vertical().id_source("rendered").show(
                                 &mut columns[1],
                                 |ui| {
                                     egui_demo_lib::easy_mark::easy_mark(ui, &code);
@@ -111,7 +111,7 @@ struct SimpleGuiRenderer {
     surface: Arc<Surface<Window>>,
     queue: Arc<Queue>,
     swap_chain: Arc<Swapchain<Window>>,
-    final_images: Vec<Arc<ImageView<Arc<SwapchainImage<Window>>>>>,
+    final_images: Vec<Arc<ImageView<SwapchainImage<Window>>>>,
     recreate_swapchain: bool,
     previous_frame_end: Option<Box<dyn GpuFuture>>,
 }
@@ -204,7 +204,7 @@ impl SimpleGuiRenderer {
         device: Arc<Device>,
         queue: Arc<Queue>,
         present_mode: PresentMode,
-    ) -> (Arc<Swapchain<Window>>, Vec<Arc<ImageView<Arc<SwapchainImage<Window>>>>>) {
+    ) -> (Arc<Swapchain<Window>>, Vec<Arc<ImageView<SwapchainImage<Window>>>>) {
         let caps = surface.capabilities(physical).unwrap();
         let alpha = caps.supported_composite_alpha.iter().next().unwrap();
         let format = caps.supported_formats[0].0;

@@ -16,14 +16,14 @@ use vulkano::{
     command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, SubpassContents},
     device::{physical::PhysicalDevice, Device, DeviceExtensions, Features, Queue},
     format::Format,
-    image::{view::ImageView, ImageUsage, SwapchainImage},
+    image::{view::ImageView, ImageAccess, ImageUsage, SwapchainImage},
     instance::{Instance, InstanceExtensions},
     pipeline::{
         graphics::{
-            input_assembly::InputAssemblyState, vertex_input::BuffersDefinition,
-            viewport::ViewportState,
+            input_assembly::InputAssemblyState,
+            vertex_input::BuffersDefinition,
+            viewport::{Viewport, ViewportState},
         },
-        viewport::Viewport,
         GraphicsPipeline,
     },
     render_pass::{Framebuffer, RenderPass, Subpass},
@@ -80,7 +80,7 @@ pub fn main() {
                         });
                         ui.separator();
                         ui.columns(2, |columns| {
-                            ScrollArea::auto_sized().id_source("source").show(
+                            ScrollArea::vertical().id_source("source").show(
                                 &mut columns[0],
                                 |ui| {
                                     ui.add(
@@ -89,7 +89,7 @@ pub fn main() {
                                     );
                                 },
                             );
-                            ScrollArea::auto_sized().id_source("rendered").show(
+                            ScrollArea::vertical().id_source("rendered").show(
                                 &mut columns[1],
                                 |ui| {
                                     egui_demo_lib::easy_mark::easy_mark(ui, &code);
@@ -127,7 +127,7 @@ struct SimpleGuiRenderer {
     render_pass: Arc<RenderPass>,
     pipeline: Arc<GraphicsPipeline>,
     swap_chain: Arc<Swapchain<Window>>,
-    final_images: Vec<Arc<ImageView<Arc<SwapchainImage<Window>>>>>,
+    final_images: Vec<Arc<ImageView<SwapchainImage<Window>>>>,
     recreate_swapchain: bool,
     previous_frame_end: Option<Box<dyn GpuFuture>>,
     vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
@@ -243,7 +243,7 @@ impl SimpleGuiRenderer {
         device: Arc<Device>,
         queue: Arc<Queue>,
         present_mode: PresentMode,
-    ) -> (Arc<Swapchain<Window>>, Vec<Arc<ImageView<Arc<SwapchainImage<Window>>>>>) {
+    ) -> (Arc<Swapchain<Window>>, Vec<Arc<ImageView<SwapchainImage<Window>>>>) {
         let caps = surface.capabilities(physical).unwrap();
         let alpha = caps.supported_composite_alpha.iter().next().unwrap();
         let format = caps.supported_formats[0].0;
@@ -269,24 +269,22 @@ impl SimpleGuiRenderer {
     }
 
     fn create_render_pass(device: Arc<Device>, format: Format) -> Arc<RenderPass> {
-        Arc::new(
-            vulkano::ordered_passes_renderpass!(
-                device,
-                attachments: {
-                    color: {
-                        load: Clear,
-                        store: Store,
-                        format: format,
-                        samples: 1,
-                    }
-                },
-                passes: [
-                    { color: [color], depth_stencil: {}, input: [] }, // Draw what you want on this pass
-                    { color: [color], depth_stencil: {}, input: [] } // Gui render pass
-                ]
-            )
-            .unwrap(),
+        vulkano::ordered_passes_renderpass!(
+            device,
+            attachments: {
+                color: {
+                    load: Clear,
+                    store: Store,
+                    format: format,
+                    samples: 1,
+                }
+            },
+            passes: [
+                { color: [color], depth_stencil: {}, input: [] }, // Draw what you want on this pass
+                { color: [color], depth_stencil: {}, input: [] } // Gui render pass
+            ]
         )
+        .unwrap()
     }
 
     fn gui_pass(&self) -> Subpass {
@@ -302,7 +300,7 @@ impl SimpleGuiRenderer {
             .vertex_shader(vs.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
             .fragment_shader(fs.entry_point("main").unwrap(), ())
-            .viewport_state(ViewportState::viewport_dynamic_scissor_dynamic(1))
+            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
             .render_pass(Subpass::from(render_pass, 0).unwrap())
             .build(device)
             .unwrap()
@@ -346,14 +344,12 @@ impl SimpleGuiRenderer {
         )
         .unwrap();
 
-        let dimensions = self.final_images[0].image().dimensions();
-        let framebuffer = Arc::new(
-            Framebuffer::start(self.render_pass.clone())
-                .add(self.final_images[image_num].clone())
-                .unwrap()
-                .build()
-                .unwrap(),
-        );
+        let dimensions = self.final_images[0].image().dimensions().width_height();
+        let framebuffer = Framebuffer::start(self.render_pass.clone())
+            .add(self.final_images[image_num].clone())
+            .unwrap()
+            .build()
+            .unwrap();
 
         // Begin render pipeline commands
         let clear_values = vec![[0.0, 1.0, 0.0, 1.0].into()];

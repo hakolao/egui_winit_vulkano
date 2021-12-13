@@ -20,4 +20,4 @@ winit = "0.25.0"
 
 [dev-dependencies]
 cgmath = "0.18.0"
-egui_demo_lib = "0.14.0"
+egui_demo_lib = "0.15.0"
