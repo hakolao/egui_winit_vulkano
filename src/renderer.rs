@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use egui::{paint::Mesh, Rect};
+use egui::{epaint::Mesh, Rect};
 use vulkano::{
     buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer},
     command_buffer::{

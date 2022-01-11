@@ -10,7 +10,7 @@
 use std::time::Instant;
 
 use copypasta::{ClipboardContext, ClipboardProvider};
-use egui::{paint::ClippedMesh, CtxRef, Pos2, RawInput, Rect, Vec2};
+use egui::{epaint::ClippedMesh, CtxRef, Pos2, RawInput, Rect, Vec2};
 use winit::{
     dpi::PhysicalSize,
     event::{ElementState, Event, ModifiersState, MouseScrollDelta, VirtualKeyCode, WindowEvent},
