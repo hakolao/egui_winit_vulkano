@@ -27,6 +27,10 @@ pub struct Context {
     modifiers_state: ModifiersState,
     clipboard: ClipboardContext,
     start_time: Option<Instant>,
+    // Controls whether cursor icon should be updated. We should not change
+    // the cursor outside the window because that messes up resize cursor
+    // at least on windows 10, making it flicker between pointer and resize.
+    cursor_is_within_window: bool,
 }
 
 impl Context {
@@ -47,6 +51,9 @@ impl Context {
             modifiers_state: ModifiersState::default(),
             clipboard: ClipboardContext::new().expect("Failed to initialize ClipboardContext."),
             start_time: None,
+            // Set to false initially from the start because winit will send a cursor entered
+            // event immediately even if window spawns under cursor.
+            cursor_is_within_window: false,
         }
     }
 
@@ -130,10 +137,14 @@ impl Context {
                 WindowEvent::MouseWheel { delta, .. } => match delta {
                     MouseScrollDelta::LineDelta(x, y) => {
                         let line_height = 24.0;
-                        self.raw_input.scroll_delta = Vec2::new(*x, *y) * line_height;
+                        self.raw_input
+                            .events
+                            .push(egui::Event::Scroll(Vec2::new(*x, *y) * line_height));
                     }
                     MouseScrollDelta::PixelDelta(delta) => {
-                        self.raw_input.scroll_delta = Vec2::new(delta.x as f32, delta.y as f32);
+                        self.raw_input
+                            .events
+                            .push(egui::Event::Scroll(Vec2::new(delta.x as f32, delta.y as f32)));
                     }
                 },
                 WindowEvent::CursorMoved { position, .. } => {
@@ -148,8 +159,15 @@ impl Context {
                     self.raw_input.events.push(egui::Event::PointerMoved(pos));
                     self.mouse_pos = pos;
                 }
+                WindowEvent::CursorEntered { .. } => {
+                    // Note that this event is fired when mouse enters or if window spawns behind the cursor
+                    // or if window is programatically moved to be behind the cursor. At least this is true
+                    // on windows 10.
+                    self.cursor_is_within_window = true;
+                }
                 WindowEvent::CursorLeft { .. } => {
                     self.raw_input.events.push(egui::Event::PointerGone);
+                    self.cursor_is_within_window = false;
                 }
                 WindowEvent::ModifiersChanged(input) => self.modifiers_state = *input,
                 WindowEvent::KeyboardInput { input, .. } => {
@@ -188,7 +206,9 @@ impl Context {
     }
 
     pub fn update_cursor_icon(&self, window: &Window, cursor: egui::CursorIcon) {
-        window.set_cursor_icon(EguiToWinit::cursor(cursor))
+        if self.cursor_is_within_window {
+            window.set_cursor_icon(EguiToWinit::cursor(cursor))
+        }
     }
 
     /// Returns the screen rect based on size & scale factor (pixels per point)
