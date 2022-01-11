@@ -348,10 +348,31 @@ impl Renderer {
         self.index_buffer = index_buffer;
     }
 
-    fn copy_mesh(&self, mesh: Mesh, vertex_start: DeviceSize, index_start: DeviceSize) {
+    fn copy_mesh(&mut self, mesh: Mesh, vertex_start: DeviceSize, index_start: DeviceSize) {
         // Copy vertices to buffer
         let v_slice = &mesh.vertices;
-        let mut vertex_content = self.vertex_buffer.write().unwrap();
+        // Attempt to write to the old vertex buffer. It might be in use, in which case we simply create a new one.
+        // TODO: consider a double buffering solution perhaps.
+        let vc = self.vertex_buffer.write();
+        // Now we want to allocate new buffers if they are in use.
+        // We can't use match here due to holding a reference to self.vertex_buffer.
+        let mut vertex_content = if vc.is_err() {
+            // Avoid Error holding a borrow preventing us from reallocating.
+            std::mem::drop(vc);
+            println!("resizing");
+            // Resize and not to 64 times the original size but 2x.
+            let vtx_size = std::mem::size_of::<EguiVertex>() as DeviceSize;
+            let idx_size = std::mem::size_of::<u32>() as DeviceSize;
+            // Reallocate buffers of the same size, index buffer is also probably in use.
+            self.resize_allocations(
+                self.vertex_buffer.size() / vtx_size,
+                self.index_buffer.size() / idx_size,
+            );
+            // This time it should surely be writeable.
+            self.vertex_buffer.write().unwrap()
+        } else {
+            vc.unwrap()
+        };
         let mut slice_i = 0;
         for i in vertex_start..(vertex_start + v_slice.len() as DeviceSize) {
             let v = v_slice[slice_i];
@@ -524,12 +545,13 @@ impl Renderer {
             let indices_count = mesh.indices.len() as DeviceSize;
             // Resize buffers if needed
             if self.resize_needed(vertex_start + vertices_count, index_start + indices_count) {
+                // Resize and not to 64 times the original size but 2x.
+                let vtx_size = std::mem::size_of::<EguiVertex>() as DeviceSize;
+                let idx_size = std::mem::size_of::<u32>() as DeviceSize;
                 self.resize_allocations(
-                    self.vertex_buffer.size() * 2,
-                    self.index_buffer.size() * 2,
+                    self.vertex_buffer.size() / vtx_size * 2,
+                    self.index_buffer.size() / idx_size * 2,
                 );
-                // Stop copying and continue next frame
-                break;
             }
             self.copy_mesh(mesh, vertex_start, index_start);
             // Access vertex & index slices for drawing
