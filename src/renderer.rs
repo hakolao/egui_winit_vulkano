@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use egui::{epaint::Mesh, Rect};
 use vulkano::{
-    buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer},
+    buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
         SecondaryAutoCommandBuffer, SubpassContents,
@@ -375,10 +375,7 @@ impl Renderer {
     }
 
     fn resize_needed(&self, vertex_end: DeviceSize, index_end: DeviceSize) -> bool {
-        let vtx_size = std::mem::size_of::<EguiVertex>() as DeviceSize;
-        let idx_size = std::mem::size_of::<u32>() as DeviceSize;
-        vertex_end * vtx_size >= self.vertex_buffer.size()
-            || index_end * idx_size >= self.index_buffer.size()
+        vertex_end >= self.vertex_buffer.len() || index_end >= self.index_buffer.len()
     }
 
     fn create_secondary_command_buffer_builder(
@@ -520,10 +517,8 @@ impl Renderer {
             let indices_count = mesh.indices.len() as DeviceSize;
             // Resize buffers if needed
             if self.resize_needed(vertex_start + vertices_count, index_start + indices_count) {
-                self.resize_allocations(
-                    self.vertex_buffer.size() * 2,
-                    self.index_buffer.size() * 2,
-                );
+                // Double the allocations
+                self.resize_allocations(self.vertex_buffer.len() * 2, self.index_buffer.len() * 2);
                 // Stop copying and continue next frame
                 break;
             }
