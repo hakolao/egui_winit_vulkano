@@ -10,7 +10,7 @@
 use std::time::Instant;
 
 use copypasta::{ClipboardContext, ClipboardProvider};
-use egui::{paint::ClippedMesh, CtxRef, Pos2, RawInput, Rect, Vec2};
+use egui::{ClippedMesh, CtxRef, Pos2, RawInput, Rect, Vec2};
 use winit::{
     dpi::PhysicalSize,
     event::{ElementState, Event, ModifiersState, MouseScrollDelta, VirtualKeyCode, WindowEvent},
@@ -130,10 +130,14 @@ impl Context {
                 WindowEvent::MouseWheel { delta, .. } => match delta {
                     MouseScrollDelta::LineDelta(x, y) => {
                         let line_height = 24.0;
-                        self.raw_input.scroll_delta = Vec2::new(*x, *y) * line_height;
+                        self.raw_input
+                            .events
+                            .push(egui::Event::Scroll(Vec2::new(*x, *y) * line_height));
                     }
                     MouseScrollDelta::PixelDelta(delta) => {
-                        self.raw_input.scroll_delta = Vec2::new(delta.x as f32, delta.y as f32);
+                        self.raw_input
+                            .events
+                            .push(egui::Event::Scroll(Vec2::new(delta.x as f32, delta.y as f32)));
                     }
                 },
                 WindowEvent::CursorMoved { position, .. } => {

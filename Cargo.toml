@@ -10,14 +10,14 @@ repository = "https://github.com/hakolao/egui_winit_vulkano"
 
 [dependencies]
 copypasta = "0.7.1"
-egui = "0.15.0"
+egui = "0.16.0"
 image = "0.23.14"
-vulkano = "0.27.1"
-vulkano-win = "0.27.1"
-vulkano-shaders = "0.27.1"
+vulkano = { git = "https://github.com/vulkano-rs/vulkano.git", rev = "d36bba1" }
+vulkano-win = { git = "https://github.com/vulkano-rs/vulkano.git", rev = "d36bba1" }
+vulkano-shaders = { git = "https://github.com/vulkano-rs/vulkano.git", rev = "d36bba1" }
 webbrowser = "0.5.5"
-winit = "0.25.0"
+winit = "0.26"
 
 [dev-dependencies]
 cgmath = "0.18.0"
-egui_demo_lib = "0.15.0"
+egui_demo_lib = "0.16.0"

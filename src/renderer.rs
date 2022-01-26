@@ -9,14 +9,14 @@
 
 use std::sync::Arc;
 
-use egui::{paint::Mesh, Rect};
+use egui::{epaint::Mesh, Rect};
 use vulkano::{
     buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer},
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
         SecondaryAutoCommandBuffer, SubpassContents,
     },
-    descriptor_set::{layout::DescriptorSetLayout, PersistentDescriptorSet},
+    descriptor_set::{layout::DescriptorSetLayout, PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
     format::{ClearValue, Format},
     image::{view::ImageView, AttachmentImage, ImageViewAbstract},
@@ -31,7 +31,7 @@ use vulkano::{
         GraphicsPipeline, Pipeline, PipelineBindPoint,
     },
     render_pass::{Framebuffer, RenderPass, Subpass},
-    sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode},
+    sampler::{Filter, Sampler, SamplerAddressMode, SamplerMipmapMode},
     sync::GpuFuture,
     DeviceSize,
 };
@@ -223,23 +223,19 @@ impl Renderer {
         layout: &Arc<DescriptorSetLayout>,
         image: Arc<dyn ImageViewAbstract + 'static>,
     ) -> Arc<PersistentDescriptorSet> {
-        let sampler = Sampler::new(
-            gfx_queue.device().clone(),
-            Filter::Linear,
-            Filter::Linear,
-            MipmapMode::Linear,
-            SamplerAddressMode::ClampToEdge,
-            SamplerAddressMode::ClampToEdge,
-            SamplerAddressMode::ClampToEdge,
-            0.0,
-            1.0,
-            0.0,
-            0.0,
-        )
-        .expect("Failed to create sampler");
-        let mut builder = PersistentDescriptorSet::start(layout.clone());
-        builder.add_sampled_image(image.clone(), sampler).unwrap();
-        builder.build().unwrap()
+        let sampler_builder = Sampler::start(gfx_queue.device().clone())
+            .filter(Filter::Linear)
+            .address_mode(SamplerAddressMode::ClampToEdge)
+            .mipmap_mode(SamplerMipmapMode::Linear)
+            .mip_lod_bias(0.0)
+            .lod(0.0..=0.0);
+        let sampler = sampler_builder.build().expect("Failed to create sampler");
+        PersistentDescriptorSet::new(layout.clone(), [WriteDescriptorSet::image_view_sampler(
+            0,
+            image.clone(),
+            sampler,
+        )])
+        .unwrap()
     }
 
     /// Registers a user texture. User texture needs to be unregistered when it is no longer needed
@@ -274,7 +270,7 @@ impl Renderer {
     }
 
     fn update_font_texture(&mut self, egui_context: &Context) {
-        let texture = egui_context.context().texture();
+        let texture = egui_context.context().font_image();
         if texture.version == self.egui_texture_version {
             return;
         }
