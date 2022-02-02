@@ -1,23 +1,26 @@
 [package]
 name = "egui_winit_vulkano"
-version = "0.14.0"
+version = "0.15.0"
 authors = ["hakolao <okkohakola@gmail.com>"]
 edition = "2018"
 description = "Egui immediate mode gui integration with winit and Vulkano"
-license = "MIT"
+homepage = "https://github.com/hakolao/egui_winit_vulkano"
+license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/hakolao/egui_winit_vulkano"
+categories = ["gui", "game-development"]
+keywords = ["gui", "imgui", "immediate", "portable", "gamedev"]
 
 [dependencies]
 copypasta = "0.7.1"
-egui = "0.15.0"
+egui = "0.16.0"
 image = "0.23.14"
-vulkano = "0.27.1"
-vulkano-win = "0.27.1"
-vulkano-shaders = "0.27.1"
+vulkano = "0.28.0"
+vulkano-shaders = "0.28.0"
 webbrowser = "0.5.5"
-winit = "0.25.0"
+winit = "0.26"
 
 [dev-dependencies]
 cgmath = "0.18.0"
-egui_demo_lib = "0.15.0"
+egui_demo_lib = "0.16.0"
+vulkano-win = "0.28.0"

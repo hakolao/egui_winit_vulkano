@@ -1,8 +1,8 @@
 # egui_winit_vulkano
 
 [![Crates.io](https://img.shields.io/crates/v/egui_winit_vulkano.svg)](https://crates.io/crates/egui_winit_vulkano)
-![MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Apache](https://img.shields.io/badge/license-Apache-blue.svg)
+![CI](https://github.com/hakolao/egui_winit_vulkano/workflows/CI/badge.svg)
 
 This is an [egui](https://github.com/emilk/egui) integration for
 [winit](https://github.com/rust-windowing/winit) and [vulkano](https://github.com/vulkano-rs/vulkano).
