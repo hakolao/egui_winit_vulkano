@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use egui::{CtxRef, Visuals};
+use egui::{Context, Visuals};
 use egui_winit_vulkano::Gui;
 use vulkano::{
     format::Format,
@@ -69,7 +69,7 @@ impl GuiState {
     /// Defines the layout of our UI
     pub fn layout(
         &mut self,
-        egui_context: CtxRef,
+        egui_context: Context,
         window: &Window,
         last_image_num: usize,
         fps: f32,

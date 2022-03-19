@@ -13,6 +13,7 @@
 
 use std::sync::Arc;
 
+use bytemuck::{Pod, Zeroable};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, SecondaryAutoCommandBuffer},
@@ -93,7 +94,8 @@ impl TriangleDrawSystem {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[repr(C)]
+#[derive(Default, Debug, Copy, Clone, Zeroable, Pod)]
 struct Vertex {
     position: [f32; 2],
     color: [f32; 4],

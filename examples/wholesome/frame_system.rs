@@ -11,7 +11,7 @@
 // https://github.com/vulkano-rs/vulkano-examples/blob/master/src/bin/deferred/frame/system.rs
 // Egui drawing could be its own pass or it could be a deferred subpass
 
-use std::sync::Arc;
+use std::{convert::TryFrom, sync::Arc};
 
 use cgmath::Matrix4;
 use vulkano::{
@@ -22,7 +22,7 @@ use vulkano::{
     device::Queue,
     format::Format,
     image::{view::ImageView, AttachmentImage, ImageAccess, ImageViewAbstract},
-    render_pass::{Framebuffer, RenderPass, Subpass},
+    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
 };
 
@@ -59,7 +59,7 @@ impl FrameSystem {
             ]
         )
         .unwrap();
-        let depth_buffer = ImageView::new(
+        let depth_buffer = ImageView::new_default(
             AttachmentImage::transient_input_attachment(
                 gfx_queue.device().clone(),
                 [1, 1],
@@ -87,7 +87,7 @@ impl FrameSystem {
     {
         let img_dims = final_image.image().dimensions().width_height();
         if self.depth_buffer.image().dimensions().width_height() != img_dims {
-            self.depth_buffer = ImageView::new(
+            self.depth_buffer = ImageView::new_default(
                 AttachmentImage::transient_input_attachment(
                     self.gfx_queue.device().clone(),
                     img_dims,
@@ -97,13 +97,11 @@ impl FrameSystem {
             )
             .unwrap();
         }
-        let framebuffer = Framebuffer::start(self.render_pass.clone())
-            .add(final_image)
-            .unwrap()
-            .add(self.depth_buffer.clone())
-            .unwrap()
-            .build()
-            .unwrap();
+        let framebuffer = Framebuffer::new(self.render_pass.clone(), FramebufferCreateInfo {
+            attachments: vec![final_image, self.depth_buffer.clone()],
+            ..Default::default()
+        })
+        .unwrap();
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.gfx_queue.device().clone(),
             self.gfx_queue.family(),
@@ -188,8 +186,7 @@ impl<'f, 's: 'f> DrawPass<'f, 's> {
     #[allow(dead_code)]
     #[inline]
     pub fn viewport_dimensions(&self) -> [u32; 2] {
-        let dims = self.frame.framebuffer.dimensions();
-        [dims[0], dims[1]]
+        self.frame.framebuffer.extent()
     }
 
     #[allow(dead_code)]
