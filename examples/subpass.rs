@@ -395,7 +395,7 @@ impl SimpleGuiRenderer {
         let after_future = before_future.then_execute(self.queue.clone(), command_buffer).unwrap();
 
         // Finish render
-        self.finish(Box::new(after_future), image_num);
+        self.finish(after_future.boxed(), image_num);
     }
 
     fn recreate_swapchain(&mut self) {
