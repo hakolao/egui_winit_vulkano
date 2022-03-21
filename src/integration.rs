@@ -126,7 +126,7 @@ impl Gui {
                  instead"
             )
         }
-        let egui::FullOutput { platform_output, needs_repaint, textures_delta, shapes } =
+        let egui::FullOutput { platform_output, needs_repaint: _n, textures_delta, shapes } =
             self.egui_ctx.end_frame();
         self.egui_winit.handle_platform_output(
             self.surface.window(),
@@ -136,21 +136,16 @@ impl Gui {
         self.shapes = shapes;
         self.textures_delta.append(textures_delta);
 
-        // Draw egui meshes if needed
-        if needs_repaint {
-            let shapes = std::mem::take(&mut self.shapes);
-            let textures_delta = std::mem::take(&mut self.textures_delta);
-            let clipped_meshes = self.egui_ctx.tessellate(shapes);
-            self.renderer.draw_on_image(
-                &clipped_meshes,
-                &textures_delta,
-                self.egui_winit.pixels_per_point(),
-                before_future,
-                final_image,
-            )
-        } else {
-            before_future.boxed()
-        }
+        let shapes = std::mem::take(&mut self.shapes);
+        let textures_delta = std::mem::take(&mut self.textures_delta);
+        let clipped_meshes = self.egui_ctx.tessellate(shapes);
+        self.renderer.draw_on_image(
+            &clipped_meshes,
+            &textures_delta,
+            self.egui_winit.pixels_per_point(),
+            before_future,
+            final_image,
+        )
     }
 
     /// Creates commands for rendering ui on subpass' image and returns the command buffer for execution on your side
