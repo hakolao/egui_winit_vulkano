@@ -168,7 +168,7 @@ impl Renderer {
         };
         let index_buffer = unsafe {
             CpuAccessibleBuffer::<[u32]>::uninitialized_array(
-                device.clone(),
+                device,
                 INDEX_BUFFER_SIZE,
                 BufferUsage::index_buffer(),
                 false,
