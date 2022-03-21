@@ -9,8 +9,9 @@
 
 use std::{convert::TryFrom, sync::Arc};
 
+use ahash::AHashMap;
 use bytemuck::{Pod, Zeroable};
-use egui::{epaint::Mesh, Rect};
+use egui::{epaint::Mesh, ClippedMesh, Rect, TexturesDelta};
 use vulkano::{
     buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
@@ -20,7 +21,7 @@ use vulkano::{
     descriptor_set::{layout::DescriptorSetLayout, PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
     format::{ClearValue, Format},
-    image::{view::ImageView, AttachmentImage, ImageViewAbstract},
+    image::ImageViewAbstract,
     pipeline::{
         graphics::{
             color_blend::{AttachmentBlend, BlendFactor, ColorBlendState},
@@ -37,7 +38,7 @@ use vulkano::{
     DeviceSize,
 };
 
-use crate::{context::Context, utils::texture_from_bytes};
+use crate::utils::texture_from_bytes;
 
 const VERTICES_PER_QUAD: DeviceSize = 4;
 const VERTEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * VERTICES_PER_QUAD;
@@ -64,10 +65,8 @@ pub struct Renderer {
     index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
     pipeline: Arc<GraphicsPipeline>,
 
-    egui_texture_version: u64,
-    egui_texture_desc_set: Arc<PersistentDescriptorSet>,
-
-    user_texture_desc_sets: Vec<Option<Arc<PersistentDescriptorSet>>>,
+    texture_desc_sets: AHashMap<egui::TextureId, Arc<PersistentDescriptorSet>>,
+    next_native_tex_id: u64,
 }
 
 impl Renderer {
@@ -78,13 +77,6 @@ impl Renderer {
     ) -> Renderer {
         let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass);
-        let layout = pipeline.layout().set_layouts().get(0).unwrap();
-        let font_image = ImageView::new_default(
-            AttachmentImage::sampled(gfx_queue.device().clone(), [1, 1], final_output_format)
-                .unwrap(),
-        )
-        .unwrap();
-        let font_desc_set = Self::sampled_image_desc_set(gfx_queue.clone(), layout, font_image);
         Renderer {
             gfx_queue,
             format: final_output_format,
@@ -92,9 +84,8 @@ impl Renderer {
             vertex_buffer,
             index_buffer,
             pipeline,
-            egui_texture_version: 0,
-            egui_texture_desc_set: font_desc_set,
-            user_texture_desc_sets: vec![],
+            texture_desc_sets: AHashMap::default(),
+            next_native_tex_id: 0,
             is_overlay: false,
         }
     }
@@ -145,16 +136,6 @@ impl Renderer {
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass);
-        // Create image attachments (temporary)
-        let layout = pipeline.layout().set_layouts().get(0).unwrap();
-        // Create temp font image (gets replaced in draw)
-        let font_image = ImageView::new_default(
-            AttachmentImage::sampled(gfx_queue.device().clone(), [1, 1], final_output_format)
-                .unwrap(),
-        )
-        .unwrap();
-        // Create font image desc set
-        let font_desc_set = Self::sampled_image_desc_set(gfx_queue.clone(), layout, font_image);
         Renderer {
             gfx_queue,
             format: final_output_format,
@@ -162,9 +143,8 @@ impl Renderer {
             vertex_buffer,
             index_buffer,
             pipeline,
-            egui_texture_version: 0,
-            egui_texture_desc_set: font_desc_set,
-            user_texture_desc_sets: vec![],
+            texture_desc_sets: AHashMap::default(),
+            next_native_tex_id: 0,
             is_overlay,
         }
     }
@@ -242,78 +222,67 @@ impl Renderer {
     }
 
     /// Registers a user texture. User texture needs to be unregistered when it is no longer needed
-    pub fn register_user_image(
+    pub fn register_image(
         &mut self,
         image: Arc<dyn ImageViewAbstract + Send + Sync>,
     ) -> egui::TextureId {
-        // get texture id, if one has been unregistered, give that id as new id
-        let id = if let Some(i) = self.user_texture_desc_sets.iter().position(|utds| utds.is_none())
-        {
-            i as u64
-        } else {
-            self.user_texture_desc_sets.len() as u64
-        };
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
         let desc_set = Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, image);
-        if id == self.user_texture_desc_sets.len() as u64 {
-            self.user_texture_desc_sets.push(Some(desc_set));
-        } else {
-            self.user_texture_desc_sets[id as usize] = Some(desc_set);
-        }
-        egui::TextureId::User(id)
+        let id = egui::TextureId::User(self.next_native_tex_id);
+        self.next_native_tex_id += 1;
+        self.texture_desc_sets.insert(id, desc_set);
+        id
     }
 
     /// Unregister user texture.
-    pub fn unregister_user_image(&mut self, texture_id: egui::TextureId) {
-        if let egui::TextureId::User(id) = texture_id {
-            if let Some(_descriptor_set) = self.user_texture_desc_sets[id as usize].as_ref() {
-                self.user_texture_desc_sets[id as usize] = None;
-            }
-        }
+    pub fn unregister_image(&mut self, texture_id: egui::TextureId) {
+        self.texture_desc_sets.remove(&texture_id);
     }
 
-    fn update_font_texture(&mut self, egui_context: &Context) {
-        let texture = egui_context.context().font_image();
-        if texture.version == self.egui_texture_version {
-            return;
-        }
-        let data = texture.pixels.iter().flat_map(|&r| vec![r, r, r, r]).collect::<Vec<_>>();
-        // Update font image
+    fn update_texture(&mut self, texture_id: egui::TextureId, delta: &egui::epaint::ImageDelta) {
+        let data: Vec<u8> = match &delta.image {
+            egui::ImageData::Color(image) => {
+                assert_eq!(
+                    image.width() * image.height(),
+                    image.pixels.len(),
+                    "Mismatch between texture size and texel count"
+                );
+                image.pixels.iter().flat_map(|color| color.to_array()).collect()
+            }
+            egui::ImageData::Alpha(image) => {
+                let gamma = 1.0;
+                image.srgba_pixels(gamma).flat_map(|color| color.to_array()).collect()
+            }
+        };
+        // Update texture image
         let font_image = texture_from_bytes(
             self.gfx_queue.clone(),
             &data,
-            (texture.width as u64, texture.height as u64),
+            (delta.image.width() as u64, delta.image.height() as u64),
             self.format,
         )
-        .expect("Failed to load font image");
-        self.egui_texture_version = texture.version;
-        // Update descriptor set
-        let layout = &self.pipeline.layout().set_layouts().get(0).unwrap();
+        .unwrap();
+
+        let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
         let font_desc_set =
             Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, font_image.clone());
-        self.egui_texture_desc_set = font_desc_set;
+        self.texture_desc_sets.insert(texture_id, font_desc_set);
     }
 
     fn get_rect_scissor(
         &self,
-        egui_context: &mut Context,
+        scale_factor: f32,
         framebuffer_dimensions: [u32; 2],
         rect: Rect,
     ) -> Scissor {
         let min = rect.min;
-        let min = egui::Pos2 {
-            x: min.x * egui_context.scale_factor() as f32,
-            y: min.y * egui_context.scale_factor() as f32,
-        };
+        let min = egui::Pos2 { x: min.x * scale_factor, y: min.y * scale_factor };
         let min = egui::Pos2 {
             x: min.x.clamp(0.0, framebuffer_dimensions[0] as f32),
             y: min.y.clamp(0.0, framebuffer_dimensions[1] as f32),
         };
         let max = rect.max;
-        let max = egui::Pos2 {
-            x: max.x * egui_context.scale_factor() as f32,
-            y: max.y * egui_context.scale_factor() as f32,
-        };
+        let max = egui::Pos2 { x: max.x * scale_factor, y: max.y * scale_factor };
         let max = egui::Pos2 {
             x: max.x.clamp(min.x, framebuffer_dimensions[0] as f32),
             y: max.y.clamp(min.y, framebuffer_dimensions[1] as f32),
@@ -347,7 +316,7 @@ impl Renderer {
         self.index_buffer = index_buffer;
     }
 
-    fn copy_mesh(&self, mesh: Mesh, vertex_start: DeviceSize, index_start: DeviceSize) {
+    fn copy_mesh(&self, mesh: &Mesh, vertex_start: DeviceSize, index_start: DeviceSize) {
         // Copy vertices to buffer
         let v_slice = &mesh.vertices;
         let mut vertex_content = self.vertex_buffer.write().unwrap();
@@ -430,25 +399,33 @@ impl Renderer {
     /// Executes our draw commands on the final image and returns a `GpuFuture` to wait on
     pub fn draw_on_image<F>(
         &mut self,
-        egui_context: &mut Context,
-        clipped_meshes: Vec<egui::ClippedMesh>,
+        clipped_meshes: &[ClippedMesh],
+        textures_delta: &TexturesDelta,
+        scale_factor: f32,
         before_future: F,
         final_image: Arc<dyn ImageViewAbstract + 'static>,
     ) -> Box<dyn GpuFuture>
     where
         F: GpuFuture + 'static,
     {
-        let (mut command_buffer_builder, framebuffer_dimensions) = self.start(final_image);
-        egui_context.update_elapsed_time();
-        self.update_font_texture(egui_context);
+        for (id, image_delta) in &textures_delta.set {
+            self.update_texture(*id, image_delta);
+        }
 
+        let (mut command_buffer_builder, framebuffer_dimensions) = self.start(final_image);
         let mut builder = self.create_secondary_command_buffer_builder();
-        self.draw_egui(egui_context, clipped_meshes, framebuffer_dimensions, &mut builder);
+        self.draw_egui(scale_factor, clipped_meshes, framebuffer_dimensions, &mut builder);
 
         // Execute draw commands
         let command_buffer = builder.build().unwrap();
         command_buffer_builder.execute_commands(command_buffer).unwrap();
-        self.finish(command_buffer_builder, Box::new(before_future))
+        let done_future = self.finish(command_buffer_builder, Box::new(before_future));
+
+        for &id in &textures_delta.free {
+            self.unregister_image(id);
+        }
+
+        done_future
     }
 
     // Finishes the rendering pipeline
@@ -471,28 +448,34 @@ impl Renderer {
 
     pub fn draw_on_subpass_image(
         &mut self,
-        egui_context: &mut Context,
-        clipped_meshes: Vec<egui::ClippedMesh>,
+        clipped_meshes: &[ClippedMesh],
+        textures_delta: &TexturesDelta,
+        scale_factor: f32,
         framebuffer_dimensions: [u32; 2],
     ) -> SecondaryAutoCommandBuffer {
-        egui_context.update_elapsed_time();
-        self.update_font_texture(egui_context);
+        for (id, image_delta) in &textures_delta.set {
+            self.update_texture(*id, image_delta);
+        }
         let mut builder = self.create_secondary_command_buffer_builder();
-        self.draw_egui(egui_context, clipped_meshes, framebuffer_dimensions, &mut builder);
-        builder.build().unwrap()
+        self.draw_egui(scale_factor, clipped_meshes, framebuffer_dimensions, &mut builder);
+        let buffer = builder.build().unwrap();
+        for &id in &textures_delta.free {
+            self.unregister_image(id);
+        }
+        buffer
     }
 
     fn draw_egui(
         &mut self,
-        egui_context: &mut Context,
-        clipped_meshes: Vec<egui::ClippedMesh>,
+        scale_factor: f32,
+        clipped_meshes: &[ClippedMesh],
         framebuffer_dimensions: [u32; 2],
         builder: &mut AutoCommandBufferBuilder<SecondaryAutoCommandBuffer>,
     ) {
         let push_constants = vs::ty::PushConstants {
             screen_size: [
-                framebuffer_dimensions[0] as f32 / egui_context.scale_factor() as f32,
-                framebuffer_dimensions[1] as f32 / egui_context.scale_factor() as f32,
+                framebuffer_dimensions[0] as f32 / scale_factor,
+                framebuffer_dimensions[1] as f32 / scale_factor,
             ],
         };
 
@@ -503,17 +486,12 @@ impl Renderer {
             if mesh.vertices.is_empty() || mesh.indices.is_empty() {
                 continue;
             }
-            let mut user_image_id = None;
-            if let egui::TextureId::User(id) = mesh.texture_id {
-                // No user image available anymore, don't draw
-                if self.user_texture_desc_sets[id as usize].is_none() {
-                    eprintln!("This user texture no longer exists {:?}", mesh.texture_id);
-                    continue;
-                }
-                user_image_id = Some(id);
+            if self.texture_desc_sets.get(&mesh.texture_id).is_none() {
+                eprintln!("This texture no longer exists {:?}", mesh.texture_id);
+                continue;
             }
 
-            let scissors = vec![self.get_rect_scissor(egui_context, framebuffer_dimensions, rect)];
+            let scissors = vec![self.get_rect_scissor(scale_factor, framebuffer_dimensions, *rect)];
             let vertices_count = mesh.vertices.len() as DeviceSize;
             let indices_count = mesh.indices.len() as DeviceSize;
             // Resize buffers if needed
@@ -535,11 +513,7 @@ impl Renderer {
                 .into_buffer_slice()
                 .slice(index_start..(index_start + indices_count))
                 .unwrap();
-            let desc_set = if let Some(id) = user_image_id {
-                self.user_texture_desc_sets[id as usize].as_ref().unwrap().clone()
-            } else {
-                self.egui_texture_desc_set.clone()
-            };
+            let desc_set = self.texture_desc_sets.get(&mesh.texture_id).unwrap().clone();
             builder
                 .bind_pipeline_graphics(self.pipeline.clone())
                 .set_viewport(0, vec![Viewport {

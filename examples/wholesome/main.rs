@@ -141,20 +141,24 @@ pub fn main() {
     let mut gui_state = GuiState::new(&mut gui, scene_images, scene_view_size);
     event_loop.run(move |event, _, control_flow| {
         // Update Egui integration so the UI works!
-        gui.update(&event);
         match event {
-            Event::WindowEvent { event, window_id } if window_id == window_id => match event {
-                WindowEvent::Resized(_) => {
-                    renderer.resize();
+            Event::WindowEvent { event, window_id }
+                if window_id == renderer.surface().window().id() =>
+            {
+                let _pass_events_to_game = !gui.update(&event);
+                match event {
+                    WindowEvent::Resized(_) => {
+                        renderer.resize();
+                    }
+                    WindowEvent::ScaleFactorChanged { .. } => {
+                        renderer.resize();
+                    }
+                    WindowEvent::CloseRequested => {
+                        *control_flow = ControlFlow::Exit;
+                    }
+                    _ => (),
                 }
-                WindowEvent::ScaleFactorChanged { .. } => {
-                    renderer.resize();
-                }
-                WindowEvent::CloseRequested => {
-                    *control_flow = ControlFlow::Exit;
-                }
-                _ => (),
-            },
+            }
             Event::RedrawRequested(window_id) if window_id == window_id => {
                 // Set immediate UI in redraw here
                 // It's a closure giving access to egui context inside which you can call anything.

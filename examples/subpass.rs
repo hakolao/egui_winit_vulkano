@@ -58,21 +58,25 @@ pub fn main() {
     // Create gui state (pass anything your state requires)
     let mut code = CODE.to_owned();
     event_loop.run(move |event, _, control_flow| {
-        // Update Egui integration so the UI works!
-        gui.update(&event);
         match event {
-            Event::WindowEvent { event, window_id } if window_id == window_id => match event {
-                WindowEvent::Resized(_) => {
-                    renderer.resize();
+            Event::WindowEvent { event, window_id }
+                if window_id == renderer.surface().window().id() =>
+            {
+                // Update Egui integration so the UI works!
+                let _pass_events_to_game = !gui.update(&event);
+                match event {
+                    WindowEvent::Resized(_) => {
+                        renderer.resize();
+                    }
+                    WindowEvent::ScaleFactorChanged { .. } => {
+                        renderer.resize();
+                    }
+                    WindowEvent::CloseRequested => {
+                        *control_flow = ControlFlow::Exit;
+                    }
+                    _ => (),
                 }
-                WindowEvent::ScaleFactorChanged { .. } => {
-                    renderer.resize();
-                }
-                WindowEvent::CloseRequested => {
-                    *control_flow = ControlFlow::Exit;
-                }
-                _ => (),
-            },
+            }
             Event::RedrawRequested(window_id) if window_id == window_id => {
                 // Set immediate UI in redraw here
                 gui.immediate_ui(|gui| {
@@ -87,8 +91,7 @@ pub fn main() {
                                 &mut columns[0],
                                 |ui| {
                                     ui.add(
-                                        TextEdit::multiline(&mut code)
-                                            .text_style(TextStyle::Monospace),
+                                        TextEdit::multiline(&mut code).font(TextStyle::Monospace),
                                     );
                                 },
                             );
