@@ -12,18 +12,21 @@ use vulkano::{
     command_buffer::SecondaryAutoCommandBuffer, device::Queue, image::ImageViewAbstract,
     render_pass::Subpass, swapchain::Surface, sync::GpuFuture,
 };
-use winit::{event::Event, window::Window};
+use winit::window::Window;
 
 use crate::{
-    context::Context,
     renderer::Renderer,
     utils::{texture_from_bytes, texture_from_file},
 };
 
 pub struct Gui {
-    context: Context,
+    pub egui_ctx: egui::Context,
+    pub egui_winit: egui_winit::State,
     renderer: Renderer,
     surface: Arc<Surface<Window>>,
+
+    shapes: Vec<egui::epaint::ClippedShape>,
+    textures_delta: egui::TexturesDelta,
 }
 
 impl Gui {
@@ -35,11 +38,23 @@ impl Gui {
     /// - `gfx_queue`: Vulkano's [`Queue`]
     /// - `is_overlay`: If true, you should be responsible for clearing the image before `draw_on_image`, else it gets cleared
     pub fn new(surface: Arc<Surface<Window>>, gfx_queue: Arc<Queue>, is_overlay: bool) -> Gui {
-        let caps = surface.capabilities(gfx_queue.device().physical_device()).unwrap();
-        let format = caps.supported_formats[0].0;
-        let context = Context::new(surface.window().inner_size(), surface.window().scale_factor());
+        let format = gfx_queue
+            .device()
+            .physical_device()
+            .surface_formats(&surface, Default::default())
+            .unwrap()[0]
+            .0;
+        let max_texture_side =
+            gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
         let renderer = Renderer::new_with_render_pass(gfx_queue, format, is_overlay);
-        Gui { context, renderer, surface }
+        Gui {
+            egui_ctx: Default::default(),
+            egui_winit: egui_winit::State::new(max_texture_side, surface.window()),
+            renderer,
+            surface,
+            shapes: vec![],
+            textures_delta: Default::default(),
+        }
     }
 
     /// Same as `new` but instead of integration owning a render pass, egui renders on your subpass
@@ -48,22 +63,40 @@ impl Gui {
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
     ) -> Gui {
-        let caps = surface.capabilities(gfx_queue.device().physical_device()).unwrap();
-        let format = caps.supported_formats[0].0;
-        let context = Context::new(surface.window().inner_size(), surface.window().scale_factor());
+        let format = gfx_queue
+            .device()
+            .physical_device()
+            .surface_formats(&surface, Default::default())
+            .unwrap()[0]
+            .0;
+        let max_texture_side =
+            gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
         let renderer = Renderer::new_with_subpass(gfx_queue, format, subpass);
-        Gui { context, renderer, surface }
+        Gui {
+            egui_ctx: Default::default(),
+            egui_winit: egui_winit::State::new(max_texture_side, surface.window()),
+            renderer,
+            surface,
+            shapes: vec![],
+            textures_delta: Default::default(),
+        }
     }
 
-    /// Updates context state by winit event.
-    pub fn update<T>(&mut self, winit_event: &Event<T>) {
-        self.context.handle_event(winit_event)
+    /// Updates context state by winit window event.
+    /// Returns `true` if egui wants exclusive use of this event
+    /// (e.g. a mouse click on an egui window, or entering text into a text field).
+    /// For instance, if you use egui for a game, you want to first call this
+    /// and only when this returns `false` pass on the events to your game.
+    ///
+    /// Note that egui uses `tab` to move focus between elements, so this will always return `true` for tabs.
+    pub fn update(&mut self, winit_event: &winit::event::WindowEvent<'_>) -> bool {
+        self.egui_winit.on_event(&self.egui_ctx, winit_event)
     }
 
-    /// Sets Egui integration's UI layout. This must be called before draw
-    /// Begins Egui frame
+    /// Begins Egui frame & determines what will be drawn later. This must be called before draw, and after `update` (winit event).
     pub fn immediate_ui(&mut self, layout_function: impl FnOnce(&mut Self)) {
-        self.context.begin_frame();
+        let raw_input = self.egui_winit.take_egui_input(self.surface.window());
+        self.egui_ctx.begin_frame(raw_input);
         // Render Egui
         layout_function(self);
     }
@@ -71,7 +104,8 @@ impl Gui {
     /// If you wish to better control when to begin frame, do so by calling this function
     /// (Finish by drawing)
     pub fn begin_frame(&mut self) {
-        self.context.begin_frame();
+        let raw_input = self.egui_winit.take_egui_input(self.surface.window());
+        self.egui_ctx.begin_frame(raw_input);
     }
 
     /// Renders ui on `final_image` & Updates cursor icon
@@ -92,15 +126,33 @@ impl Gui {
                  instead"
             )
         }
-        let (output, clipped_meshes) = self.context.end_frame();
-        self.context.update_cursor_icon(self.surface.window(), output.cursor_icon);
-        // Draw egui meshes
-        self.renderer.draw_on_image(&mut self.context, clipped_meshes, before_future, final_image)
+        let egui::FullOutput { platform_output, needs_repaint: _n, textures_delta, shapes } =
+            self.egui_ctx.end_frame();
+        self.egui_winit.handle_platform_output(
+            self.surface.window(),
+            &self.egui_ctx,
+            platform_output,
+        );
+        self.shapes = shapes;
+        self.textures_delta.append(textures_delta);
+
+        let shapes = std::mem::take(&mut self.shapes);
+        let textures_delta = std::mem::take(&mut self.textures_delta);
+        let clipped_meshes = self.egui_ctx.tessellate(shapes);
+        self.renderer.draw_on_image(
+            &clipped_meshes,
+            &textures_delta,
+            self.egui_winit.pixels_per_point(),
+            before_future,
+            final_image,
+        )
     }
 
     /// Creates commands for rendering ui on subpass' image and returns the command buffer for execution on your side
     /// Finishes Egui frame
     /// - `final_image` = Vulkano's image (render target)
+    /// This will always draw the gui over the subpass image.
+    /// You must execute the secondary command buffer yourself
     pub fn draw_on_subpass_image(
         &mut self,
         image_dimensions: [u32; 2],
@@ -111,10 +163,25 @@ impl Gui {
                  instead"
             )
         }
-        let (output, clipped_meshes) = self.context.end_frame();
-        self.context.update_cursor_icon(self.surface.window(), output.cursor_icon);
-        // You still need to execute that command buffer yourself
-        self.renderer.draw_on_subpass_image(&mut self.context, clipped_meshes, image_dimensions)
+        let egui::FullOutput { platform_output, needs_repaint: _n, textures_delta, shapes } =
+            self.egui_ctx.end_frame();
+        self.egui_winit.handle_platform_output(
+            self.surface.window(),
+            &self.egui_ctx,
+            platform_output,
+        );
+        self.shapes = shapes;
+        self.textures_delta.append(textures_delta);
+
+        let shapes = std::mem::take(&mut self.shapes);
+        let textures_delta = std::mem::take(&mut self.textures_delta);
+        let clipped_meshes = self.egui_ctx.tessellate(shapes);
+        self.renderer.draw_on_subpass_image(
+            &clipped_meshes,
+            &textures_delta,
+            self.egui_winit.pixels_per_point(),
+            image_dimensions,
+        )
     }
 
     /// Registers a user image from Vulkano image view to be used by egui
@@ -122,7 +189,7 @@ impl Gui {
         &mut self,
         image: Arc<dyn ImageViewAbstract + Send + Sync>,
     ) -> egui::TextureId {
-        self.renderer.register_user_image(image)
+        self.renderer.register_image(image)
     }
 
     /// Registers a user image to be used by egui
@@ -135,7 +202,7 @@ impl Gui {
     ) -> egui::TextureId {
         let image = texture_from_file(self.renderer.queue(), image_file_bytes, format)
             .expect("Failed to create image");
-        self.renderer.register_user_image(image)
+        self.renderer.register_image(image)
     }
 
     pub fn register_user_image_from_bytes(
@@ -146,16 +213,16 @@ impl Gui {
     ) -> egui::TextureId {
         let image = texture_from_bytes(self.renderer.queue(), image_byte_data, dimensions, format)
             .expect("Failed to create image");
-        self.renderer.register_user_image(image)
+        self.renderer.register_image(image)
     }
 
     /// Unregisters a user image
     pub fn unregister_user_image(&mut self, texture_id: egui::TextureId) {
-        self.renderer.unregister_user_image(texture_id);
+        self.renderer.unregister_image(texture_id);
     }
 
     /// Access egui's context (which can be used to e.g. set fonts, visuals etc)
-    pub fn context(&self) -> egui::CtxRef {
-        self.context.context()
+    pub fn context(&self) -> egui::Context {
+        self.egui_ctx.clone()
     }
 }

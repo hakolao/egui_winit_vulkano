@@ -22,14 +22,10 @@ let mut gui = Gui::new(renderer.surface(), renderer.queue(), false);
 let mut gui = Gui::new_with_subpass(renderer.surface(), renderer.queue(), subpass);
 ```
 
-3. Inside your event loop, update `gui` integration
+3. Inside your event loop, update `gui` integration with `WindowEvent`
 
 ```rust
-event_loop.run(move |event, _, control_flow| {
-    // Update Egui integration so the UI works!
-    gui.update(&event);
-    // ...match event {..}
-});
+gui.update(&event);
 ```
 
 4. Fill immediate mode UI through the integration in `Event::RedrawRequested` before you render
@@ -37,8 +33,15 @@ event_loop.run(move |event, _, control_flow| {
 gui.immediate_ui(|gui| {
     let ctx = gui.context();
     // Fill egui UI layout here
-    // It may be convenient to organize the layout under a stateful GuiState struct (See `wholesome` example)
 });
+
+// Or
+
+gui.begin_frame();
+// fill egui layout...
+
+
+// And when you render with `gui.draw_on_image(..)`, this will finish the egui frame
 ```
 5. Render gui via your renderer on any image or most likely on your swapchain images:
 ```rust

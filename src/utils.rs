@@ -37,7 +37,7 @@ pub fn texture_from_bytes(
         format,
         queue,
     )?;
-    Ok(ImageView::new(texture).unwrap())
+    Ok(ImageView::new_default(texture).unwrap())
 }
 
 pub fn texture_from_file(
@@ -68,5 +68,5 @@ pub fn texture_from_file(
         ImageDimensions::Dim2d { width: dimensions.0, height: dimensions.1, array_layers: 1 };
     let (texture, _tex_fut) =
         ImmutableImage::from_iter(rgba.into_iter(), vko_dims, MipmapsCount::One, format, queue)?;
-    Ok(ImageView::new(texture).unwrap())
+    Ok(ImageView::new_default(texture).unwrap())
 }
