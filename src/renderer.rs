@@ -288,7 +288,7 @@ impl Renderer {
         .expect("Failed to load font image");
         self.egui_texture_version = texture.version;
         // Update descriptor set
-        let layout = &self.pipeline.layout().descriptor_set_layouts()[0];
+        let layout = &self.pipeline.layout().set_layouts().get(0).unwrap();
         let font_desc_set =
             Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, font_image.clone());
         self.egui_texture_desc_set = font_desc_set;
