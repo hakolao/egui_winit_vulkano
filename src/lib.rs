@@ -11,5 +11,6 @@ mod integration;
 mod renderer;
 mod utils;
 
+pub use egui;
 pub use integration::*;
 pub use utils::{texture_from_bytes, texture_from_file};
