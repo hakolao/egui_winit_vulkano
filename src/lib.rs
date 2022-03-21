@@ -13,3 +13,5 @@ mod utils;
 
 pub use integration::*;
 pub use utils::{texture_from_bytes, texture_from_file};
+
+pub extern crate egui;
