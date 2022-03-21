@@ -35,8 +35,12 @@ impl Gui {
     /// - `gfx_queue`: Vulkano's [`Queue`]
     /// - `is_overlay`: If true, you should be responsible for clearing the image before `draw_on_image`, else it gets cleared
     pub fn new(surface: Arc<Surface<Window>>, gfx_queue: Arc<Queue>, is_overlay: bool) -> Gui {
-        let caps = surface.capabilities(gfx_queue.device().physical_device()).unwrap();
-        let format = caps.supported_formats[0].0;
+        let format = gfx_queue
+            .device()
+            .physical_device()
+            .surface_formats(&surface, Default::default())
+            .unwrap()[0]
+            .0;
         let context = Context::new(surface.window().inner_size(), surface.window().scale_factor());
         let renderer = Renderer::new_with_render_pass(gfx_queue, format, is_overlay);
         Gui { context, renderer, surface }
@@ -48,8 +52,12 @@ impl Gui {
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
     ) -> Gui {
-        let caps = surface.capabilities(gfx_queue.device().physical_device()).unwrap();
-        let format = caps.supported_formats[0].0;
+        let format = gfx_queue
+            .device()
+            .physical_device()
+            .surface_formats(&surface, Default::default())
+            .unwrap()[0]
+            .0;
         let context = Context::new(surface.window().inner_size(), surface.window().scale_factor());
         let renderer = Renderer::new_with_subpass(gfx_queue, format, subpass);
         Gui { context, renderer, surface }

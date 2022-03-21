@@ -17,7 +17,7 @@ use vulkano::{
     instance::{Instance, InstanceExtensions},
     swapchain,
     swapchain::{
-        AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform,
+        AcquireError, ColorSpace, FullScreenExclusive, PresentMode, Surface, SurfaceTransform,
         Swapchain, SwapchainCreationError,
     },
     sync,
@@ -218,7 +218,7 @@ impl SimpleGuiRenderer {
             .composite_alpha(alpha)
             .transform(SurfaceTransform::Identity)
             .present_mode(present_mode)
-            .fullscreen_exclusive(FullscreenExclusive::Default)
+            .fullscreen_exclusive(FullScreenExclusive::Default)
             .clipped(true)
             .color_space(ColorSpace::SrgbNonLinear)
             .layers(1)

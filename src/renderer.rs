@@ -7,8 +7,9 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use std::sync::Arc;
+use std::{convert::TryFrom, sync::Arc};
 
+use bytemuck::{Pod, Zeroable};
 use egui::{epaint::Mesh, Rect};
 use vulkano::{
     buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
@@ -30,8 +31,8 @@ use vulkano::{
         },
         GraphicsPipeline, Pipeline, PipelineBindPoint,
     },
-    render_pass::{Framebuffer, RenderPass, Subpass},
-    sampler::{Filter, Sampler, SamplerAddressMode, SamplerMipmapMode},
+    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
+    sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode},
     sync::GpuFuture,
     DeviceSize,
 };
@@ -43,7 +44,8 @@ const VERTEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * VERTICES_PER_QUAD;
 const INDEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * 2;
 
 /// Should match vertex definition of egui (except color is `[f32; 4]`)
-#[derive(Default, Debug, Clone, Copy)]
+#[repr(C)]
+#[derive(Default, Debug, Clone, Copy, Zeroable, Pod)]
 pub struct EguiVertex {
     pub position: [f32; 2],
     pub tex_coords: [f32; 2],
@@ -76,8 +78,8 @@ impl Renderer {
     ) -> Renderer {
         let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass);
-        let layout = &pipeline.layout().descriptor_set_layouts()[0];
-        let font_image = ImageView::new(
+        let layout = pipeline.layout().set_layouts().get(0).unwrap();
+        let font_image = ImageView::new_default(
             AttachmentImage::sampled(gfx_queue.device().clone(), [1, 1], final_output_format)
                 .unwrap(),
         )
@@ -144,9 +146,9 @@ impl Renderer {
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass);
         // Create image attachments (temporary)
-        let layout = &pipeline.layout().descriptor_set_layouts()[0];
+        let layout = pipeline.layout().set_layouts().get(0).unwrap();
         // Create temp font image (gets replaced in draw)
-        let font_image = ImageView::new(
+        let font_image = ImageView::new_default(
             AttachmentImage::sampled(gfx_queue.device().clone(), [1, 1], final_output_format)
                 .unwrap(),
         )
@@ -223,13 +225,14 @@ impl Renderer {
         layout: &Arc<DescriptorSetLayout>,
         image: Arc<dyn ImageViewAbstract + 'static>,
     ) -> Arc<PersistentDescriptorSet> {
-        let sampler_builder = Sampler::start(gfx_queue.device().clone())
-            .filter(Filter::Linear)
-            .address_mode(SamplerAddressMode::ClampToEdge)
-            .mipmap_mode(SamplerMipmapMode::Linear)
-            .mip_lod_bias(0.0)
-            .lod(0.0..=0.0);
-        let sampler = sampler_builder.build().expect("Failed to create sampler");
+        let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
+            mag_filter: Filter::Linear,
+            min_filter: Filter::Linear,
+            address_mode: [SamplerAddressMode::ClampToEdge; 3],
+            mipmap_mode: SamplerMipmapMode::Linear,
+            ..Default::default()
+        })
+        .unwrap();
         PersistentDescriptorSet::new(layout.clone(), [WriteDescriptorSet::image_view_sampler(
             0,
             image.clone(),
@@ -250,7 +253,7 @@ impl Renderer {
         } else {
             self.user_texture_desc_sets.len() as u64
         };
-        let layout = &self.pipeline.layout().descriptor_set_layouts()[0];
+        let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
         let desc_set = Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, image);
         if id == self.user_texture_desc_sets.len() as u64 {
             self.user_texture_desc_sets.push(Some(desc_set));
@@ -398,7 +401,7 @@ impl Renderer {
         // Get dimensions
         let img_dims = final_image.image().dimensions().width_height();
         // Create framebuffer (must be in same order as render pass description in `new`
-        let framebuffer = Framebuffer::start(
+        let framebuffer = Framebuffer::new(
             self.render_pass
                 .as_ref()
                 .expect(
@@ -406,10 +409,8 @@ impl Renderer {
                      instead",
                 )
                 .clone(),
+            FramebufferCreateInfo { attachments: vec![final_image], ..Default::default() },
         )
-        .add(final_image)
-        .unwrap()
-        .build()
         .unwrap();
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.gfx_queue.device().clone(),
@@ -524,20 +525,16 @@ impl Renderer {
             }
             self.copy_mesh(mesh, vertex_start, index_start);
             // Access vertex & index slices for drawing
-            let vertices = Arc::new(
-                self.vertex_buffer
-                    .clone()
-                    .into_buffer_slice()
-                    .slice(vertex_start..(vertex_start + vertices_count))
-                    .unwrap(),
-            );
-            let indices = Arc::new(
-                self.index_buffer
-                    .clone()
-                    .into_buffer_slice()
-                    .slice(index_start..(index_start + indices_count))
-                    .unwrap(),
-            );
+            let vertices = self
+                .vertex_buffer
+                .into_buffer_slice()
+                .slice(vertex_start..(vertex_start + vertices_count))
+                .unwrap();
+            let indices = self
+                .index_buffer
+                .into_buffer_slice()
+                .slice(index_start..(index_start + indices_count))
+                .unwrap();
             let desc_set = if let Some(id) = user_image_id {
                 self.user_texture_desc_sets[id as usize].as_ref().unwrap().clone()
             } else {

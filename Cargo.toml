@@ -12,15 +12,16 @@ categories = ["gui", "game-development"]
 keywords = ["gui", "imgui", "immediate", "portable", "gamedev"]
 
 [dependencies]
+bytemuck = "1.8.0"
 copypasta = "0.7.1"
 egui = "0.16.0"
 image = "0.23.14"
-vulkano = "0.28.0"
-vulkano-shaders = "0.28.0"
+vulkano = "0.29.0"
+vulkano-shaders = "0.29.0"
 webbrowser = "0.5.5"
 winit = "0.26"
 
 [dev-dependencies]
 cgmath = "0.18.0"
 egui_demo_lib = "0.16.0"
-vulkano-win = "0.28.0"
+vulkano-win = "0.29.0"
