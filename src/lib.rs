@@ -15,3 +15,6 @@ pub use integration::*;
 pub use utils::{texture_from_bytes, texture_from_file};
 
 pub extern crate egui;
+pub extern crate vulkano;
+pub extern crate vulkano_shaders;
+pub extern crate vulkano_win;
