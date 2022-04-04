@@ -125,13 +125,8 @@ pub fn main() {
     // Create renderer for our scene & ui
     let window_size = [1280, 720];
     let scene_view_size = [256, 256];
-    let mut renderer = Renderer::new(
-        &event_loop,
-        window_size,
-        scene_view_size,
-        PresentMode::Immediate,
-        "Wholesome",
-    );
+    let mut renderer =
+        Renderer::new(&event_loop, window_size, scene_view_size, PresentMode::Fifo, "Wholesome");
     // After creating the renderer (window, gfx_queue) create out gui integration
     // It requires access to surface (Window, devices etc.) and Vulkano's gfx queue
     let mut gui = Gui::new(renderer.surface(), renderer.queue(), false);
