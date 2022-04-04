@@ -52,7 +52,7 @@ pub fn main() {
     // Create renderer for our scene & ui
     let window_size = [1280, 720];
     let mut renderer =
-        SimpleGuiRenderer::new(&event_loop, window_size, PresentMode::Immediate, "Minimal");
+        SimpleGuiRenderer::new(&event_loop, window_size, PresentMode::Fifo, "Minimal");
     // After creating the renderer (window, gfx_queue) create out gui integration using gui subpass from renderer
     let mut gui = Gui::new_with_subpass(renderer.surface(), renderer.queue(), renderer.gui_pass());
     // Create gui state (pass anything your state requires)
