@@ -39,11 +39,12 @@ pub fn main() {
     // Create renderer for our scene & ui
     let window_size = [1280, 720];
     let mut renderer =
-        SimpleGuiRenderer::new(&event_loop, window_size, PresentMode::Fifo, "Minimal");
+        SimpleGuiRenderer::new(&event_loop, window_size, PresentMode::Immediate, "Minimal");
     // After creating the renderer (window, gfx_queue) create out gui integration
     let mut gui = Gui::new(renderer.surface(), renderer.queue(), false);
     // Create gui state (pass anything your state requires)
     let mut code = CODE.to_owned();
+    let mut count = 0;
     event_loop.run(move |event, _, control_flow| {
         match event {
             Event::WindowEvent { event, window_id }
@@ -77,9 +78,13 @@ pub fn main() {
                             ScrollArea::vertical().id_source("source").show(
                                 &mut columns[0],
                                 |ui| {
-                                    ui.add(
-                                        TextEdit::multiline(&mut code).font(TextStyle::Monospace),
+                                    // ui.add(
+                                    //     TextEdit::multiline(&mut code).font(TextStyle::Monospace),
+                                    // );
+                                    ui.label(
+                                        egui::RichText::new(format!("** {} **", count)).size(60.0),
                                     );
+                                    count += 1;
                                 },
                             );
                             ScrollArea::vertical().id_source("rendered").show(

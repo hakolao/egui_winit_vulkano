@@ -13,12 +13,38 @@ use image::RgbaImage;
 use vulkano::{
     device::Queue,
     image::{
-        view::ImageView, ImageCreationError, ImageDimensions, ImageViewAbstract, ImmutableImage,
-        MipmapsCount,
+        view::ImageView, ImageCreateFlags, ImageCreationError, ImageDimensions, ImageUsage,
+        ImageViewAbstract, ImmutableImage, MipmapsCount, StorageImage,
     },
 };
 
-pub fn texture_from_bytes(
+pub fn mutable_image_from_bytes(
+    queue: Arc<Queue>,
+    dimensions: (u64, u64),
+    format: vulkano::format::Format,
+    usage: ImageUsage,
+) -> DeviceImageView {
+    let dims = ImageDimensions::Dim2d {
+        width: dimensions[0] as u32,
+        height: dimensions[1] as u32,
+        array_layers: 1,
+    };
+    let flags = ImageCreateFlags::none();
+    ImageView::new_default(
+        StorageImage::with_usage(
+            queue.device().clone(),
+            dims,
+            format,
+            usage,
+            flags,
+            Some(queue.family()),
+        )
+        .unwrap(),
+    )
+    .unwrap()
+}
+
+pub fn immutable_texture_from_bytes(
     queue: Arc<Queue>,
     byte_data: &[u8],
     dimensions: (u64, u64),
@@ -37,10 +63,11 @@ pub fn texture_from_bytes(
         format,
         queue,
     )?;
+
     Ok(ImageView::new_default(texture).unwrap())
 }
 
-pub fn texture_from_file(
+pub fn immutable_texture_from_file(
     queue: Arc<Queue>,
     file_bytes: &[u8],
     format: vulkano::format::Format,
