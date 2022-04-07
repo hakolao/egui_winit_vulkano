@@ -14,13 +14,11 @@ keywords = ["gui", "imgui", "immediate", "portable", "gamedev"]
 [dependencies]
 ahash = "0.7.6"
 bytemuck = "1.8.0"
-copypasta = "0.7.1"
 egui = "0.17.0"
 egui-winit = "0.17.0"
 image = "0.23.14"
 vulkano = "0.29.0"
 vulkano-shaders = "0.29.0"
-webbrowser = "0.5.5"
 winit = "0.26"
 
 [dev-dependencies]
