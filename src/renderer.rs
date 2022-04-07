@@ -286,7 +286,7 @@ impl Renderer {
         let mut cbb = AutoCommandBufferBuilder::primary(
             self.gfx_queue.device().clone(),
             self.gfx_queue.family(),
-            CommandBufferUsage::MultipleSubmit,
+            CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
         // Copy buffer to image
@@ -296,6 +296,12 @@ impl Renderer {
         if let Some(pos) = delta.pos {
             if let Some(existing_image) = self.texture_images.get(&texture_id) {
                 let src_dims = font_image.image().dimensions();
+                let top_left = [pos[0] as i32, pos[1] as i32, 0];
+                let bottom_right = [
+                    pos[0] as i32 + src_dims.width() as i32,
+                    pos[1] as i32 + src_dims.height() as i32,
+                    1,
+                ];
                 cbb.blit_image(
                     font_image.image(),
                     [0, 0, 0],
@@ -303,15 +309,11 @@ impl Renderer {
                     0,
                     0,
                     existing_image.image(),
-                    [pos[0] as i32, pos[1] as i32, 0],
-                    [
-                        pos[0] as i32 + src_dims.width() as i32,
-                        pos[1] as i32 + src_dims.height() as i32,
-                        1,
-                    ],
+                    top_left,
+                    bottom_right,
                     0,
                     0,
-                    0,
+                    1,
                     Filter::Nearest,
                 )
                 .unwrap();
@@ -470,7 +472,6 @@ impl Renderer {
         F: GpuFuture + 'static,
     {
         for (id, image_delta) in &textures_delta.set {
-            println!("Image delta for id {:?}", id);
             self.update_texture(*id, image_delta);
         }
 
