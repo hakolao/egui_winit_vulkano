@@ -357,11 +357,7 @@ impl SimpleGuiRenderer {
         // Begin render pipeline commands
         let clear_values = vec![[0.0, 1.0, 0.0, 1.0].into()];
         builder
-            .begin_render_pass(
-                framebuffer,
-                SubpassContents::SecondaryCommandBuffers,
-                clear_values,
-            )
+            .begin_render_pass(framebuffer, SubpassContents::SecondaryCommandBuffers, clear_values)
             .unwrap();
 
         // Render first draw pass
