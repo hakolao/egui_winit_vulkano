@@ -358,7 +358,7 @@ impl SimpleGuiRenderer {
         let clear_values = vec![[0.0, 1.0, 0.0, 1.0].into()];
         builder
             .begin_render_pass(
-                framebuffer.clone(),
+                framebuffer,
                 SubpassContents::SecondaryCommandBuffers,
                 clear_values,
             )
