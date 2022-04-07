@@ -8,6 +8,7 @@
 // according to those terms.
 use std::sync::Arc;
 
+use egui::TexturesDelta;
 use vulkano::{
     command_buffer::SecondaryAutoCommandBuffer, device::Queue, image::ImageViewAbstract,
     render_pass::Subpass, swapchain::Surface, sync::GpuFuture,
@@ -15,8 +16,9 @@ use vulkano::{
 use winit::window::Window;
 
 use crate::{
+    egui::ClippedMesh,
     renderer::Renderer,
-    utils::{texture_from_bytes, texture_from_file},
+    utils::{immutable_texture_from_bytes, immutable_texture_from_file},
 };
 
 pub struct Gui {
@@ -126,19 +128,9 @@ impl Gui {
                  instead"
             )
         }
-        let egui::FullOutput { platform_output, needs_repaint: _n, textures_delta, shapes } =
-            self.egui_ctx.end_frame();
-        self.egui_winit.handle_platform_output(
-            self.surface.window(),
-            &self.egui_ctx,
-            platform_output,
-        );
-        self.shapes = shapes;
-        self.textures_delta.append(textures_delta);
 
-        let shapes = std::mem::take(&mut self.shapes);
-        let textures_delta = std::mem::take(&mut self.textures_delta);
-        let clipped_meshes = self.egui_ctx.tessellate(shapes);
+        let (clipped_meshes, textures_delta) = self.extract_draw_data_at_frame_end();
+
         self.renderer.draw_on_image(
             &clipped_meshes,
             &textures_delta,
@@ -149,10 +141,9 @@ impl Gui {
     }
 
     /// Creates commands for rendering ui on subpass' image and returns the command buffer for execution on your side
-    /// Finishes Egui frame
+    /// - Finishes Egui frame
     /// - `final_image` = Vulkano's image (render target)
-    /// This will always draw the gui over the subpass image.
-    /// You must execute the secondary command buffer yourself
+    /// - You must execute the secondary command buffer yourself
     pub fn draw_on_subpass_image(
         &mut self,
         image_dimensions: [u32; 2],
@@ -163,25 +154,36 @@ impl Gui {
                  instead"
             )
         }
-        let egui::FullOutput { platform_output, needs_repaint: _n, textures_delta, shapes } =
-            self.egui_ctx.end_frame();
-        self.egui_winit.handle_platform_output(
-            self.surface.window(),
-            &self.egui_ctx,
-            platform_output,
-        );
-        self.shapes = shapes;
-        self.textures_delta.append(textures_delta);
 
-        let shapes = std::mem::take(&mut self.shapes);
-        let textures_delta = std::mem::take(&mut self.textures_delta);
-        let clipped_meshes = self.egui_ctx.tessellate(shapes);
+        let (clipped_meshes, textures_delta) = self.extract_draw_data_at_frame_end();
+
         self.renderer.draw_on_subpass_image(
             &clipped_meshes,
             &textures_delta,
             self.egui_winit.pixels_per_point(),
             image_dimensions,
         )
+    }
+
+    fn extract_draw_data_at_frame_end(&mut self) -> (Vec<ClippedMesh>, TexturesDelta) {
+        self.end_frame();
+        let shapes = std::mem::take(&mut self.shapes);
+        let textures_delta = std::mem::take(&mut self.textures_delta);
+        let clipped_meshes = self.egui_ctx.tessellate(shapes);
+        (clipped_meshes, textures_delta)
+    }
+
+    fn end_frame(&mut self) {
+        let egui::FullOutput { platform_output, needs_repaint: _n, textures_delta, shapes } =
+            self.egui_ctx.end_frame();
+
+        self.egui_winit.handle_platform_output(
+            self.surface.window(),
+            &self.egui_ctx,
+            platform_output,
+        );
+        self.shapes = shapes;
+        self.textures_delta = textures_delta;
     }
 
     /// Registers a user image from Vulkano image view to be used by egui
@@ -200,7 +202,7 @@ impl Gui {
         image_file_bytes: &[u8],
         format: vulkano::format::Format,
     ) -> egui::TextureId {
-        let image = texture_from_file(self.renderer.queue(), image_file_bytes, format)
+        let image = immutable_texture_from_file(self.renderer.queue(), image_file_bytes, format)
             .expect("Failed to create image");
         self.renderer.register_image(image)
     }
@@ -208,11 +210,16 @@ impl Gui {
     pub fn register_user_image_from_bytes(
         &mut self,
         image_byte_data: &[u8],
-        dimensions: (u64, u64),
+        dimensions: [u32; 2],
         format: vulkano::format::Format,
     ) -> egui::TextureId {
-        let image = texture_from_bytes(self.renderer.queue(), image_byte_data, dimensions, format)
-            .expect("Failed to create image");
+        let image = immutable_texture_from_bytes(
+            self.renderer.queue(),
+            image_byte_data,
+            dimensions,
+            format,
+        )
+        .expect("Failed to create image");
         self.renderer.register_image(image)
     }
 

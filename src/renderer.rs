@@ -16,12 +16,12 @@ use vulkano::{
     buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
-        SecondaryAutoCommandBuffer, SubpassContents,
+        PrimaryCommandBuffer, SecondaryAutoCommandBuffer, SubpassContents,
     },
     descriptor_set::{layout::DescriptorSetLayout, PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
     format::{ClearValue, Format},
-    image::ImageViewAbstract,
+    image::{ImageAccess, ImageUsage, ImageViewAbstract},
     pipeline::{
         graphics::{
             color_blend::{AttachmentBlend, BlendFactor, ColorBlendState},
@@ -38,7 +38,7 @@ use vulkano::{
     DeviceSize,
 };
 
-use crate::utils::texture_from_bytes;
+use crate::utils::mutable_image_with_usage;
 
 const VERTICES_PER_QUAD: DeviceSize = 4;
 const VERTEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * VERTICES_PER_QUAD;
@@ -66,6 +66,7 @@ pub struct Renderer {
     pipeline: Arc<GraphicsPipeline>,
 
     texture_desc_sets: AHashMap<egui::TextureId, Arc<PersistentDescriptorSet>>,
+    texture_images: AHashMap<egui::TextureId, Arc<dyn ImageViewAbstract + Send + Sync + 'static>>,
     next_native_tex_id: u64,
 }
 
@@ -85,6 +86,7 @@ impl Renderer {
             index_buffer,
             pipeline,
             texture_desc_sets: AHashMap::default(),
+            texture_images: AHashMap::default(),
             next_native_tex_id: 0,
             is_overlay: false,
         }
@@ -144,6 +146,7 @@ impl Renderer {
             index_buffer,
             pipeline,
             texture_desc_sets: AHashMap::default(),
+            texture_images: AHashMap::default(),
             next_native_tex_id: 0,
             is_overlay,
         }
@@ -227,19 +230,22 @@ impl Renderer {
         image: Arc<dyn ImageViewAbstract + Send + Sync>,
     ) -> egui::TextureId {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
-        let desc_set = Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, image);
+        let desc_set = Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, image.clone());
         let id = egui::TextureId::User(self.next_native_tex_id);
         self.next_native_tex_id += 1;
         self.texture_desc_sets.insert(id, desc_set);
+        self.texture_images.insert(id, image);
         id
     }
 
     /// Unregister user texture.
     pub fn unregister_image(&mut self, texture_id: egui::TextureId) {
         self.texture_desc_sets.remove(&texture_id);
+        self.texture_images.remove(&texture_id);
     }
 
     fn update_texture(&mut self, texture_id: egui::TextureId, delta: &egui::epaint::ImageDelta) {
+        // Extract pixel data from egui
         let data: Vec<u8> = match &delta.image {
             egui::ImageData::Color(image) => {
                 assert_eq!(
@@ -254,19 +260,76 @@ impl Renderer {
                 image.srgba_pixels(gamma).flat_map(|color| color.to_array()).collect()
             }
         };
-        // Update texture image
-        let font_image = texture_from_bytes(
+        // Create buffer to be copied to the image
+        let texture_data_buffer = CpuAccessibleBuffer::from_iter(
+            self.gfx_queue.device().clone(),
+            BufferUsage::transfer_source(),
+            false,
+            data,
+        )
+        .unwrap();
+        // Create image with right usage
+        let font_image = mutable_image_with_usage(
             self.gfx_queue.clone(),
-            &data,
-            (delta.image.width() as u64, delta.image.height() as u64),
+            [delta.image.width() as u32, delta.image.height() as u32],
             self.format,
+            ImageUsage {
+                transfer_destination: true,
+                transfer_source: true,
+                sampled: true,
+                ..ImageUsage::none()
+            },
         )
         .unwrap();
 
-        let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
-        let font_desc_set =
-            Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, font_image.clone());
-        self.texture_desc_sets.insert(texture_id, font_desc_set);
+        // Create command buffer builder
+        let mut cbb = AutoCommandBufferBuilder::primary(
+            self.gfx_queue.device().clone(),
+            self.gfx_queue.family(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        // Copy buffer to image
+        cbb.copy_buffer_to_image(texture_data_buffer, font_image.image()).unwrap();
+
+        // Blit texture data to existing image if delta pos exists (e.g. font changed)
+        if let Some(pos) = delta.pos {
+            if let Some(existing_image) = self.texture_images.get(&texture_id) {
+                let src_dims = font_image.image().dimensions();
+                let top_left = [pos[0] as i32, pos[1] as i32, 0];
+                let bottom_right = [
+                    pos[0] as i32 + src_dims.width() as i32,
+                    pos[1] as i32 + src_dims.height() as i32,
+                    1,
+                ];
+                cbb.blit_image(
+                    font_image.image(),
+                    [0, 0, 0],
+                    [src_dims.width() as i32, src_dims.height() as i32, 1],
+                    0,
+                    0,
+                    existing_image.image(),
+                    top_left,
+                    bottom_right,
+                    0,
+                    0,
+                    1,
+                    Filter::Nearest,
+                )
+                .unwrap();
+            }
+            // Otherwise save the newly created image
+        } else {
+            let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
+            let font_desc_set =
+                Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, font_image.clone());
+            self.texture_desc_sets.insert(texture_id, font_desc_set);
+            self.texture_images.insert(texture_id, font_image);
+        }
+        // Execute command buffer
+        let command_buffer = cbb.build().unwrap();
+        let finished = command_buffer.execute(self.gfx_queue.clone()).unwrap();
+        let _fut = finished.then_signal_fence_and_flush().unwrap();
     }
 
     fn get_rect_scissor(
@@ -415,7 +478,6 @@ impl Renderer {
         let (mut command_buffer_builder, framebuffer_dimensions) = self.start(final_image);
         let mut builder = self.create_secondary_command_buffer_builder();
         self.draw_egui(scale_factor, clipped_meshes, framebuffer_dimensions, &mut builder);
-
         // Execute draw commands
         let command_buffer = builder.build().unwrap();
         command_buffer_builder.execute_commands(command_buffer).unwrap();
