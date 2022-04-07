@@ -210,7 +210,7 @@ impl Gui {
     pub fn register_user_image_from_bytes(
         &mut self,
         image_byte_data: &[u8],
-        dimensions: (u64, u64),
+        dimensions: [u32; 2],
         format: vulkano::format::Format,
     ) -> egui::TextureId {
         let image = immutable_texture_from_bytes(

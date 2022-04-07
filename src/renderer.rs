@@ -21,7 +21,7 @@ use vulkano::{
     descriptor_set::{layout::DescriptorSetLayout, PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
     format::{ClearValue, Format},
-    image::ImageViewAbstract,
+    image::{ImageAccess, ImageUsage, ImageViewAbstract},
     pipeline::{
         graphics::{
             color_blend::{AttachmentBlend, BlendFactor, ColorBlendState},
@@ -38,7 +38,7 @@ use vulkano::{
     DeviceSize,
 };
 
-use crate::utils::immutable_texture_from_bytes;
+use crate::utils::mutable_image_with_usage;
 
 const VERTICES_PER_QUAD: DeviceSize = 4;
 const VERTEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * VERTICES_PER_QUAD;
@@ -245,6 +245,7 @@ impl Renderer {
     }
 
     fn update_texture(&mut self, texture_id: egui::TextureId, delta: &egui::epaint::ImageDelta) {
+        // Extract pixel data from egui
         let data: Vec<u8> = match &delta.image {
             egui::ImageData::Color(image) => {
                 assert_eq!(
@@ -259,43 +260,63 @@ impl Renderer {
                 image.srgba_pixels(gamma).flat_map(|color| color.to_array()).collect()
             }
         };
-        let font_image = immutable_texture_from_bytes(
-            self.gfx_queue.clone(),
-            &data,
-            (delta.image.width() as u64, delta.image.height() as u64),
-            self.format,
+        // Create buffer to be copied to the image
+        let texture_data_buffer = CpuAccessibleBuffer::from_iter(
+            self.gfx_queue.device().clone(),
+            BufferUsage::transfer_source(),
+            false,
+            data,
         )
         .unwrap();
-        // Blit image if delta pos exists (e.g. font changed)
+        // Create image with right usage
+        let font_image = mutable_image_with_usage(
+            self.gfx_queue.clone(),
+            [delta.image.width() as u32, delta.image.height() as u32],
+            self.format,
+            ImageUsage {
+                transfer_destination: true,
+                transfer_source: true,
+                sampled: true,
+                ..ImageUsage::none()
+            },
+        )
+        .unwrap();
+
+        // Create command buffer builder
+        let mut cbb = AutoCommandBufferBuilder::primary(
+            self.gfx_queue.device().clone(),
+            self.gfx_queue.family(),
+            CommandBufferUsage::MultipleSubmit,
+        )
+        .unwrap();
+        // Copy buffer to image
+        cbb.copy_buffer_to_image(texture_data_buffer, font_image.image()).unwrap();
+
+        // Blit texture data to existing image if delta pos exists (e.g. font changed)
         if let Some(pos) = delta.pos {
-            if let Some(image) = self.texture_images.get(&texture_id) {
-                let mut builder = AutoCommandBufferBuilder::primary(
-                    self.gfx_queue.device().clone(),
-                    self.gfx_queue.family(),
-                    CommandBufferUsage::OneTimeSubmit,
+            if let Some(existing_image) = self.texture_images.get(&texture_id) {
+                let src_dims = font_image.image().dimensions();
+                cbb.blit_image(
+                    font_image.image(),
+                    [0, 0, 0],
+                    [src_dims.width() as i32, src_dims.height() as i32, 1],
+                    0,
+                    0,
+                    existing_image.image(),
+                    [pos[0] as i32, pos[1] as i32, 0],
+                    [
+                        pos[0] as i32 + src_dims.width() as i32,
+                        pos[1] as i32 + src_dims.height() as i32,
+                        1,
+                    ],
+                    0,
+                    0,
+                    0,
+                    Filter::Nearest,
                 )
                 .unwrap();
-                println!("{:?}", font_image.usage());
-                builder
-                    .blit_image(
-                        font_image.image(),
-                        [pos[0] as i32, pos[1] as i32, 0],
-                        [delta.image.width() as i32, delta.image.height() as i32, 0],
-                        0,
-                        0,
-                        image.image(),
-                        [pos[0] as i32, pos[1] as i32, 0],
-                        [delta.image.width() as i32, delta.image.height() as i32, 0],
-                        0,
-                        0,
-                        0,
-                        Filter::Nearest,
-                    )
-                    .unwrap();
-                let command_buffer = builder.build().unwrap();
-                let finished = command_buffer.execute(self.gfx_queue.clone()).unwrap();
-                let _fut = finished.then_signal_fence_and_flush().unwrap();
             }
+            // Otherwise save the newly created image
         } else {
             let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
             let font_desc_set =
@@ -303,6 +324,10 @@ impl Renderer {
             self.texture_desc_sets.insert(texture_id, font_desc_set);
             self.texture_images.insert(texture_id, font_image);
         }
+        // Execute command buffer
+        let command_buffer = cbb.build().unwrap();
+        let finished = command_buffer.execute(self.gfx_queue.clone()).unwrap();
+        let _fut = finished.then_signal_fence_and_flush().unwrap();
     }
 
     fn get_rect_scissor(

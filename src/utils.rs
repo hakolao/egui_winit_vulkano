@@ -18,43 +18,34 @@ use vulkano::{
     },
 };
 
-pub fn mutable_image_from_bytes(
+pub fn mutable_image_with_usage(
     queue: Arc<Queue>,
-    dimensions: (u64, u64),
+    dimensions: [u32; 2],
     format: vulkano::format::Format,
     usage: ImageUsage,
-) -> DeviceImageView {
-    let dims = ImageDimensions::Dim2d {
-        width: dimensions[0] as u32,
-        height: dimensions[1] as u32,
-        array_layers: 1,
-    };
+) -> Result<Arc<dyn ImageViewAbstract + Send + Sync + 'static>, ImageCreationError> {
+    let dims =
+        ImageDimensions::Dim2d { width: dimensions[0], height: dimensions[1], array_layers: 1 };
     let flags = ImageCreateFlags::none();
-    ImageView::new_default(
-        StorageImage::with_usage(
-            queue.device().clone(),
-            dims,
-            format,
-            usage,
-            flags,
-            Some(queue.family()),
-        )
-        .unwrap(),
-    )
-    .unwrap()
+    let storage_image = StorageImage::with_usage(
+        queue.device().clone(),
+        dims,
+        format,
+        usage,
+        flags,
+        Some(queue.family()),
+    )?;
+    Ok(ImageView::new_default(storage_image).unwrap())
 }
 
 pub fn immutable_texture_from_bytes(
     queue: Arc<Queue>,
     byte_data: &[u8],
-    dimensions: (u64, u64),
+    dimensions: [u32; 2],
     format: vulkano::format::Format,
 ) -> Result<Arc<dyn ImageViewAbstract + Send + Sync + 'static>, ImageCreationError> {
-    let vko_dims = ImageDimensions::Dim2d {
-        width: dimensions.0 as u32,
-        height: dimensions.1 as u32,
-        array_layers: 1,
-    };
+    let vko_dims =
+        ImageDimensions::Dim2d { width: dimensions[0], height: dimensions[1], array_layers: 1 };
 
     let (texture, _tex_fut) = ImmutableImage::from_iter(
         byte_data.iter().cloned(),
@@ -91,9 +82,5 @@ pub fn immutable_texture_from_file(
         new_rgba.to_vec()
     };
     let dimensions = img.dimensions();
-    let vko_dims =
-        ImageDimensions::Dim2d { width: dimensions.0, height: dimensions.1, array_layers: 1 };
-    let (texture, _tex_fut) =
-        ImmutableImage::from_iter(rgba.into_iter(), vko_dims, MipmapsCount::One, format, queue)?;
-    Ok(ImageView::new_default(texture).unwrap())
+    immutable_texture_from_bytes(queue, &rgba, [dimensions.0, dimensions.1], format)
 }
