@@ -15,13 +15,14 @@ use egui::{epaint::Mesh, ClippedMesh, Rect, TexturesDelta};
 use vulkano::{
     buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
-        AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
-        PrimaryCommandBuffer, SecondaryAutoCommandBuffer, SubpassContents,
+        AutoCommandBufferBuilder, BlitImageInfo, CommandBufferInheritanceInfo, CommandBufferUsage,
+        CopyBufferToImageInfo, ImageBlit, PrimaryAutoCommandBuffer, PrimaryCommandBuffer,
+        RenderPassBeginInfo, SecondaryAutoCommandBuffer, SubpassContents,
     },
     descriptor_set::{layout::DescriptorSetLayout, PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
-    format::{ClearValue, Format},
-    image::{ImageAccess, ImageUsage, ImageViewAbstract},
+    format::Format,
+    image::{ImageAccess, ImageLayout, ImageUsage, ImageViewAbstract, StorageImage},
     pipeline::{
         graphics::{
             color_blend::{AttachmentBlend, BlendFactor, ColorBlendState},
@@ -37,8 +38,6 @@ use vulkano::{
     sync::GpuFuture,
     DeviceSize,
 };
-
-use crate::utils::mutable_image_with_usage;
 
 const VERTICES_PER_QUAD: DeviceSize = 4;
 const VERTEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * VERTICES_PER_QUAD;
@@ -64,6 +63,7 @@ pub struct Renderer {
     vertex_buffer: Arc<CpuAccessibleBuffer<[EguiVertex]>>,
     index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
     pipeline: Arc<GraphicsPipeline>,
+    subpass: Subpass,
 
     texture_desc_sets: AHashMap<egui::TextureId, Arc<PersistentDescriptorSet>>,
     texture_images: AHashMap<egui::TextureId, Arc<dyn ImageViewAbstract + Send + Sync + 'static>>,
@@ -77,7 +77,7 @@ impl Renderer {
         subpass: Subpass,
     ) -> Renderer {
         let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
-        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass);
+        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
         Renderer {
             gfx_queue,
             format: final_output_format,
@@ -85,6 +85,7 @@ impl Renderer {
             vertex_buffer,
             index_buffer,
             pipeline,
+            subpass,
             texture_desc_sets: AHashMap::default(),
             texture_images: AHashMap::default(),
             next_native_tex_id: 0,
@@ -137,7 +138,7 @@ impl Renderer {
         let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
-        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass);
+        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
         Renderer {
             gfx_queue,
             format: final_output_format,
@@ -145,6 +146,7 @@ impl Renderer {
             vertex_buffer,
             index_buffer,
             pipeline,
+            subpass,
             texture_desc_sets: AHashMap::default(),
             texture_images: AHashMap::default(),
             next_native_tex_id: 0,
@@ -263,19 +265,19 @@ impl Renderer {
         // Create buffer to be copied to the image
         let texture_data_buffer = CpuAccessibleBuffer::from_iter(
             self.gfx_queue.device().clone(),
-            BufferUsage::transfer_source(),
+            BufferUsage::transfer_src(),
             false,
             data,
         )
         .unwrap();
         // Create image with right usage
-        let font_image = mutable_image_with_usage(
+        let font_image = StorageImage::general_purpose_image_view(
             self.gfx_queue.clone(),
             [delta.image.width() as u32, delta.image.height() as u32],
             self.format,
             ImageUsage {
-                transfer_destination: true,
-                transfer_source: true,
+                transfer_dst: true,
+                transfer_src: true,
                 sampled: true,
                 ..ImageUsage::none()
             },
@@ -290,32 +292,44 @@ impl Renderer {
         )
         .unwrap();
         // Copy buffer to image
-        cbb.copy_buffer_to_image(texture_data_buffer, font_image.image()).unwrap();
+        cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+            texture_data_buffer,
+            font_image.image().clone(),
+        ))
+        .unwrap();
 
         // Blit texture data to existing image if delta pos exists (e.g. font changed)
         if let Some(pos) = delta.pos {
             if let Some(existing_image) = self.texture_images.get(&texture_id) {
                 let src_dims = font_image.image().dimensions();
-                let top_left = [pos[0] as i32, pos[1] as i32, 0];
+                let top_left = [pos[0] as u32, pos[1] as u32, 0];
                 let bottom_right = [
-                    pos[0] as i32 + src_dims.width() as i32,
-                    pos[1] as i32 + src_dims.height() as i32,
+                    pos[0] as u32 + src_dims.width() as u32,
+                    pos[1] as u32 + src_dims.height() as u32,
                     1,
                 ];
-                cbb.blit_image(
-                    font_image.image(),
-                    [0, 0, 0],
-                    [src_dims.width() as i32, src_dims.height() as i32, 1],
-                    0,
-                    0,
-                    existing_image.image(),
-                    top_left,
-                    bottom_right,
-                    0,
-                    0,
-                    1,
-                    Filter::Nearest,
-                )
+
+                cbb.blit_image(BlitImageInfo {
+                    src_image_layout: ImageLayout::General,
+                    dst_image_layout: ImageLayout::General,
+                    regions: [ImageBlit {
+                        src_subresource: font_image.image().subresource_layers(),
+                        src_offsets: [[0, 0, 0], [
+                            src_dims.width() as u32,
+                            src_dims.height() as u32,
+                            1,
+                        ]],
+                        dst_subresource: existing_image.image().subresource_layers(),
+                        dst_offsets: [top_left, bottom_right],
+                        ..Default::default()
+                    }]
+                    .into(),
+                    filter: Filter::Nearest,
+                    ..BlitImageInfo::images(
+                        font_image.image().clone(),
+                        existing_image.image().clone(),
+                    )
+                })
                 .unwrap();
             }
             // Otherwise save the newly created image
@@ -416,11 +430,14 @@ impl Renderer {
     fn create_secondary_command_buffer_builder(
         &self,
     ) -> AutoCommandBufferBuilder<SecondaryAutoCommandBuffer> {
-        AutoCommandBufferBuilder::secondary_graphics(
+        AutoCommandBufferBuilder::secondary(
             self.gfx_queue.device().clone(),
             self.gfx_queue.family(),
             CommandBufferUsage::MultipleSubmit,
-            self.pipeline.subpass().clone(),
+            CommandBufferInheritanceInfo {
+                render_pass: Some(self.subpass.clone().into()),
+                ..Default::default()
+            },
         )
         .unwrap()
     }
@@ -452,9 +469,13 @@ impl Renderer {
         .unwrap();
         // Add clear values here for attachments and begin render pass
         command_buffer_builder
-            .begin_render_pass(framebuffer, SubpassContents::SecondaryCommandBuffers, vec![
-                if !self.is_overlay { [0.0; 4].into() } else { ClearValue::None },
-            ])
+            .begin_render_pass(
+                RenderPassBeginInfo {
+                    clear_values: vec![if !self.is_overlay { Some([0.0; 4].into()) } else { None }],
+                    ..RenderPassBeginInfo::framebuffer(framebuffer)
+                },
+                SubpassContents::SecondaryCommandBuffers,
+            )
             .unwrap();
         (command_buffer_builder, img_dims)
     }

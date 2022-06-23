@@ -195,7 +195,7 @@ impl SimpleGuiRenderer {
                 enabled_extensions: physical.required_extensions().union(&device_extensions),
                 enabled_features: features,
                 queue_create_infos: vec![QueueCreateInfo::family(queue_family)],
-                _ne: Default::default(),
+                ..Default::default()
             })
             .expect("failed to create device")
         };

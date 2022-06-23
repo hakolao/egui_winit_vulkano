@@ -14,7 +14,10 @@ use egui::{ScrollArea, TextEdit, TextStyle};
 use egui_winit_vulkano::Gui;
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
-    command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, SubpassContents},
+    command_buffer::{
+        AutoCommandBufferBuilder, CommandBufferInheritanceInfo, CommandBufferUsage,
+        RenderPassBeginInfo, SubpassContents,
+    },
     device::{
         physical::PhysicalDevice, Device, DeviceCreateInfo, DeviceExtensions, Features, Queue,
         QueueCreateInfo,
@@ -132,6 +135,7 @@ struct SimpleGuiRenderer {
     queue: Arc<Queue>,
     render_pass: Arc<RenderPass>,
     pipeline: Arc<GraphicsPipeline>,
+    subpass: Subpass,
     swap_chain: Arc<Swapchain<Window>>,
     final_images: Vec<Arc<ImageView<SwapchainImage<Window>>>>,
     recreate_swapchain: bool,
@@ -183,7 +187,7 @@ impl SimpleGuiRenderer {
             Self::create_swap_chain(surface.clone(), physical, device.clone(), present_mode);
         let previous_frame_end = Some(sync::now(device.clone()).boxed());
         let render_pass = Self::create_render_pass(device.clone(), images[0].format().unwrap());
-        let pipeline = Self::create_pipeline(device.clone(), render_pass.clone());
+        let (pipeline, subpass) = Self::create_pipeline(device.clone(), render_pass.clone());
 
         let vertex_buffer = {
             CpuAccessibleBuffer::from_iter(
@@ -208,6 +212,7 @@ impl SimpleGuiRenderer {
             queue,
             render_pass,
             pipeline,
+            subpass,
             swap_chain,
             final_images: images,
             previous_frame_end,
@@ -235,7 +240,7 @@ impl SimpleGuiRenderer {
                 enabled_extensions: physical.required_extensions().union(&device_extensions),
                 enabled_features: features,
                 queue_create_infos: vec![QueueCreateInfo::family(queue_family)],
-                _ne: Default::default(),
+                ..Default::default()
             })
             .expect("failed to create device")
         };
@@ -294,19 +299,26 @@ impl SimpleGuiRenderer {
         Subpass::from(self.render_pass.clone(), 1).unwrap()
     }
 
-    fn create_pipeline(device: Arc<Device>, render_pass: Arc<RenderPass>) -> Arc<GraphicsPipeline> {
+    fn create_pipeline(
+        device: Arc<Device>,
+        render_pass: Arc<RenderPass>,
+    ) -> (Arc<GraphicsPipeline>, Subpass) {
         let vs = vs::load(device.clone()).expect("failed to create shader module");
         let fs = fs::load(device.clone()).expect("failed to create shader module");
 
-        GraphicsPipeline::start()
-            .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
-            .vertex_shader(vs.entry_point("main").unwrap(), ())
-            .input_assembly_state(InputAssemblyState::new())
-            .fragment_shader(fs.entry_point("main").unwrap(), ())
-            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-            .render_pass(Subpass::from(render_pass, 0).unwrap())
-            .build(device)
-            .unwrap()
+        let subpass = Subpass::from(render_pass, 0).unwrap();
+        (
+            GraphicsPipeline::start()
+                .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
+                .vertex_shader(vs.entry_point("main").unwrap(), ())
+                .input_assembly_state(InputAssemblyState::new())
+                .fragment_shader(fs.entry_point("main").unwrap(), ())
+                .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+                .render_pass(subpass.clone())
+                .build(device)
+                .unwrap(),
+            subpass,
+        )
     }
 
     pub fn queue(&self) -> Arc<Queue> {
@@ -355,17 +367,25 @@ impl SimpleGuiRenderer {
         .unwrap();
 
         // Begin render pipeline commands
-        let clear_values = vec![[0.0, 1.0, 0.0, 1.0].into()];
         builder
-            .begin_render_pass(framebuffer, SubpassContents::SecondaryCommandBuffers, clear_values)
+            .begin_render_pass(
+                RenderPassBeginInfo {
+                    clear_values: vec![Some([0.0, 1.0, 0.0, 1.0].into())],
+                    ..RenderPassBeginInfo::framebuffer(framebuffer)
+                },
+                SubpassContents::SecondaryCommandBuffers,
+            )
             .unwrap();
 
         // Render first draw pass
-        let mut secondary_builder = AutoCommandBufferBuilder::secondary_graphics(
+        let mut secondary_builder = AutoCommandBufferBuilder::secondary(
             self.device.clone(),
             self.queue.family(),
             CommandBufferUsage::MultipleSubmit,
-            self.pipeline.subpass().clone(),
+            CommandBufferInheritanceInfo {
+                render_pass: Some(self.subpass.clone().into()),
+                ..Default::default()
+            },
         )
         .unwrap();
         secondary_builder
