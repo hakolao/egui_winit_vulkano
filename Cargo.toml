@@ -14,8 +14,8 @@ keywords = ["gui", "imgui", "immediate", "portable", "gamedev"]
 [dependencies]
 ahash = "0.7.6"
 bytemuck = "1.8.0"
-egui = "0.17.0"
-egui-winit = "0.17.0"
+egui = "0.18.1"
+egui-winit = "0.18.0"
 image = "0.23.14"
 vulkano = { version = "0.29.0", git = "https://github.com/hakolao/vulkano", branch = "vulkano-util" }
 vulkano-shaders = { version = "0.29.0", git = "https://github.com/hakolao/vulkano", branch = "vulkano-util" }
@@ -23,5 +23,5 @@ winit = "0.26"
 
 [dev-dependencies]
 cgmath = "0.18.0"
-egui_demo_lib = "0.17.0"
+egui_demo_lib = "0.18.0"
 vulkano-win = { version = "0.29.0", git = "https://github.com/hakolao/vulkano", branch = "vulkano-util" }

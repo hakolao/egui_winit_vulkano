@@ -11,7 +11,10 @@ use std::{convert::TryFrom, sync::Arc};
 
 use ahash::AHashMap;
 use bytemuck::{Pod, Zeroable};
-use egui::{epaint::Mesh, ClippedMesh, Rect, TexturesDelta};
+use egui::{
+    epaint::{Mesh, Primitive},
+    ClippedPrimitive, Rect, TexturesDelta,
+};
 use vulkano::{
     buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
@@ -257,7 +260,7 @@ impl Renderer {
                 );
                 image.pixels.iter().flat_map(|color| color.to_array()).collect()
             }
-            egui::ImageData::Alpha(image) => {
+            egui::ImageData::Font(image) => {
                 let gamma = 1.0;
                 image.srgba_pixels(gamma).flat_map(|color| color.to_array()).collect()
             }
@@ -483,7 +486,7 @@ impl Renderer {
     /// Executes our draw commands on the final image and returns a `GpuFuture` to wait on
     pub fn draw_on_image<F>(
         &mut self,
-        clipped_meshes: &[ClippedMesh],
+        clipped_meshes: &[ClippedPrimitive],
         textures_delta: &TexturesDelta,
         scale_factor: f32,
         before_future: F,
@@ -531,7 +534,7 @@ impl Renderer {
 
     pub fn draw_on_subpass_image(
         &mut self,
-        clipped_meshes: &[ClippedMesh],
+        clipped_meshes: &[ClippedPrimitive],
         textures_delta: &TexturesDelta,
         scale_factor: f32,
         framebuffer_dimensions: [u32; 2],
@@ -551,7 +554,7 @@ impl Renderer {
     fn draw_egui(
         &mut self,
         scale_factor: f32,
-        clipped_meshes: &[ClippedMesh],
+        clipped_meshes: &[ClippedPrimitive],
         framebuffer_dimensions: [u32; 2],
         builder: &mut AutoCommandBufferBuilder<SecondaryAutoCommandBuffer>,
     ) {
@@ -564,63 +567,77 @@ impl Renderer {
 
         let mut vertex_start = 0;
         let mut index_start = 0;
-        for egui::ClippedMesh(rect, mesh) in clipped_meshes {
-            // Nothing to draw if we don't have vertices & indices
-            if mesh.vertices.is_empty() || mesh.indices.is_empty() {
-                continue;
-            }
-            if self.texture_desc_sets.get(&mesh.texture_id).is_none() {
-                eprintln!("This texture no longer exists {:?}", mesh.texture_id);
-                continue;
-            }
+        for ClippedPrimitive { clip_rect, primitive } in clipped_meshes {
+            match primitive {
+                Primitive::Mesh(mesh) => {
+                    // Nothing to draw if we don't have vertices & indices
+                    if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+                        continue;
+                    }
+                    if self.texture_desc_sets.get(&mesh.texture_id).is_none() {
+                        eprintln!("This texture no longer exists {:?}", mesh.texture_id);
+                        continue;
+                    }
 
-            let scissors = vec![self.get_rect_scissor(scale_factor, framebuffer_dimensions, *rect)];
-            let vertices_count = mesh.vertices.len() as DeviceSize;
-            let indices_count = mesh.indices.len() as DeviceSize;
-            // Resize buffers if needed
-            if self.resize_needed(vertex_start + vertices_count, index_start + indices_count) {
-                // Double the allocations
-                self.resize_allocations(self.vertex_buffer.len() * 2, self.index_buffer.len() * 2);
-                // Stop copying and continue next frame
-                break;
+                    let scissors = vec![self.get_rect_scissor(
+                        scale_factor,
+                        framebuffer_dimensions,
+                        *clip_rect,
+                    )];
+                    let vertices_count = mesh.vertices.len() as DeviceSize;
+                    let indices_count = mesh.indices.len() as DeviceSize;
+                    // Resize buffers if needed
+                    if self
+                        .resize_needed(vertex_start + vertices_count, index_start + indices_count)
+                    {
+                        // Double the allocations
+                        self.resize_allocations(
+                            self.vertex_buffer.len() * 2,
+                            self.index_buffer.len() * 2,
+                        );
+                        // Stop copying and continue next frame
+                        break;
+                    }
+                    self.copy_mesh(mesh, vertex_start, index_start);
+                    // Access vertex & index slices for drawing
+                    let vertices = self
+                        .vertex_buffer
+                        .into_buffer_slice()
+                        .slice(vertex_start..(vertex_start + vertices_count))
+                        .unwrap();
+                    let indices = self
+                        .index_buffer
+                        .into_buffer_slice()
+                        .slice(index_start..(index_start + indices_count))
+                        .unwrap();
+                    let desc_set = self.texture_desc_sets.get(&mesh.texture_id).unwrap().clone();
+                    builder
+                        .bind_pipeline_graphics(self.pipeline.clone())
+                        .set_viewport(0, vec![Viewport {
+                            origin: [0.0, 0.0],
+                            dimensions: [
+                                framebuffer_dimensions[0] as f32,
+                                framebuffer_dimensions[1] as f32,
+                            ],
+                            depth_range: 0.0..1.0,
+                        }])
+                        .set_scissor(0, scissors)
+                        .bind_descriptor_sets(
+                            PipelineBindPoint::Graphics,
+                            self.pipeline.layout().clone(),
+                            0,
+                            desc_set.clone(),
+                        )
+                        .push_constants(self.pipeline.layout().clone(), 0, push_constants)
+                        .bind_vertex_buffers(0, vertices.clone())
+                        .bind_index_buffer(indices.clone())
+                        .draw_indexed(indices.len() as u32, 1, 0, 0, 0)
+                        .unwrap();
+                    vertex_start += vertices_count;
+                    index_start += indices_count;
+                }
+                _ => continue,
             }
-            self.copy_mesh(mesh, vertex_start, index_start);
-            // Access vertex & index slices for drawing
-            let vertices = self
-                .vertex_buffer
-                .into_buffer_slice()
-                .slice(vertex_start..(vertex_start + vertices_count))
-                .unwrap();
-            let indices = self
-                .index_buffer
-                .into_buffer_slice()
-                .slice(index_start..(index_start + indices_count))
-                .unwrap();
-            let desc_set = self.texture_desc_sets.get(&mesh.texture_id).unwrap().clone();
-            builder
-                .bind_pipeline_graphics(self.pipeline.clone())
-                .set_viewport(0, vec![Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions: [
-                        framebuffer_dimensions[0] as f32,
-                        framebuffer_dimensions[1] as f32,
-                    ],
-                    depth_range: 0.0..1.0,
-                }])
-                .set_scissor(0, scissors)
-                .bind_descriptor_sets(
-                    PipelineBindPoint::Graphics,
-                    self.pipeline.layout().clone(),
-                    0,
-                    desc_set.clone(),
-                )
-                .push_constants(self.pipeline.layout().clone(), 0, push_constants)
-                .bind_vertex_buffers(0, vertices.clone())
-                .bind_index_buffer(indices.clone())
-                .draw_indexed(indices.len() as u32, 1, 0, 0, 0)
-                .unwrap();
-            vertex_start += vertices_count;
-            index_start += indices_count;
         }
     }
 

@@ -8,7 +8,7 @@
 // according to those terms.
 use std::sync::Arc;
 
-use egui::TexturesDelta;
+use egui::{ClippedPrimitive, TexturesDelta};
 use vulkano::{
     command_buffer::SecondaryAutoCommandBuffer, device::Queue, image::ImageViewAbstract,
     render_pass::Subpass, swapchain::Surface, sync::GpuFuture,
@@ -16,7 +16,6 @@ use vulkano::{
 use winit::window::Window;
 
 use crate::{
-    egui::ClippedMesh,
     renderer::Renderer,
     utils::{immutable_texture_from_bytes, immutable_texture_from_file},
 };
@@ -165,7 +164,7 @@ impl Gui {
         )
     }
 
-    fn extract_draw_data_at_frame_end(&mut self) -> (Vec<ClippedMesh>, TexturesDelta) {
+    fn extract_draw_data_at_frame_end(&mut self) -> (Vec<ClippedPrimitive>, TexturesDelta) {
         self.end_frame();
         let shapes = std::mem::take(&mut self.shapes);
         let textures_delta = std::mem::take(&mut self.textures_delta);
