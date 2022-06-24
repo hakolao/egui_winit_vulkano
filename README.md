@@ -18,7 +18,8 @@ The aim of this is to allow a simple enough API to separate UI nicely out of you
 // Has its own renderpass (is_overlay = false means that the renderpass will clear the image, true means
 // that the caller is responsible for clearing the image
 let mut gui = Gui::new(renderer.surface(), renderer.queue(), false);
-// Or with subpass
+// Or with subpass. This means that you must create the renderpass yourself. Egui subpass will then draw on your
+// image.
 let mut gui = Gui::new_with_subpass(renderer.surface(), renderer.queue(), subpass);
 ```
 
@@ -45,21 +46,18 @@ gui.begin_frame();
 ```
 5. Render gui via your renderer on any image or most likely on your swapchain images:
 ```rust
-renderer.render(&mut gui); //... and inside render function:
-// Draw, where
-// future = acquired future from previous_frame_end.join(swapchain_acquire_future) and
-// image_view_to_draw_on = the final image onto which you wish to render UI, usually e.g.
-// self.final_images[image_num].clone() = one of your swap chain images.
-let after_future = gui.draw_on_image(future, image_view_to_draw_on);
-
+// Acquire swapchain future
+let before_future = renderer.acquire().unwrap();
+// Render gui by passing the acquire future (or any) and render target image (swapchain image view)
+let after_future = gui.draw_on_image(before_future, renderer.swapchain_image_view());
+// Present swapchain
+renderer.present(after_future, true);
+// ----------------------------------
 // Or if you created the integration with subpass
 let cb = gui.draw_on_subpass_image(framebuffer_dimensions);
 draw_pass.execute(cb);
 ```
-6. Finish your render by waiting on the future `gui.draw` returns. See `finish` function in example renderers.
-Or in the case of subpass, execute your commands.
-
-See the examples directory for a more wholesome example which uses Vulkano developers' frame system to organize rendering.
+See the examples directory for better usage guidance.
 
 Remember, on Linux, you need to install following to run Egui
 ```bash

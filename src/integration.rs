@@ -141,7 +141,6 @@ impl Gui {
 
     /// Creates commands for rendering ui on subpass' image and returns the command buffer for execution on your side
     /// - Finishes Egui frame
-    /// - `final_image` = Vulkano's image (render target)
     /// - You must execute the secondary command buffer yourself
     pub fn draw_on_subpass_image(
         &mut self,
