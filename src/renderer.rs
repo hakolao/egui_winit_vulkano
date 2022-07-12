@@ -11,17 +11,21 @@ use std::{convert::TryFrom, sync::Arc};
 
 use ahash::AHashMap;
 use bytemuck::{Pod, Zeroable};
-use egui::{epaint::Mesh, ClippedMesh, Rect, TexturesDelta};
+use egui::{
+    epaint::{Mesh, Primitive},
+    ClippedPrimitive, Rect, TexturesDelta,
+};
 use vulkano::{
     buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
-        AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
-        PrimaryCommandBuffer, SecondaryAutoCommandBuffer, SubpassContents,
+        AutoCommandBufferBuilder, BlitImageInfo, CommandBufferInheritanceInfo, CommandBufferUsage,
+        CopyBufferToImageInfo, ImageBlit, PrimaryAutoCommandBuffer, PrimaryCommandBuffer,
+        RenderPassBeginInfo, SecondaryAutoCommandBuffer, SubpassContents,
     },
     descriptor_set::{layout::DescriptorSetLayout, PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
-    format::{ClearValue, Format},
-    image::{ImageAccess, ImageUsage, ImageViewAbstract},
+    format::Format,
+    image::{ImageAccess, ImageLayout, ImageUsage, ImageViewAbstract, StorageImage},
     pipeline::{
         graphics::{
             color_blend::{AttachmentBlend, BlendFactor, ColorBlendState},
@@ -37,8 +41,6 @@ use vulkano::{
     sync::GpuFuture,
     DeviceSize,
 };
-
-use crate::utils::mutable_image_with_usage;
 
 const VERTICES_PER_QUAD: DeviceSize = 4;
 const VERTEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * VERTICES_PER_QUAD;
@@ -64,6 +66,7 @@ pub struct Renderer {
     vertex_buffer: Arc<CpuAccessibleBuffer<[EguiVertex]>>,
     index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
     pipeline: Arc<GraphicsPipeline>,
+    subpass: Subpass,
 
     texture_desc_sets: AHashMap<egui::TextureId, Arc<PersistentDescriptorSet>>,
     texture_images: AHashMap<egui::TextureId, Arc<dyn ImageViewAbstract + Send + Sync + 'static>>,
@@ -77,7 +80,7 @@ impl Renderer {
         subpass: Subpass,
     ) -> Renderer {
         let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
-        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass);
+        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
         Renderer {
             gfx_queue,
             format: final_output_format,
@@ -85,6 +88,7 @@ impl Renderer {
             vertex_buffer,
             index_buffer,
             pipeline,
+            subpass,
             texture_desc_sets: AHashMap::default(),
             texture_images: AHashMap::default(),
             next_native_tex_id: 0,
@@ -137,7 +141,7 @@ impl Renderer {
         let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
-        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass);
+        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
         Renderer {
             gfx_queue,
             format: final_output_format,
@@ -145,6 +149,7 @@ impl Renderer {
             vertex_buffer,
             index_buffer,
             pipeline,
+            subpass,
             texture_desc_sets: AHashMap::default(),
             texture_images: AHashMap::default(),
             next_native_tex_id: 0,
@@ -255,7 +260,7 @@ impl Renderer {
                 );
                 image.pixels.iter().flat_map(|color| color.to_array()).collect()
             }
-            egui::ImageData::Alpha(image) => {
+            egui::ImageData::Font(image) => {
                 let gamma = 1.0;
                 image.srgba_pixels(gamma).flat_map(|color| color.to_array()).collect()
             }
@@ -263,19 +268,19 @@ impl Renderer {
         // Create buffer to be copied to the image
         let texture_data_buffer = CpuAccessibleBuffer::from_iter(
             self.gfx_queue.device().clone(),
-            BufferUsage::transfer_source(),
+            BufferUsage::transfer_src(),
             false,
             data,
         )
         .unwrap();
         // Create image with right usage
-        let font_image = mutable_image_with_usage(
+        let font_image = StorageImage::general_purpose_image_view(
             self.gfx_queue.clone(),
             [delta.image.width() as u32, delta.image.height() as u32],
             self.format,
             ImageUsage {
-                transfer_destination: true,
-                transfer_source: true,
+                transfer_dst: true,
+                transfer_src: true,
                 sampled: true,
                 ..ImageUsage::none()
             },
@@ -290,32 +295,44 @@ impl Renderer {
         )
         .unwrap();
         // Copy buffer to image
-        cbb.copy_buffer_to_image(texture_data_buffer, font_image.image()).unwrap();
+        cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+            texture_data_buffer,
+            font_image.image().clone(),
+        ))
+        .unwrap();
 
         // Blit texture data to existing image if delta pos exists (e.g. font changed)
         if let Some(pos) = delta.pos {
             if let Some(existing_image) = self.texture_images.get(&texture_id) {
                 let src_dims = font_image.image().dimensions();
-                let top_left = [pos[0] as i32, pos[1] as i32, 0];
+                let top_left = [pos[0] as u32, pos[1] as u32, 0];
                 let bottom_right = [
-                    pos[0] as i32 + src_dims.width() as i32,
-                    pos[1] as i32 + src_dims.height() as i32,
+                    pos[0] as u32 + src_dims.width() as u32,
+                    pos[1] as u32 + src_dims.height() as u32,
                     1,
                 ];
-                cbb.blit_image(
-                    font_image.image(),
-                    [0, 0, 0],
-                    [src_dims.width() as i32, src_dims.height() as i32, 1],
-                    0,
-                    0,
-                    existing_image.image(),
-                    top_left,
-                    bottom_right,
-                    0,
-                    0,
-                    1,
-                    Filter::Nearest,
-                )
+
+                cbb.blit_image(BlitImageInfo {
+                    src_image_layout: ImageLayout::General,
+                    dst_image_layout: ImageLayout::General,
+                    regions: [ImageBlit {
+                        src_subresource: font_image.image().subresource_layers(),
+                        src_offsets: [[0, 0, 0], [
+                            src_dims.width() as u32,
+                            src_dims.height() as u32,
+                            1,
+                        ]],
+                        dst_subresource: existing_image.image().subresource_layers(),
+                        dst_offsets: [top_left, bottom_right],
+                        ..Default::default()
+                    }]
+                    .into(),
+                    filter: Filter::Nearest,
+                    ..BlitImageInfo::images(
+                        font_image.image().clone(),
+                        existing_image.image().clone(),
+                    )
+                })
                 .unwrap();
             }
             // Otherwise save the newly created image
@@ -416,11 +433,14 @@ impl Renderer {
     fn create_secondary_command_buffer_builder(
         &self,
     ) -> AutoCommandBufferBuilder<SecondaryAutoCommandBuffer> {
-        AutoCommandBufferBuilder::secondary_graphics(
+        AutoCommandBufferBuilder::secondary(
             self.gfx_queue.device().clone(),
             self.gfx_queue.family(),
             CommandBufferUsage::MultipleSubmit,
-            self.pipeline.subpass().clone(),
+            CommandBufferInheritanceInfo {
+                render_pass: Some(self.subpass.clone().into()),
+                ..Default::default()
+            },
         )
         .unwrap()
     }
@@ -452,9 +472,13 @@ impl Renderer {
         .unwrap();
         // Add clear values here for attachments and begin render pass
         command_buffer_builder
-            .begin_render_pass(framebuffer, SubpassContents::SecondaryCommandBuffers, vec![
-                if !self.is_overlay { [0.0; 4].into() } else { ClearValue::None },
-            ])
+            .begin_render_pass(
+                RenderPassBeginInfo {
+                    clear_values: vec![if !self.is_overlay { Some([0.0; 4].into()) } else { None }],
+                    ..RenderPassBeginInfo::framebuffer(framebuffer)
+                },
+                SubpassContents::SecondaryCommandBuffers,
+            )
             .unwrap();
         (command_buffer_builder, img_dims)
     }
@@ -462,7 +486,7 @@ impl Renderer {
     /// Executes our draw commands on the final image and returns a `GpuFuture` to wait on
     pub fn draw_on_image<F>(
         &mut self,
-        clipped_meshes: &[ClippedMesh],
+        clipped_meshes: &[ClippedPrimitive],
         textures_delta: &TexturesDelta,
         scale_factor: f32,
         before_future: F,
@@ -510,7 +534,7 @@ impl Renderer {
 
     pub fn draw_on_subpass_image(
         &mut self,
-        clipped_meshes: &[ClippedMesh],
+        clipped_meshes: &[ClippedPrimitive],
         textures_delta: &TexturesDelta,
         scale_factor: f32,
         framebuffer_dimensions: [u32; 2],
@@ -530,7 +554,7 @@ impl Renderer {
     fn draw_egui(
         &mut self,
         scale_factor: f32,
-        clipped_meshes: &[ClippedMesh],
+        clipped_meshes: &[ClippedPrimitive],
         framebuffer_dimensions: [u32; 2],
         builder: &mut AutoCommandBufferBuilder<SecondaryAutoCommandBuffer>,
     ) {
@@ -543,63 +567,77 @@ impl Renderer {
 
         let mut vertex_start = 0;
         let mut index_start = 0;
-        for egui::ClippedMesh(rect, mesh) in clipped_meshes {
-            // Nothing to draw if we don't have vertices & indices
-            if mesh.vertices.is_empty() || mesh.indices.is_empty() {
-                continue;
-            }
-            if self.texture_desc_sets.get(&mesh.texture_id).is_none() {
-                eprintln!("This texture no longer exists {:?}", mesh.texture_id);
-                continue;
-            }
+        for ClippedPrimitive { clip_rect, primitive } in clipped_meshes {
+            match primitive {
+                Primitive::Mesh(mesh) => {
+                    // Nothing to draw if we don't have vertices & indices
+                    if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+                        continue;
+                    }
+                    if self.texture_desc_sets.get(&mesh.texture_id).is_none() {
+                        eprintln!("This texture no longer exists {:?}", mesh.texture_id);
+                        continue;
+                    }
 
-            let scissors = vec![self.get_rect_scissor(scale_factor, framebuffer_dimensions, *rect)];
-            let vertices_count = mesh.vertices.len() as DeviceSize;
-            let indices_count = mesh.indices.len() as DeviceSize;
-            // Resize buffers if needed
-            if self.resize_needed(vertex_start + vertices_count, index_start + indices_count) {
-                // Double the allocations
-                self.resize_allocations(self.vertex_buffer.len() * 2, self.index_buffer.len() * 2);
-                // Stop copying and continue next frame
-                break;
+                    let scissors = vec![self.get_rect_scissor(
+                        scale_factor,
+                        framebuffer_dimensions,
+                        *clip_rect,
+                    )];
+                    let vertices_count = mesh.vertices.len() as DeviceSize;
+                    let indices_count = mesh.indices.len() as DeviceSize;
+                    // Resize buffers if needed
+                    if self
+                        .resize_needed(vertex_start + vertices_count, index_start + indices_count)
+                    {
+                        // Double the allocations
+                        self.resize_allocations(
+                            self.vertex_buffer.len() * 2,
+                            self.index_buffer.len() * 2,
+                        );
+                        // Stop copying and continue next frame
+                        break;
+                    }
+                    self.copy_mesh(mesh, vertex_start, index_start);
+                    // Access vertex & index slices for drawing
+                    let vertices = self
+                        .vertex_buffer
+                        .into_buffer_slice()
+                        .slice(vertex_start..(vertex_start + vertices_count))
+                        .unwrap();
+                    let indices = self
+                        .index_buffer
+                        .into_buffer_slice()
+                        .slice(index_start..(index_start + indices_count))
+                        .unwrap();
+                    let desc_set = self.texture_desc_sets.get(&mesh.texture_id).unwrap().clone();
+                    builder
+                        .bind_pipeline_graphics(self.pipeline.clone())
+                        .set_viewport(0, vec![Viewport {
+                            origin: [0.0, 0.0],
+                            dimensions: [
+                                framebuffer_dimensions[0] as f32,
+                                framebuffer_dimensions[1] as f32,
+                            ],
+                            depth_range: 0.0..1.0,
+                        }])
+                        .set_scissor(0, scissors)
+                        .bind_descriptor_sets(
+                            PipelineBindPoint::Graphics,
+                            self.pipeline.layout().clone(),
+                            0,
+                            desc_set.clone(),
+                        )
+                        .push_constants(self.pipeline.layout().clone(), 0, push_constants)
+                        .bind_vertex_buffers(0, vertices.clone())
+                        .bind_index_buffer(indices.clone())
+                        .draw_indexed(indices.len() as u32, 1, 0, 0, 0)
+                        .unwrap();
+                    vertex_start += vertices_count;
+                    index_start += indices_count;
+                }
+                _ => continue,
             }
-            self.copy_mesh(mesh, vertex_start, index_start);
-            // Access vertex & index slices for drawing
-            let vertices = self
-                .vertex_buffer
-                .into_buffer_slice()
-                .slice(vertex_start..(vertex_start + vertices_count))
-                .unwrap();
-            let indices = self
-                .index_buffer
-                .into_buffer_slice()
-                .slice(index_start..(index_start + indices_count))
-                .unwrap();
-            let desc_set = self.texture_desc_sets.get(&mesh.texture_id).unwrap().clone();
-            builder
-                .bind_pipeline_graphics(self.pipeline.clone())
-                .set_viewport(0, vec![Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions: [
-                        framebuffer_dimensions[0] as f32,
-                        framebuffer_dimensions[1] as f32,
-                    ],
-                    depth_range: 0.0..1.0,
-                }])
-                .set_scissor(0, scissors)
-                .bind_descriptor_sets(
-                    PipelineBindPoint::Graphics,
-                    self.pipeline.layout().clone(),
-                    0,
-                    desc_set.clone(),
-                )
-                .push_constants(self.pipeline.layout().clone(), 0, push_constants)
-                .bind_vertex_buffers(0, vertices.clone())
-                .bind_index_buffer(indices.clone())
-                .draw_indexed(indices.len() as u32, 1, 0, 0, 0)
-                .unwrap();
-            vertex_start += vertices_count;
-            index_start += indices_count;
         }
     }
 

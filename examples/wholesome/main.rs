@@ -7,22 +7,23 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use std::sync::Arc;
-
 use egui::{Context, Visuals};
 use egui_winit_vulkano::Gui;
 use vulkano::{
     format::Format,
-    image::{view::ImageView, AttachmentImage},
-    swapchain::PresentMode,
+    image::{ImageUsage, StorageImage},
+};
+use vulkano_util::{
+    context::{VulkanoConfig, VulkanoContext},
+    renderer::{DeviceImageView, DEFAULT_IMAGE_FORMAT},
+    window::{VulkanoWindows, WindowDescriptor},
 };
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::Window,
 };
 
-use crate::{renderer::Renderer, time_info::TimeInfo};
+use crate::{renderer::RenderPipeline, time_info::TimeInfo};
 
 mod frame_system;
 mod renderer;
@@ -36,82 +37,72 @@ pub struct GuiState {
     show_scene_window: bool,
     image_texture_id1: egui::TextureId,
     image_texture_id2: egui::TextureId,
-    scene_texture_ids: Vec<egui::TextureId>,
+    scene_texture_id: egui::TextureId,
     scene_view_size: [u32; 2],
 }
 
 impl GuiState {
-    pub fn new(
-        gui: &mut Gui,
-        scene_images: &Vec<Arc<ImageView<AttachmentImage>>>,
-        scene_view_size: [u32; 2],
-    ) -> GuiState {
+    pub fn new(gui: &mut Gui, scene_image: DeviceImageView, scene_view_size: [u32; 2]) -> GuiState {
         // tree.png asset is from https://github.com/sotrh/learn-wgpu/tree/master/docs/beginner/tutorial5-textures
         let image_texture_id1 =
             gui.register_user_image(include_bytes!("./assets/tree.png"), Format::R8G8B8A8_UNORM);
         let image_texture_id2 =
             gui.register_user_image(include_bytes!("./assets/doge2.png"), Format::R8G8B8A8_UNORM);
-        let mut scene_texture_ids = vec![];
-        for img in scene_images {
-            scene_texture_ids.push(gui.register_user_image_view(img.clone()));
-        }
+
         GuiState {
             show_texture_window1: true,
             show_texture_window2: true,
             show_scene_window: true,
             image_texture_id1,
             image_texture_id2,
-            scene_texture_ids,
+            scene_texture_id: gui.register_user_image_view(scene_image.clone()),
             scene_view_size,
         }
     }
 
     /// Defines the layout of our UI
-    pub fn layout(
-        &mut self,
-        egui_context: Context,
-        window: &Window,
-        last_image_num: usize,
-        fps: f32,
-    ) {
+    pub fn layout(&mut self, egui_context: Context, window_size: [f32; 2], fps: f32) {
+        let GuiState {
+            show_texture_window1,
+            show_texture_window2,
+            show_scene_window,
+            image_texture_id1,
+            image_texture_id2,
+            scene_view_size,
+            scene_texture_id,
+            ..
+        } = self;
         egui_context.set_visuals(Visuals::dark());
         egui::SidePanel::left("Side Panel").default_width(150.0).show(&egui_context, |ui| {
             ui.heading("Hello Tree");
             ui.separator();
-            ui.checkbox(&mut self.show_texture_window1, "Show Tree");
-            ui.checkbox(&mut self.show_texture_window2, "Show Doge");
-            ui.checkbox(&mut self.show_scene_window, "Show Scene");
+            ui.checkbox(show_texture_window1, "Show Tree");
+            ui.checkbox(show_texture_window2, "Show Doge");
+            ui.checkbox(show_scene_window, "Show Scene");
         });
-        let show_texture_window1 = &mut self.show_texture_window1;
-        let show_texture_window2 = &mut self.show_texture_window2;
-        let image_texture_id1 = self.image_texture_id1;
+
         egui::Window::new("Mah Tree")
             .resizable(true)
             .vscroll(true)
             .open(show_texture_window1)
             .show(&egui_context, |ui| {
-                ui.image(image_texture_id1, [256.0, 256.0]);
+                ui.image(*image_texture_id1, [256.0, 256.0]);
             });
-        let image_texture_id2 = self.image_texture_id2;
         egui::Window::new("Mah Doge")
             .resizable(true)
             .vscroll(true)
             .open(show_texture_window2)
             .show(&egui_context, |ui| {
-                ui.image(image_texture_id2, [300.0, 200.0]);
+                ui.image(*image_texture_id2, [300.0, 200.0]);
             });
-        let show_scene_window = &mut self.show_scene_window;
-        let scene_texture_id = self.scene_texture_ids[last_image_num];
-        let scene_view_size = self.scene_view_size;
         egui::Window::new("Scene").resizable(true).vscroll(true).open(show_scene_window).show(
             &egui_context,
             |ui| {
-                ui.image(scene_texture_id, [scene_view_size[0] as f32, scene_view_size[1] as f32]);
+                ui.image(*scene_texture_id, [scene_view_size[0] as f32, scene_view_size[1] as f32]);
             },
         );
-        let size = window.inner_size();
         egui::Area::new("fps")
-            .fixed_pos(egui::pos2(size.width as f32 - 0.05 * size.width as f32, 10.0))
+            .fixed_pos(egui::pos2(window_size[0] - 0.05 * window_size[0], 10.0))
             .show(&egui_context, |ui| {
                 ui.label(format!("{:.2}", fps));
             });
@@ -123,18 +114,33 @@ pub fn main() {
     let event_loop = EventLoop::new();
     let mut time = TimeInfo::new();
     // Create renderer for our scene & ui
-    let window_size = [1280, 720];
     let scene_view_size = [256, 256];
-    let mut renderer =
-        Renderer::new(&event_loop, window_size, scene_view_size, PresentMode::Fifo, "Wholesome");
-    // After creating the renderer (window, gfx_queue) create out gui integration
-    // It requires access to surface (Window, devices etc.) and Vulkano's gfx queue
-    let mut gui = Gui::new(renderer.surface(), renderer.queue(), false);
-    // Renderer created AttachmentImages for our scene, let's access them
-    let scene_images = renderer.scene_images();
+    // Vulkano context
+    let context = VulkanoContext::new(VulkanoConfig::default());
+    // Vulkano windows (create one)
+    let mut windows = VulkanoWindows::default();
+    windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |_| {});
+    // Create gui as main render pass (no overlay means it clears the image each frame)
+    let mut gui = {
+        let renderer = windows.get_primary_renderer_mut().unwrap();
+        Gui::new(renderer.surface(), renderer.graphics_queue(), false)
+    };
+    // Create a simple image to which we'll draw the triangle scene
+    let scene_image = StorageImage::general_purpose_image_view(
+        context.graphics_queue(),
+        scene_view_size,
+        DEFAULT_IMAGE_FORMAT,
+        ImageUsage { sampled: true, ..ImageUsage::color_attachment() },
+    )
+    .unwrap();
+    // Create our render pipeline
+    let mut scene_render_pipeline =
+        RenderPipeline::new(context.graphics_queue(), DEFAULT_IMAGE_FORMAT);
     // Create gui state (pass anything your state requires)
-    let mut gui_state = GuiState::new(&mut gui, scene_images, scene_view_size);
+    let mut gui_state = GuiState::new(&mut gui, scene_image.clone(), scene_view_size);
+    // Event loop run
     event_loop.run(move |event, _, control_flow| {
+        let renderer = windows.get_primary_renderer_mut().unwrap();
         // Update Egui integration so the UI works!
         match event {
             Event::WindowEvent { event, window_id }
@@ -160,11 +166,20 @@ pub fn main() {
                 // Here we're calling the layout of our `gui_state`.
                 gui.immediate_ui(|gui| {
                     let ctx = gui.context();
-                    gui_state.layout(ctx, renderer.window(), renderer.last_image_num(), time.fps())
+                    gui_state.layout(ctx, renderer.window_size(), time.fps())
                 });
-                // Lastly we'll need to render our ui. You need to organize gui rendering to your needs
-                // We'll render gui last on our swapchain images (see function below)
-                renderer.render(&mut gui);
+                // Render UI
+                // Acquire swapchain future
+                let before_future = renderer.acquire().unwrap();
+                // Draw scene
+                let after_scene_draw =
+                    scene_render_pipeline.render(before_future, scene_image.clone());
+                // Render gui
+                let after_future =
+                    gui.draw_on_image(after_scene_draw, renderer.swapchain_image_view());
+                // Present swapchain
+                renderer.present(after_future, true);
+
                 // Update fps & dt
                 time.update();
             }
