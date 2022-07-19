@@ -25,7 +25,9 @@ use vulkano::{
     descriptor_set::{layout::DescriptorSetLayout, PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
     format::Format,
-    image::{ImageAccess, ImageLayout, ImageUsage, ImageViewAbstract, StorageImage},
+    image::{
+        view::ImageView, ImageAccess, ImageLayout, ImageUsage, ImageViewAbstract, ImmutableImage,
+    },
     pipeline::{
         graphics::{
             color_blend::{AttachmentBlend, BlendFactor, ColorBlendState},
@@ -273,19 +275,28 @@ impl Renderer {
             data,
         )
         .unwrap();
-        // Create image with right usage
-        let font_image = StorageImage::general_purpose_image_view(
-            self.gfx_queue.clone(),
-            [delta.image.width() as u32, delta.image.height() as u32],
+        // Create image
+        let (img, init) = ImmutableImage::uninitialized(
+            self.gfx_queue.device().clone(),
+            vulkano::image::ImageDimensions::Dim2d {
+                width: delta.image.width() as u32,
+                height: delta.image.height() as u32,
+                array_layers: 1,
+            },
             self.format,
+            vulkano::image::MipmapsCount::One,
             ImageUsage {
                 transfer_dst: true,
                 transfer_src: true,
                 sampled: true,
                 ..ImageUsage::none()
             },
+            Default::default(),
+            ImageLayout::ShaderReadOnlyOptimal,
+            Some(self.gfx_queue.family()),
         )
         .unwrap();
+        let font_image = ImageView::new_default(img).unwrap();
 
         // Create command buffer builder
         let mut cbb = AutoCommandBufferBuilder::primary(
@@ -294,10 +305,11 @@ impl Renderer {
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
+
         // Copy buffer to image
         cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
             texture_data_buffer,
-            font_image.image().clone(),
+            init.clone(),
         ))
         .unwrap();
 

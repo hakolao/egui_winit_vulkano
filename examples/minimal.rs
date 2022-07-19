@@ -18,6 +18,10 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
 };
 
+fn sized_text(ui: &mut egui::Ui, text: impl Into<String>, size: f32) {
+    ui.label(egui::RichText::new(text).size(size));
+}
+
 pub fn main() {
     // Winit event loop
     let event_loop = EventLoop::new();
@@ -61,6 +65,7 @@ pub fn main() {
                     egui::CentralPanel::default().show(&ctx, |ui| {
                         ui.vertical_centered(|ui| {
                             ui.add(egui::widgets::Label::new("Hi there!"));
+                            sized_text(ui, "Rich Text", 32.0);
                         });
                         ui.separator();
                         ui.columns(2, |columns| {
