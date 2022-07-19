@@ -7,7 +7,6 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use egui::{ScrollArea, TextEdit, TextStyle};
 use egui_winit_vulkano::Gui;
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
@@ -17,10 +16,6 @@ use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
 };
-
-fn sized_text(ui: &mut egui::Ui, text: impl Into<String>, size: f32) {
-    ui.label(egui::RichText::new(text).size(size));
-}
 
 pub fn main() {
     // Winit event loop
@@ -35,8 +30,9 @@ pub fn main() {
         let renderer = windows.get_primary_renderer_mut().unwrap();
         Gui::new(renderer.surface(), renderer.graphics_queue(), false)
     };
-    // Create gui state (pass anything your state requires)
-    let mut code = CODE.to_owned();
+    // Display the demo application that ships with egui.
+    let mut demo_app = egui_demo_lib::DemoWindows::default();
+
     event_loop.run(move |event, _, control_flow| {
         let renderer = windows.get_primary_renderer_mut().unwrap();
         match event {
@@ -62,30 +58,13 @@ pub fn main() {
                 // Set immediate UI in redraw here
                 gui.immediate_ui(|gui| {
                     let ctx = gui.context();
-                    egui::CentralPanel::default().show(&ctx, |ui| {
-                        ui.vertical_centered(|ui| {
-                            ui.add(egui::widgets::Label::new("Hi there!"));
-                            sized_text(ui, "Rich Text", 32.0);
-                        });
-                        ui.separator();
-                        ui.columns(2, |columns| {
-                            ScrollArea::vertical().id_source("source").show(
-                                &mut columns[0],
-                                |ui| {
-                                    ui.add(
-                                        TextEdit::multiline(&mut code).font(TextStyle::Monospace),
-                                    );
-                                },
-                            );
-                            ScrollArea::vertical().id_source("rendered").show(
-                                &mut columns[1],
-                                |ui| {
-                                    egui_demo_lib::easy_mark::easy_mark(ui, &code);
-                                },
-                            );
-                        });
-                    });
+                    demo_app.ui(&ctx);
                 });
+                // Alternatively you could
+                // gui.begin_frame();
+                // let ctx = gui.context();
+                // demo_app.ui(&ctx);
+
                 // Render UI
                 // Acquire swapchain future
                 let before_future = renderer.acquire().unwrap();
@@ -102,10 +81,3 @@ pub fn main() {
         }
     });
 }
-
-const CODE: &str = r#"
-# Some markup
-```
-let mut gui = Gui::new(renderer.surface(), renderer.queue());
-```
-"#;

@@ -70,6 +70,7 @@ sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
 cargo run --example wholesome
 cargo run --example minimal
 cargo run --example subpass
+cargo run --example demo_app
 ```
 
 # Notes
