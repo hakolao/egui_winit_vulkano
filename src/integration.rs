@@ -38,13 +38,20 @@ impl Gui {
     /// - `surface`: Vulkano's Winit Surface [`Arc<Surface<Window>>`]
     /// - `gfx_queue`: Vulkano's [`Queue`]
     /// - `is_overlay`: If true, you should be responsible for clearing the image before `draw_on_image`, else it gets cleared
+    ///
+    /// Note that your swapchain images should be created with `vulkano::format::Format::B8G8R8A8_SRGB`
     pub fn new(surface: Arc<Surface<Window>>, gfx_queue: Arc<Queue>, is_overlay: bool) -> Gui {
-        let format = gfx_queue
+        let format = vulkano::format::Format::B8G8R8A8_SRGB;
+        let formats = gfx_queue
             .device()
             .physical_device()
             .surface_formats(&surface, Default::default())
-            .unwrap()[0]
-            .0;
+            .unwrap();
+        assert!(
+            formats.iter().find(|f| f.0 == format).is_some(),
+            "Swapchain format does not support {:?}",
+            format
+        );
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
         let renderer = Renderer::new_with_render_pass(gfx_queue, format, is_overlay);
@@ -59,17 +66,24 @@ impl Gui {
     }
 
     /// Same as `new` but instead of integration owning a render pass, egui renders on your subpass
+    ///
+    /// Note that your swapchain images should be created with `vulkano::format::Format::B8G8R8A8_SRGB`
     pub fn new_with_subpass(
         surface: Arc<Surface<Window>>,
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
     ) -> Gui {
-        let format = gfx_queue
+        let format = vulkano::format::Format::B8G8R8A8_SRGB;
+        let formats = gfx_queue
             .device()
             .physical_device()
             .surface_formats(&surface, Default::default())
-            .unwrap()[0]
-            .0;
+            .unwrap();
+        assert!(
+            formats.iter().find(|f| f.0 == format).is_some(),
+            "Swapchain format does not support {:?}",
+            format
+        );
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
         let renderer = Renderer::new_with_subpass(gfx_queue, format, subpass);
@@ -126,6 +140,15 @@ impl Gui {
                 "Gui integration has been created with subpass, use `draw_on_subpass_image` \
                  instead"
             )
+        }
+
+        let format = final_image.format();
+        if format != Some(vulkano::format::Format::B8G8R8A8_SRGB) {
+            panic!(
+                "Render target image color format is wrong {:?}, should be {:?}",
+                format,
+                Some(vulkano::format::Format::B8G8R8A8_SRGB)
+            );
         }
 
         let (clipped_meshes, textures_delta) = self.extract_draw_data_at_frame_end();

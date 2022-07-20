@@ -45,9 +45,9 @@ impl GuiState {
     pub fn new(gui: &mut Gui, scene_image: DeviceImageView, scene_view_size: [u32; 2]) -> GuiState {
         // tree.png asset is from https://github.com/sotrh/learn-wgpu/tree/master/docs/beginner/tutorial5-textures
         let image_texture_id1 =
-            gui.register_user_image(include_bytes!("./assets/tree.png"), Format::R8G8B8A8_UNORM);
+            gui.register_user_image(include_bytes!("./assets/tree.png"), Format::R8G8B8A8_SRGB);
         let image_texture_id2 =
-            gui.register_user_image(include_bytes!("./assets/doge2.png"), Format::R8G8B8A8_UNORM);
+            gui.register_user_image(include_bytes!("./assets/doge2.png"), Format::R8G8B8A8_SRGB);
 
         GuiState {
             show_texture_window1: true,
@@ -119,7 +119,9 @@ pub fn main() {
     let context = VulkanoContext::new(VulkanoConfig::default());
     // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
-    windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |_| {});
+    windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
+        ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB)
+    });
     // Create gui as main render pass (no overlay means it clears the image each frame)
     let mut gui = {
         let renderer = windows.get_primary_renderer_mut().unwrap();

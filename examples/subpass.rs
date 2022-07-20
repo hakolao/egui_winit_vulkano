@@ -53,7 +53,10 @@ pub fn main() {
     let context = VulkanoContext::new(VulkanoConfig::default());
     // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
-    windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |_| {});
+    windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
+        // If you don't use B8G8R8A8_SRGB, the egui result will be dark
+        ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB)
+    });
     // Create out gui pipeline
     let mut gui_pipeline = SimpleGuiPipeline::new(
         context.graphics_queue(),
