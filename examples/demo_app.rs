@@ -32,6 +32,7 @@ pub fn main() {
     };
     // Display the demo application that ships with egui.
     let mut demo_app = egui_demo_lib::DemoWindows::default();
+    let mut egui_test = egui_demo_lib::ColorTest::default();
 
     event_loop.run(move |event, _, control_flow| {
         let renderer = windows.get_primary_renderer_mut().unwrap();
@@ -59,6 +60,10 @@ pub fn main() {
                 gui.immediate_ui(|gui| {
                     let ctx = gui.context();
                     demo_app.ui(&ctx);
+
+                    egui::Window::new("Colors").vscroll(true).show(&ctx, |ui| {
+                        egui_test.ui(ui);
+                    });
                 });
                 // Alternatively you could
                 // gui.begin_frame();
