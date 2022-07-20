@@ -38,16 +38,22 @@ impl Gui {
     /// - `surface`: Vulkano's Winit Surface [`Arc<Surface<Window>>`]
     /// - `gfx_queue`: Vulkano's [`Queue`]
     /// - `is_overlay`: If true, you should be responsible for clearing the image before `draw_on_image`, else it gets cleared
-    pub fn new(surface: Arc<Surface<Window>>, gfx_queue: Arc<Queue>, is_overlay: bool) -> Gui {
-        let format = gfx_queue
+    /// - 'surface_format`: [`vulkano::format::Format`] to be used as the output format of the render pass
+    pub fn new(
+        surface: Arc<Surface<Window>>,
+        gfx_queue: Arc<Queue>,
+        is_overlay: bool,
+        surface_format: vulkano::format::Format,
+    ) -> Gui {
+        let formats = gfx_queue
             .device()
             .physical_device()
             .surface_formats(&surface, Default::default())
-            .unwrap()[0]
-            .0;
+            .unwrap();
+        assert!(formats.iter().find(|f| f.0 == surface_format).is_some());
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
-        let renderer = Renderer::new_with_render_pass(gfx_queue, format, is_overlay);
+        let renderer = Renderer::new_with_render_pass(gfx_queue, surface_format, is_overlay);
         Gui {
             egui_ctx: Default::default(),
             egui_winit: egui_winit::State::new(max_texture_side, surface.window()),
@@ -63,16 +69,17 @@ impl Gui {
         surface: Arc<Surface<Window>>,
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
+        surface_format: vulkano::format::Format,
     ) -> Gui {
-        let format = gfx_queue
+        let formats = gfx_queue
             .device()
             .physical_device()
             .surface_formats(&surface, Default::default())
-            .unwrap()[0]
-            .0;
+            .unwrap();
+        assert!(formats.iter().find(|f| f.0 == surface_format).is_some());
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
-        let renderer = Renderer::new_with_subpass(gfx_queue, format, subpass);
+        let renderer = Renderer::new_with_subpass(gfx_queue, surface_format, subpass);
         Gui {
             egui_ctx: Default::default(),
             egui_winit: egui_winit::State::new(max_texture_side, surface.window()),
