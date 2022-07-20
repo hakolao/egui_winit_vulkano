@@ -283,7 +283,7 @@ impl Renderer {
                 height: delta.image.height() as u32,
                 array_layers: 1,
             },
-            self.format,
+            Format::R8G8B8A8_UNORM,
             vulkano::image::MipmapsCount::One,
             ImageUsage {
                 transfer_dst: true,
