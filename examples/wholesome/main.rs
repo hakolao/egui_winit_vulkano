@@ -125,12 +125,7 @@ pub fn main() {
     // Create gui as main render pass (no overlay means it clears the image each frame)
     let mut gui = {
         let renderer = windows.get_primary_renderer_mut().unwrap();
-        Gui::new(
-            renderer.surface(),
-            renderer.graphics_queue(),
-            false,
-            vulkano::format::Format::B8G8R8A8_SRGB,
-        )
+        Gui::new(renderer.surface(), renderer.graphics_queue(), false)
     };
     // Create a simple image to which we'll draw the triangle scene
     let scene_image = StorageImage::general_purpose_image_view(

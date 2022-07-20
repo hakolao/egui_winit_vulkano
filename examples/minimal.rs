@@ -35,12 +35,7 @@ pub fn main() {
     // Create gui as main render pass (no overlay means it clears the image each frame)
     let mut gui = {
         let renderer = windows.get_primary_renderer_mut().unwrap();
-        Gui::new(
-            renderer.surface(),
-            renderer.graphics_queue(),
-            false,
-            vulkano::format::Format::B8G8R8A8_SRGB,
-        )
+        Gui::new(renderer.surface(), renderer.graphics_queue(), false)
     };
     // Create gui state (pass anything your state requires)
     let mut code = CODE.to_owned();
