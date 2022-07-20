@@ -65,6 +65,7 @@ pub struct Renderer {
 
     #[allow(unused)]
     format: vulkano::format::Format,
+    sampler: Arc<Sampler>,
 
     vertex_buffer: Arc<CpuAccessibleBuffer<[EguiVertex]>>,
     index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
@@ -84,6 +85,14 @@ impl Renderer {
     ) -> Renderer {
         let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
+        let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
+            mag_filter: Filter::Linear,
+            min_filter: Filter::Linear,
+            address_mode: [SamplerAddressMode::ClampToEdge; 3],
+            mipmap_mode: SamplerMipmapMode::Linear,
+            ..Default::default()
+        })
+        .unwrap();
         Renderer {
             gfx_queue,
             format: final_output_format,
@@ -96,6 +105,7 @@ impl Renderer {
             texture_images: AHashMap::default(),
             next_native_tex_id: 0,
             is_overlay: false,
+            sampler,
         }
     }
 
@@ -145,6 +155,14 @@ impl Renderer {
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
+        let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
+            mag_filter: Filter::Linear,
+            min_filter: Filter::Linear,
+            address_mode: [SamplerAddressMode::ClampToEdge; 3],
+            mipmap_mode: SamplerMipmapMode::Linear,
+            ..Default::default()
+        })
+        .unwrap();
         Renderer {
             gfx_queue,
             format: final_output_format,
@@ -157,6 +175,7 @@ impl Renderer {
             texture_images: AHashMap::default(),
             next_native_tex_id: 0,
             is_overlay,
+            sampler,
         }
     }
 
@@ -212,22 +231,14 @@ impl Renderer {
 
     /// Creates a descriptor set for images
     fn sampled_image_desc_set(
-        gfx_queue: Arc<Queue>,
+        &self,
         layout: &Arc<DescriptorSetLayout>,
         image: Arc<dyn ImageViewAbstract + 'static>,
     ) -> Arc<PersistentDescriptorSet> {
-        let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
-            mag_filter: Filter::Linear,
-            min_filter: Filter::Linear,
-            address_mode: [SamplerAddressMode::ClampToEdge; 3],
-            mipmap_mode: SamplerMipmapMode::Linear,
-            ..Default::default()
-        })
-        .unwrap();
         PersistentDescriptorSet::new(layout.clone(), [WriteDescriptorSet::image_view_sampler(
             0,
             image.clone(),
-            sampler,
+            self.sampler.clone(),
         )])
         .unwrap()
     }
@@ -238,7 +249,7 @@ impl Renderer {
         image: Arc<dyn ImageViewAbstract + Send + Sync>,
     ) -> egui::TextureId {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
-        let desc_set = Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, image.clone());
+        let desc_set = self.sampled_image_desc_set(layout, image.clone());
         let id = egui::TextureId::User(self.next_native_tex_id);
         self.next_native_tex_id += 1;
         self.texture_desc_sets.insert(id, desc_set);
@@ -351,8 +362,7 @@ impl Renderer {
             // Otherwise save the newly created image
         } else {
             let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
-            let font_desc_set =
-                Self::sampled_image_desc_set(self.gfx_queue.clone(), layout, font_image.clone());
+            let font_desc_set = self.sampled_image_desc_set(layout, font_image.clone());
             self.texture_desc_sets.insert(texture_id, font_desc_set);
             self.texture_images.insert(texture_id, font_image);
         }
