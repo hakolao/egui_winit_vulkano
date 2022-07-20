@@ -63,6 +63,7 @@ pub struct Renderer {
     render_pass: Option<Arc<RenderPass>>,
     is_overlay: bool,
 
+    #[allow(unused)]
     format: vulkano::format::Format,
 
     vertex_buffer: Arc<CpuAccessibleBuffer<[EguiVertex]>>,
