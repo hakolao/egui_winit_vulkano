@@ -38,7 +38,9 @@ impl Gui {
     /// - `surface`: Vulkano's Winit Surface [`Arc<Surface<Window>>`]
     /// - `gfx_queue`: Vulkano's [`Queue`]
     /// - `is_overlay`: If true, you should be responsible for clearing the image before `draw_on_image`, else it gets cleared
-    /// - 'surface_format`: [`vulkano::format::Format`] to be used as the output format of the render pass
+    /// - `surface_format`: [`vulkano::format::Format`] to be used as the output format of the render pass
+    ///
+    /// This function will panic if surface does not support the inputted format
     pub fn new(
         surface: Arc<Surface<Window>>,
         gfx_queue: Arc<Queue>,
