@@ -65,6 +65,7 @@ pub fn main() {
     // Create gui subpass
     let mut gui = Gui::new_with_subpass(
         windows.get_primary_renderer_mut().unwrap().surface(),
+        Some(vulkano::format::Format::B8G8R8A8_SRGB),
         windows.get_primary_renderer_mut().unwrap().graphics_queue(),
         gui_pipeline.gui_pass(),
     );
