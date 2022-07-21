@@ -17,6 +17,9 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
 };
 
+// Simply create egui demo apps to test everything works correctly.
+// Creates two windows with different color formats for their swapchain.
+
 pub fn main() {
     // Winit event loop
     let event_loop = EventLoop::new();
