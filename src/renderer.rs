@@ -16,14 +16,14 @@ use egui::{
     ClippedPrimitive, Rect, TexturesDelta,
 };
 use vulkano::{
-    buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, ImmutableBuffer, TypedBufferAccess},
+    buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
         AutoCommandBufferBuilder, BlitImageInfo, CommandBufferInheritanceInfo, CommandBufferUsage,
         CopyBufferToImageInfo, ImageBlit, PrimaryAutoCommandBuffer, PrimaryCommandBuffer,
         RenderPassBeginInfo, SecondaryAutoCommandBuffer, SubpassContents,
     },
     descriptor_set::{layout::DescriptorSetLayout, PersistentDescriptorSet, WriteDescriptorSet},
-    device::Queue,
+    device::{Device, Queue},
     format::{Format, NumericType},
     image::{
         view::ImageView, ImageAccess, ImageLayout, ImageUsage, ImageViewAbstract, ImmutableImage,
@@ -62,6 +62,7 @@ pub struct Renderer {
     gfx_queue: Arc<Queue>,
     render_pass: Option<Arc<RenderPass>>,
     is_overlay: bool,
+    need_srgb_conv: bool,
 
     #[allow(unused)]
     format: vulkano::format::Format,
@@ -69,7 +70,6 @@ pub struct Renderer {
 
     vertex_buffer: Arc<CpuAccessibleBuffer<[EguiVertex]>>,
     index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
-    conv_options_buffer: Arc<ImmutableBuffer<fs::ty::ConvOptions>>,
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
 
@@ -85,8 +85,7 @@ impl Renderer {
         subpass: Subpass,
     ) -> Renderer {
         let need_srgb_conv = final_output_format.type_color().unwrap() == NumericType::SRGB;
-        let (vertex_buffer, index_buffer, conv_options_buffer) =
-            Self::create_buffers(gfx_queue.clone(), need_srgb_conv);
+        let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
         let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
             mag_filter: Filter::Linear,
@@ -102,13 +101,13 @@ impl Renderer {
             render_pass: None,
             vertex_buffer,
             index_buffer,
-            conv_options_buffer,
             pipeline,
             subpass,
             texture_desc_sets: AHashMap::default(),
             texture_images: AHashMap::default(),
             next_native_tex_id: 0,
             is_overlay: false,
+            need_srgb_conv,
             sampler,
         }
     }
@@ -156,8 +155,7 @@ impl Renderer {
         };
 
         let need_srgb_conv = final_output_format.type_color().unwrap() == NumericType::SRGB;
-        let (vertex_buffer, index_buffer, conv_options_buffer) =
-            Self::create_buffers(gfx_queue.clone(), need_srgb_conv);
+        let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
@@ -175,13 +173,13 @@ impl Renderer {
             render_pass: Some(render_pass),
             vertex_buffer,
             index_buffer,
-            conv_options_buffer,
             pipeline,
             subpass,
             texture_desc_sets: AHashMap::default(),
             texture_images: AHashMap::default(),
             next_native_tex_id: 0,
             is_overlay,
+            need_srgb_conv,
             sampler,
         }
     }
@@ -191,17 +189,12 @@ impl Renderer {
     }
 
     fn create_buffers(
-        gfx_queue: Arc<Queue>,
-        need_srgb_conv: bool,
-    ) -> (
-        Arc<CpuAccessibleBuffer<[EguiVertex]>>,
-        Arc<CpuAccessibleBuffer<[u32]>>,
-        Arc<ImmutableBuffer<fs::ty::ConvOptions>>,
-    ) {
+        device: Arc<Device>,
+    ) -> (Arc<CpuAccessibleBuffer<[EguiVertex]>>, Arc<CpuAccessibleBuffer<[u32]>>) {
         // Create vertex and index buffers
         let vertex_buffer = unsafe {
             CpuAccessibleBuffer::<[EguiVertex]>::uninitialized_array(
-                gfx_queue.device().clone(),
+                device.clone(),
                 VERTEX_BUFFER_SIZE,
                 BufferUsage::vertex_buffer(),
                 false,
@@ -210,23 +203,15 @@ impl Renderer {
         };
         let index_buffer = unsafe {
             CpuAccessibleBuffer::<[u32]>::uninitialized_array(
-                gfx_queue.device().clone(),
+                device,
                 INDEX_BUFFER_SIZE,
                 BufferUsage::index_buffer(),
                 false,
             )
             .expect("failed to create gui vertex buffer")
         };
-        let (conv_options_buffer, init) = ImmutableBuffer::from_data(
-            fs::ty::ConvOptions { need_srgb_conv: need_srgb_conv.into() },
-            BufferUsage::uniform_buffer(),
-            gfx_queue,
-        )
-        .unwrap();
 
-        init.then_signal_fence_and_flush().unwrap().wait(None).unwrap();
-
-        (vertex_buffer, index_buffer, conv_options_buffer)
+        (vertex_buffer, index_buffer)
     }
 
     fn create_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
@@ -256,10 +241,11 @@ impl Renderer {
         layout: &Arc<DescriptorSetLayout>,
         image: Arc<dyn ImageViewAbstract + 'static>,
     ) -> Arc<PersistentDescriptorSet> {
-        PersistentDescriptorSet::new(layout.clone(), [
-            WriteDescriptorSet::image_view_sampler(0, image.clone(), self.sampler.clone()),
-            WriteDescriptorSet::buffer(1, self.conv_options_buffer.clone()),
-        ])
+        PersistentDescriptorSet::new(layout.clone(), [WriteDescriptorSet::image_view_sampler(
+            0,
+            image.clone(),
+            self.sampler.clone(),
+        )])
         .unwrap()
     }
 
@@ -606,6 +592,7 @@ impl Renderer {
                 framebuffer_dimensions[0] as f32 / scale_factor,
                 framebuffer_dimensions[1] as f32 / scale_factor,
             ],
+            need_srgb_conv: self.need_srgb_conv.into(),
         };
 
         let mut vertex_start = 0;
@@ -704,6 +691,7 @@ layout(location = 1) out vec2 v_tex_coords;
 
 layout(push_constant) uniform PushConstants {
     vec2 screen_size;
+    int need_srgb_conv;
 } push_constants;
 
 void main() {
@@ -728,9 +716,11 @@ layout(location = 1) in vec2 v_tex_coords;
 layout(location = 0) out vec4 f_color;
 
 layout(binding = 0, set = 0) uniform sampler2D font_texture;
-layout(binding = 1, set = 0) uniform ConvOptions {
+
+layout(push_constant) uniform PushConstants {
+    vec2 screen_size;
     int need_srgb_conv;
-} conv;
+} push_constants;
 
 // 0-1 linear  from  0-255 sRGB
 vec3 linear_from_srgb(vec3 srgb) {
@@ -746,15 +736,10 @@ vec4 linear_from_srgba(vec4 srgba) {
 
 void main() {
     vec4 color = v_color * texture(font_texture, v_tex_coords);
-    if (conv.need_srgb_conv != 0) {
+    if (push_constants.need_srgb_conv != 0) {
         color = linear_from_srgba(color);
     }
     f_color = color;
-}",
-        types_meta: {
-            use bytemuck::{Pod, Zeroable};
-
-            #[derive(Clone, Copy, Zeroable, Pod)]
-        }
+}"
     }
 }
