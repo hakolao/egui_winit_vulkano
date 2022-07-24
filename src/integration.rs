@@ -10,8 +10,13 @@ use std::sync::Arc;
 
 use egui::{ClippedPrimitive, TexturesDelta};
 use vulkano::{
-    command_buffer::SecondaryAutoCommandBuffer, device::Queue, format::Format,
-    image::ImageViewAbstract, render_pass::Subpass, swapchain::Surface, sync::GpuFuture,
+    command_buffer::SecondaryAutoCommandBuffer,
+    device::Queue,
+    format::{Format, NumericType},
+    image::ImageViewAbstract,
+    render_pass::Subpass,
+    swapchain::Surface,
+    sync::GpuFuture,
 };
 use winit::window::Window;
 
@@ -19,6 +24,24 @@ use crate::{
     renderer::Renderer,
     utils::{immutable_texture_from_bytes, immutable_texture_from_file},
 };
+
+fn get_surface_image_format(
+    surface: &Arc<Surface<Window>>,
+    preferred_format: Option<Format>,
+    gfx_queue: &Arc<Queue>,
+) -> vulkano::format::Format {
+    preferred_format.unwrap_or_else(|| {
+        gfx_queue
+            .device()
+            .physical_device()
+            .surface_formats(&surface, Default::default())
+            .unwrap()
+            .iter()
+            .find(|f| f.0.type_color().unwrap() == NumericType::SRGB)
+            .unwrap()
+            .0
+    })
+}
 
 pub struct Gui {
     pub egui_ctx: egui::Context,
@@ -47,14 +70,7 @@ impl Gui {
         is_overlay: bool,
     ) -> Gui {
         // Pick preferred format if provided, otherwise use the default one
-        let format = preferred_format.unwrap_or_else(|| {
-            gfx_queue
-                .device()
-                .physical_device()
-                .surface_formats(&surface, Default::default())
-                .unwrap()[0]
-                .0
-        });
+        let format = get_surface_image_format(&surface, preferred_format, &gfx_queue);
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
         let renderer = Renderer::new_with_render_pass(gfx_queue, format, is_overlay);
@@ -76,14 +92,7 @@ impl Gui {
         subpass: Subpass,
     ) -> Gui {
         // Pick preferred format if provided, otherwise use the default one
-        let format = preferred_format.unwrap_or_else(|| {
-            gfx_queue
-                .device()
-                .physical_device()
-                .surface_formats(&surface, Default::default())
-                .unwrap()[0]
-                .0
-        });
+        let format = get_surface_image_format(&surface, preferred_format, &gfx_queue);
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
         let renderer = Renderer::new_with_subpass(gfx_queue, format, subpass);

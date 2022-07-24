@@ -40,7 +40,7 @@ pub fn main() {
         let renderer = windows.get_renderer_mut(window1).unwrap();
         Gui::new(
             renderer.surface(),
-            Some(vulkano::format::Format::B8G8R8A8_SRGB),
+            Some(renderer.swapchain_format()),
             renderer.graphics_queue(),
             false,
         )
@@ -49,7 +49,7 @@ pub fn main() {
         let renderer = windows.get_renderer_mut(window2).unwrap();
         Gui::new(
             renderer.surface(),
-            Some(vulkano::format::Format::B8G8R8A8_UNORM),
+            Some(renderer.swapchain_format()),
             renderer.graphics_queue(),
             false,
         )
