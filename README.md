@@ -17,10 +17,10 @@ The aim of this is to allow a simple enough API to separate UI nicely out of you
 ```rust
 // Has its own renderpass (is_overlay = false means that the renderpass will clear the image, true means
 // that the caller is responsible for clearing the image
-let mut gui = Gui::new(renderer.surface(), renderer.queue(), false);
+let mut gui = Gui::new(renderer.surface(), None, renderer.queue(), false);
 // Or with subpass. This means that you must create the renderpass yourself. Egui subpass will then draw on your
 // image.
-let mut gui = Gui::new_with_subpass(renderer.surface(), renderer.queue(), subpass);
+let mut gui = Gui::new_with_subpass(renderer.surface(), None, renderer.queue(), subpass);
 ```
 
 3. Inside your event loop, update `gui` integration with `WindowEvent`

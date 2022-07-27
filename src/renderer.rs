@@ -24,7 +24,7 @@ use vulkano::{
     },
     descriptor_set::{layout::DescriptorSetLayout, PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
-    format::Format,
+    format::{Format, NumericType},
     image::{
         view::ImageView, ImageAccess, ImageLayout, ImageUsage, ImageViewAbstract, ImmutableImage,
     },
@@ -62,6 +62,7 @@ pub struct Renderer {
     gfx_queue: Arc<Queue>,
     render_pass: Option<Arc<RenderPass>>,
     is_overlay: bool,
+    need_srgb_conv: bool,
 
     #[allow(unused)]
     format: vulkano::format::Format,
@@ -83,6 +84,7 @@ impl Renderer {
         final_output_format: Format,
         subpass: Subpass,
     ) -> Renderer {
+        let need_srgb_conv = final_output_format.type_color().unwrap() == NumericType::UNORM;
         let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
         let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
@@ -105,6 +107,7 @@ impl Renderer {
             texture_images: AHashMap::default(),
             next_native_tex_id: 0,
             is_overlay: false,
+            need_srgb_conv,
             sampler,
         }
     }
@@ -151,6 +154,7 @@ impl Renderer {
             .unwrap()
         };
 
+        let need_srgb_conv = final_output_format.type_color().unwrap() == NumericType::UNORM;
         let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
@@ -175,6 +179,7 @@ impl Renderer {
             texture_images: AHashMap::default(),
             next_native_tex_id: 0,
             is_overlay,
+            need_srgb_conv,
             sampler,
         }
     }
@@ -205,6 +210,7 @@ impl Renderer {
             )
             .expect("failed to create gui vertex buffer")
         };
+
         (vertex_buffer, index_buffer)
     }
 
@@ -586,6 +592,7 @@ impl Renderer {
                 framebuffer_dimensions[0] as f32 / scale_factor,
                 framebuffer_dimensions[1] as f32 / scale_factor,
             ],
+            need_srgb_conv: self.need_srgb_conv.into(),
         };
 
         let mut vertex_start = 0;
@@ -684,6 +691,7 @@ layout(location = 1) out vec2 v_tex_coords;
 
 layout(push_constant) uniform PushConstants {
     vec2 screen_size;
+    int need_srgb_conv;
 } push_constants;
 
 // 0-1 linear  from  0-255 sRGB
@@ -702,12 +710,14 @@ void main() {
   gl_Position =
       vec4(2.0 * position.x / push_constants.screen_size.x - 1.0,
            2.0 * position.y / push_constants.screen_size.y - 1.0, 0.0, 1.0);
+  // We must convert vertex color to linear
   v_color = linear_from_srgba(color);
   v_tex_coords = tex_coords;
 }"
     }
 }
 
+// Similar to https://github.com/ArjunNair/egui_sdl2_gl/blob/main/src/painter.rs
 mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
@@ -721,8 +731,44 @@ layout(location = 0) out vec4 f_color;
 
 layout(binding = 0, set = 0) uniform sampler2D font_texture;
 
+layout(push_constant) uniform PushConstants {
+    vec2 screen_size;
+    int need_srgb_conv;
+} push_constants;
+
+// 0-255 sRGB  from  0-1 linear
+vec3 srgb_from_linear(vec3 rgb) {
+  bvec3 cutoff = lessThan(rgb, vec3(0.0031308));
+  vec3 lower = rgb * vec3(3294.6);
+  vec3 higher = vec3(269.025) * pow(rgb, vec3(1.0 / 2.4)) - vec3(14.025);
+  return mix(higher, lower, vec3(cutoff));
+}
+
+vec4 srgba_from_linear(vec4 rgba) {
+  return vec4(srgb_from_linear(rgba.rgb), 255.0 * rgba.a);
+}
+
+// 0-1 linear  from  0-255 sRGB
+vec3 linear_from_srgb(vec3 srgb) {
+    bvec3 cutoff = lessThan(srgb, vec3(10.31475));
+    vec3 lower = srgb / vec3(3294.6);
+    vec3 higher = pow((srgb + vec3(14.025)) / vec3(269.025), vec3(2.4));
+    return mix(higher, lower, cutoff);
+}
+
+vec4 linear_from_srgba(vec4 srgba) {
+    return vec4(linear_from_srgb(srgba.rgb * 255.0), srgba.a);
+}
+
 void main() {
-    f_color = v_color * texture(font_texture, v_tex_coords);
+    vec4 texture_color = texture(font_texture, v_tex_coords);
+
+    if (push_constants.need_srgb_conv == 0) {
+        f_color = v_color * texture_color;
+    } else {
+        f_color = srgba_from_linear(v_color * texture_color) / 255.0;
+        f_color.a = pow(f_color.a, 1.6);
+    }
 }"
     }
 }
