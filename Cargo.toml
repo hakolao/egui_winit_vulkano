@@ -17,7 +17,7 @@ bytemuck = "1.8.0"
 egui = "0.18.1"
 image = "0.23.14"
 vulkano = { version = "0.30.0", path = "../vulkano/vulkano" }
-vulkano-shaders = "0.30.0"
+vulkano-shaders = { version = "0.30.0", path = "../vulkano/vulkano-shaders" }
 winit = "0.26"
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]
@@ -29,4 +29,4 @@ egui-winit = { version = "0.18.0", default-features = false, features = [] }
 [dev-dependencies]
 cgmath = "0.18.0"
 egui_demo_lib = "0.18.0"
-vulkano-util = "0.30.0"
+vulkano-util = { version = "0.30.0", path = "../vulkano/vulkano-util" }
