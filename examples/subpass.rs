@@ -75,10 +75,14 @@ pub fn main() {
     // Create out gui pipeline
     let mut gui_pipeline = SimpleGuiPipeline::new(
         context.graphics_queue(),
-        windows.get_primary_renderer_mut().unwrap().swapchain_format(),
+        windows
+            .get_primary_renderer_mut()
+            .unwrap()
+            .swapchain_format(),
     );
     // Create gui subpass
     let mut gui = Gui::new_with_subpass(
+        &event_loop,
         windows.get_primary_renderer_mut().unwrap().surface(),
         Some(vulkano::format::Format::B8G8R8A8_SRGB),
         windows.get_primary_renderer_mut().unwrap().graphics_queue(),
@@ -89,14 +93,19 @@ pub fn main() {
     event_loop.run(move |event, _, control_flow| {
         let renderer = windows.get_primary_renderer_mut().unwrap();
         match event {
-            Event::WindowEvent { event, window_id } if window_id == renderer.window().id() => {
+            Event::WindowEvent {
+                event,
+                window_id,
+            } if window_id == renderer.window().id() => {
                 // Update Egui integration so the UI works!
                 let _pass_events_to_game = !gui.update(&event);
                 match event {
                     WindowEvent::Resized(_) => {
                         renderer.resize();
                     }
-                    WindowEvent::ScaleFactorChanged { .. } => {
+                    WindowEvent::ScaleFactorChanged {
+                        ..
+                    } => {
                         renderer.resize();
                     }
                     WindowEvent::CloseRequested => {
@@ -179,9 +188,18 @@ impl SimpleGuiPipeline {
                 BufferUsage::all(),
                 false,
                 [
-                    Vertex { position: [-0.5, -0.25], color: [1.0, 0.0, 0.0, 1.0] },
-                    Vertex { position: [0.0, 0.5], color: [0.0, 1.0, 0.0, 1.0] },
-                    Vertex { position: [0.25, -0.1], color: [0.0, 0.0, 1.0, 1.0] },
+                    Vertex {
+                        position: [-0.5, -0.25],
+                        color: [1.0, 0.0, 0.0, 1.0],
+                    },
+                    Vertex {
+                        position: [0.0, 0.5],
+                        color: [0.0, 1.0, 0.0, 1.0],
+                    },
+                    Vertex {
+                        position: [0.25, -0.1],
+                        color: [0.0, 0.0, 1.0, 1.0],
+                    },
                 ]
                 .iter()
                 .cloned(),
@@ -189,7 +207,13 @@ impl SimpleGuiPipeline {
             .expect("failed to create buffer")
         };
 
-        Self { queue, render_pass, pipeline, subpass, vertex_buffer }
+        Self {
+            queue,
+            render_pass,
+            pipeline,
+            subpass,
+            vertex_buffer,
+        }
     }
 
     fn create_render_pass(device: Arc<Device>, format: Format) -> Arc<RenderPass> {
@@ -293,7 +317,9 @@ impl SimpleGuiPipeline {
         builder.execute_commands(cb).unwrap();
 
         // Move on to next subpass for gui
-        builder.next_subpass(SubpassContents::SecondaryCommandBuffers).unwrap();
+        builder
+            .next_subpass(SubpassContents::SecondaryCommandBuffers)
+            .unwrap();
         // Draw gui on subpass
         let cb = gui.draw_on_subpass_image(dimensions);
         builder.execute_commands(cb).unwrap();
@@ -301,7 +327,9 @@ impl SimpleGuiPipeline {
         // Last end render pass
         builder.end_render_pass().unwrap();
         let command_buffer = builder.build().unwrap();
-        let after_future = before_future.then_execute(self.queue.clone(), command_buffer).unwrap();
+        let after_future = before_future
+            .then_execute(self.queue.clone(), command_buffer)
+            .unwrap();
 
         after_future.boxed()
     }

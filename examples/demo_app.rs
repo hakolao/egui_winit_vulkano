@@ -55,6 +55,7 @@ pub fn main() {
     let mut gui1 = {
         let renderer = windows.get_renderer_mut(window1).unwrap();
         Gui::new(
+            &event_loop,
             renderer.surface(),
             Some(renderer.swapchain_format()),
             renderer.graphics_queue(),
@@ -64,6 +65,7 @@ pub fn main() {
     let mut gui2 = {
         let renderer = windows.get_renderer_mut(window2).unwrap();
         Gui::new(
+            &event_loop,
             renderer.surface(),
             Some(renderer.swapchain_format()),
             renderer.graphics_queue(),
@@ -80,17 +82,30 @@ pub fn main() {
         for (wi, renderer) in windows.iter_mut() {
             // Quick and ugly...
             let gui = if *wi == window1 { &mut gui1 } else { &mut gui2 };
-            let demo_app = if *wi == window1 { &mut demo_app1 } else { &mut demo_app2 };
-            let egui_test = if *wi == window1 { &mut egui_test1 } else { &mut egui_test2 };
+            let demo_app = if *wi == window1 {
+                &mut demo_app1
+            } else {
+                &mut demo_app2
+            };
+            let egui_test = if *wi == window1 {
+                &mut egui_test1
+            } else {
+                &mut egui_test2
+            };
             match &event {
-                Event::WindowEvent { event, window_id } if window_id == wi => {
+                Event::WindowEvent {
+                    event,
+                    window_id,
+                } if window_id == wi => {
                     // Update Egui integration so the UI works!
                     let _pass_events_to_game = !gui.update(&event);
                     match event {
                         WindowEvent::Resized(_) => {
                             renderer.resize();
                         }
-                        WindowEvent::ScaleFactorChanged { .. } => {
+                        WindowEvent::ScaleFactorChanged {
+                            ..
+                        } => {
                             renderer.resize();
                         }
                         WindowEvent::CloseRequested => {

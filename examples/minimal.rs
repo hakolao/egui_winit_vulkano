@@ -52,6 +52,7 @@ pub fn main() {
     let mut gui = {
         let renderer = windows.get_primary_renderer_mut().unwrap();
         Gui::new(
+            &event_loop,
             renderer.surface(),
             Some(vulkano::format::Format::B8G8R8A8_SRGB),
             renderer.graphics_queue(),
@@ -63,16 +64,19 @@ pub fn main() {
     event_loop.run(move |event, _, control_flow| {
         let renderer = windows.get_primary_renderer_mut().unwrap();
         match event {
-            Event::WindowEvent { event, window_id }
-                if window_id == renderer.surface().window().id() =>
-            {
+            Event::WindowEvent {
+                event,
+                window_id,
+            } if window_id == renderer.surface().window().id() => {
                 // Update Egui integration so the UI works!
                 let _pass_events_to_game = !gui.update(&event);
                 match event {
                     WindowEvent::Resized(_) => {
                         renderer.resize();
                     }
-                    WindowEvent::ScaleFactorChanged { .. } => {
+                    WindowEvent::ScaleFactorChanged {
+                        ..
+                    } => {
                         renderer.resize();
                     }
                     WindowEvent::CloseRequested => {

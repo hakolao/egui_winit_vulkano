@@ -31,7 +31,7 @@ use vulkano::{
     image::{
         view::ImageView, ImageAccess, ImageLayout, ImageUsage, ImageViewAbstract, ImmutableImage,
     },
-    memory::pool::StdMemoryPool,
+    memory::pool::StandardMemoryPool,
     pipeline::{
         graphics::{
             color_blend::{AttachmentBlend, BlendFactor, ColorBlendState},
@@ -400,8 +400,8 @@ impl Renderer {
         &self,
         mesh: &Mesh,
     ) -> (
-        Arc<CpuBufferPoolChunk<EguiVertex, Arc<StdMemoryPool>>>,
-        Arc<CpuBufferPoolChunk<u32, Arc<StdMemoryPool>>>,
+        Arc<CpuBufferPoolChunk<EguiVertex, Arc<StandardMemoryPool>>>,
+        Arc<CpuBufferPoolChunk<u32, Arc<StandardMemoryPool>>>,
     ) {
         // Copy vertices to buffer
         let v_slice = &mesh.vertices;
