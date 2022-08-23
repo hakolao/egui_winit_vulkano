@@ -16,7 +16,10 @@ use egui::{
     ClippedPrimitive, Rect, TexturesDelta,
 };
 use vulkano::{
-    buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
+    buffer::{
+        cpu_pool::CpuBufferPoolChunk, BufferUsage, CpuAccessibleBuffer, CpuBufferPool,
+        TypedBufferAccess,
+    },
     command_buffer::{
         AutoCommandBufferBuilder, BlitImageInfo, CommandBufferInheritanceInfo, CommandBufferUsage,
         CopyBufferToImageInfo, ImageBlit, PrimaryAutoCommandBuffer, PrimaryCommandBuffer,
@@ -28,6 +31,7 @@ use vulkano::{
     image::{
         view::ImageView, ImageAccess, ImageLayout, ImageUsage, ImageViewAbstract, ImmutableImage,
     },
+    memory::pool::StdMemoryPool,
     pipeline::{
         graphics::{
             color_blend::{AttachmentBlend, BlendFactor, ColorBlendState},
@@ -68,8 +72,8 @@ pub struct Renderer {
     format: vulkano::format::Format,
     sampler: Arc<Sampler>,
 
-    vertex_buffer: Arc<CpuAccessibleBuffer<[EguiVertex]>>,
-    index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
+    vertex_buffer_pool: CpuBufferPool<EguiVertex>,
+    index_buffer_pool: CpuBufferPool<u32>,
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
 
@@ -85,7 +89,8 @@ impl Renderer {
         subpass: Subpass,
     ) -> Renderer {
         let need_srgb_conv = final_output_format.type_color().unwrap() == NumericType::UNORM;
-        let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
+        let (vertex_buffer_pool, index_buffer_pool) =
+            Self::create_buffers(gfx_queue.device().clone());
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
         let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
             mag_filter: Filter::Linear,
@@ -99,8 +104,8 @@ impl Renderer {
             gfx_queue,
             format: final_output_format,
             render_pass: None,
-            vertex_buffer,
-            index_buffer,
+            vertex_buffer_pool,
+            index_buffer_pool,
             pipeline,
             subpass,
             texture_desc_sets: AHashMap::default(),
@@ -155,7 +160,8 @@ impl Renderer {
         };
 
         let need_srgb_conv = final_output_format.type_color().unwrap() == NumericType::UNORM;
-        let (vertex_buffer, index_buffer) = Self::create_buffers(gfx_queue.device().clone());
+        let (vertex_buffer_pool, index_buffer_pool) =
+            Self::create_buffers(gfx_queue.device().clone());
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
@@ -171,8 +177,8 @@ impl Renderer {
             gfx_queue,
             format: final_output_format,
             render_pass: Some(render_pass),
-            vertex_buffer,
-            index_buffer,
+            vertex_buffer_pool,
+            index_buffer_pool,
             pipeline,
             subpass,
             texture_desc_sets: AHashMap::default(),
@@ -188,30 +194,18 @@ impl Renderer {
         self.render_pass.is_some()
     }
 
-    fn create_buffers(
-        device: Arc<Device>,
-    ) -> (Arc<CpuAccessibleBuffer<[EguiVertex]>>, Arc<CpuAccessibleBuffer<[u32]>>) {
+    fn create_buffers(device: Arc<Device>) -> (CpuBufferPool<EguiVertex>, CpuBufferPool<u32>) {
         // Create vertex and index buffers
-        let vertex_buffer = unsafe {
-            CpuAccessibleBuffer::<[EguiVertex]>::uninitialized_array(
-                device.clone(),
-                VERTEX_BUFFER_SIZE,
-                BufferUsage::vertex_buffer(),
-                false,
-            )
-            .expect("failed to create gui vertex buffer")
-        };
-        let index_buffer = unsafe {
-            CpuAccessibleBuffer::<[u32]>::uninitialized_array(
-                device,
-                INDEX_BUFFER_SIZE,
-                BufferUsage::index_buffer(),
-                false,
-            )
-            .expect("failed to create gui vertex buffer")
-        };
+        let vertex_buffer_pool = CpuBufferPool::vertex_buffer(device.clone());
+        vertex_buffer_pool
+            .reserve(VERTEX_BUFFER_SIZE)
+            .expect("Failed to reserve vertex buffer memory");
+        let index_buffer_pool = CpuBufferPool::new(device, BufferUsage::index_buffer());
+        index_buffer_pool
+            .reserve(INDEX_BUFFER_SIZE)
+            .expect("Failed to reserve index buffer memory");
 
-        (vertex_buffer, index_buffer)
+        (vertex_buffer_pool, index_buffer_pool)
     }
 
     fn create_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
@@ -402,37 +396,19 @@ impl Renderer {
         }
     }
 
-    fn resize_allocations(&mut self, new_vertices_size: DeviceSize, new_indices_size: DeviceSize) {
-        let vertex_buffer = unsafe {
-            CpuAccessibleBuffer::<[EguiVertex]>::uninitialized_array(
-                self.gfx_queue.device().clone(),
-                new_vertices_size,
-                BufferUsage::vertex_buffer(),
-                false,
-            )
-            .expect("failed to create gui vertex buffer")
-        };
-        let index_buffer = unsafe {
-            CpuAccessibleBuffer::<[u32]>::uninitialized_array(
-                self.gfx_queue.device().clone(),
-                new_indices_size,
-                BufferUsage::index_buffer(),
-                false,
-            )
-            .expect("failed to create gui vertex buffer")
-        };
-        self.vertex_buffer = vertex_buffer;
-        self.index_buffer = index_buffer;
-    }
-
-    fn copy_mesh(&self, mesh: &Mesh, vertex_start: DeviceSize, index_start: DeviceSize) {
+    fn create_subbuffers(
+        &self,
+        mesh: &Mesh,
+    ) -> (
+        Arc<CpuBufferPoolChunk<EguiVertex, Arc<StdMemoryPool>>>,
+        Arc<CpuBufferPoolChunk<u32, Arc<StdMemoryPool>>>,
+    ) {
         // Copy vertices to buffer
         let v_slice = &mesh.vertices;
-        let mut vertex_content = self.vertex_buffer.write().unwrap();
-        let mut slice_i = 0;
-        for i in vertex_start..(vertex_start + v_slice.len() as DeviceSize) {
-            let v = v_slice[slice_i];
-            vertex_content[i as usize] = EguiVertex {
+
+        let vertex_chunk = self
+            .vertex_buffer_pool
+            .chunk(v_slice.into_iter().map(|v| EguiVertex {
                 position: [v.pos.x, v.pos.y],
                 tex_coords: [v.uv.x, v.uv.y],
                 color: [
@@ -441,22 +417,14 @@ impl Renderer {
                     v.color.b() as f32 / 255.0,
                     v.color.a() as f32 / 255.0,
                 ],
-            };
-            slice_i += 1;
-        }
+            }))
+            .unwrap();
+
         // Copy indices to buffer
         let i_slice = &mesh.indices;
-        let mut index_content = self.index_buffer.write().unwrap();
-        slice_i = 0;
-        for i in index_start..(index_start + i_slice.len() as DeviceSize) {
-            let index = i_slice[slice_i];
-            index_content[i as usize] = index;
-            slice_i += 1;
-        }
-    }
+        let index_chunk = self.index_buffer_pool.chunk(i_slice.clone()).unwrap();
 
-    fn resize_needed(&self, vertex_end: DeviceSize, index_end: DeviceSize) -> bool {
-        vertex_end >= self.vertex_buffer.len() || index_end >= self.index_buffer.len()
+        (vertex_chunk, index_chunk)
     }
 
     fn create_secondary_command_buffer_builder(
@@ -595,8 +563,6 @@ impl Renderer {
             need_srgb_conv: self.need_srgb_conv.into(),
         };
 
-        let mut vertex_start = 0;
-        let mut index_start = 0;
         for ClippedPrimitive { clip_rect, primitive } in clipped_meshes {
             match primitive {
                 Primitive::Mesh(mesh) => {
@@ -614,32 +580,9 @@ impl Renderer {
                         framebuffer_dimensions,
                         *clip_rect,
                     )];
-                    let vertices_count = mesh.vertices.len() as DeviceSize;
-                    let indices_count = mesh.indices.len() as DeviceSize;
-                    // Resize buffers if needed
-                    if self
-                        .resize_needed(vertex_start + vertices_count, index_start + indices_count)
-                    {
-                        // Double the allocations
-                        self.resize_allocations(
-                            self.vertex_buffer.len() * 2,
-                            self.index_buffer.len() * 2,
-                        );
-                        // Stop copying and continue next frame
-                        break;
-                    }
-                    self.copy_mesh(mesh, vertex_start, index_start);
-                    // Access vertex & index slices for drawing
-                    let vertices = self
-                        .vertex_buffer
-                        .into_buffer_slice()
-                        .slice(vertex_start..(vertex_start + vertices_count))
-                        .unwrap();
-                    let indices = self
-                        .index_buffer
-                        .into_buffer_slice()
-                        .slice(index_start..(index_start + indices_count))
-                        .unwrap();
+
+                    let (vertices, indices) = self.create_subbuffers(mesh);
+
                     let desc_set = self.texture_desc_sets.get(&mesh.texture_id).unwrap().clone();
                     builder
                         .bind_pipeline_graphics(self.pipeline.clone())
@@ -663,8 +606,6 @@ impl Renderer {
                         .bind_index_buffer(indices.clone())
                         .draw_indexed(indices.len() as u32, 1, 0, 0, 0)
                         .unwrap();
-                    vertex_start += vertices_count;
-                    index_start += indices_count;
                 }
                 _ => continue,
             }
