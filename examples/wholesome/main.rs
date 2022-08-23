@@ -12,6 +12,8 @@ use egui_winit_vulkano::Gui;
 use vulkano::{
     format::Format,
     image::{ImageUsage, StorageImage},
+    instance::{InstanceCreateInfo, InstanceExtensions},
+    Version,
 };
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
@@ -45,9 +47,9 @@ impl GuiState {
     pub fn new(gui: &mut Gui, scene_image: DeviceImageView, scene_view_size: [u32; 2]) -> GuiState {
         // tree.png asset is from https://github.com/sotrh/learn-wgpu/tree/master/docs/beginner/tutorial5-textures
         let image_texture_id1 =
-            gui.register_user_image(include_bytes!("./assets/tree.png"), Format::R8G8B8A8_UNORM);
+            gui.register_user_image(include_bytes!("./assets/tree.png"), Format::R8G8B8A8_SRGB);
         let image_texture_id2 =
-            gui.register_user_image(include_bytes!("./assets/doge2.png"), Format::R8G8B8A8_UNORM);
+            gui.register_user_image(include_bytes!("./assets/doge2.png"), Format::R8G8B8A8_SRGB);
 
         GuiState {
             show_texture_window1: true,
@@ -116,10 +118,24 @@ pub fn main() {
     // Create renderer for our scene & ui
     let scene_view_size = [256, 256];
     // Vulkano context
-    let context = VulkanoContext::new(VulkanoConfig::default());
-    // Vulkano windows (create one)
+    let context = VulkanoContext::new(VulkanoConfig {
+        instance_create_info: InstanceCreateInfo {
+            application_version: Version::V1_3,
+            enabled_extensions: InstanceExtensions {
+                #[cfg(target_os = "macos")]
+                khr_portability_enumeration: true,
+                ..VulkanoConfig::default().instance_create_info.enabled_extensions
+            },
+            #[cfg(target_os = "macos")]
+            enumerate_portability: true,
+            ..VulkanoConfig::default().instance_create_info
+        },
+        ..VulkanoConfig::default()
+    }); // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
-    windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |_| {});
+    windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
+        ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB)
+    });
     // Create gui as main render pass (no overlay means it clears the image each frame)
     let mut gui = {
         let renderer = windows.get_primary_renderer_mut().unwrap();

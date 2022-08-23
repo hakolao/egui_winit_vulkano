@@ -8,6 +8,10 @@
 // according to those terms.
 
 use egui_winit_vulkano::Gui;
+use vulkano::{
+    instance::{InstanceCreateInfo, InstanceExtensions},
+    Version,
+};
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
     window::{VulkanoWindows, WindowDescriptor},
@@ -24,8 +28,20 @@ pub fn main() {
     // Winit event loop
     let event_loop = EventLoop::new();
     // Vulkano context
-    let context = VulkanoContext::new(VulkanoConfig::default());
-    // Vulkano windows (create one)
+    let context = VulkanoContext::new(VulkanoConfig {
+        instance_create_info: InstanceCreateInfo {
+            application_version: Version::V1_3,
+            enabled_extensions: InstanceExtensions {
+                #[cfg(target_os = "macos")]
+                khr_portability_enumeration: true,
+                ..VulkanoConfig::default().instance_create_info.enabled_extensions
+            },
+            #[cfg(target_os = "macos")]
+            enumerate_portability: true,
+            ..VulkanoConfig::default().instance_create_info
+        },
+        ..VulkanoConfig::default()
+    }); // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
     let window1 =
         windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
