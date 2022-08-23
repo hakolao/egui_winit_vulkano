@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use egui::{ClippedPrimitive, TexturesDelta};
+use egui_winit::winit::event_loop::EventLoopWindowTarget;
 use vulkano::{
     command_buffer::SecondaryAutoCommandBuffer,
     device::Queue,
@@ -63,7 +64,8 @@ impl Gui {
     /// provided here. If the surface uses default format, use None
     /// - `gfx_queue`: Vulkano's [`Queue`]
     /// - `is_overlay`: If true, you should be responsible for clearing the image before `draw_on_image`, else it gets cleared
-    pub fn new(
+    pub fn new<T>(
+        event_loop: &EventLoopWindowTarget<T>,
         surface: Arc<Surface<Window>>,
         preferred_format: Option<Format>,
         gfx_queue: Arc<Queue>,
@@ -74,9 +76,11 @@ impl Gui {
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
         let renderer = Renderer::new_with_render_pass(gfx_queue, format, is_overlay);
+        let mut egui_winit = egui_winit::State::new(&event_loop);
+        egui_winit.set_max_texture_side(max_texture_side);
         Gui {
             egui_ctx: Default::default(),
-            egui_winit: egui_winit::State::new(max_texture_side, surface.window()),
+            egui_winit,
             renderer,
             surface,
             shapes: vec![],
@@ -85,7 +89,8 @@ impl Gui {
     }
 
     /// Same as `new` but instead of integration owning a render pass, egui renders on your subpass
-    pub fn new_with_subpass(
+    pub fn new_with_subpass<T>(
+        event_loop: &EventLoopWindowTarget<T>,
         surface: Arc<Surface<Window>>,
         preferred_format: Option<Format>,
         gfx_queue: Arc<Queue>,
@@ -96,9 +101,11 @@ impl Gui {
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
         let renderer = Renderer::new_with_subpass(gfx_queue, format, subpass);
+        let mut egui_winit = egui_winit::State::new(&event_loop);
+        egui_winit.set_max_texture_side(max_texture_side);
         Gui {
             egui_ctx: Default::default(),
-            egui_winit: egui_winit::State::new(max_texture_side, surface.window()),
+            egui_winit,
             renderer,
             surface,
             shapes: vec![],
@@ -195,7 +202,7 @@ impl Gui {
     }
 
     fn end_frame(&mut self) {
-        let egui::FullOutput { platform_output, needs_repaint: _n, textures_delta, shapes } =
+        let egui::FullOutput { platform_output, repaint_after: _r, textures_delta, shapes } =
             self.egui_ctx.end_frame();
 
         self.egui_winit.handle_platform_output(

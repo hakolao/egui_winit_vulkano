@@ -21,7 +21,6 @@ use vulkano::{
     device::{Device, Queue},
     format::Format,
     image::ImageAccess,
-    instance::{InstanceCreateInfo, InstanceExtensions},
     pipeline::{
         graphics::{
             input_assembly::InputAssemblyState,
@@ -32,7 +31,6 @@ use vulkano::{
     },
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
-    Version,
 };
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
@@ -52,20 +50,7 @@ pub fn main() {
     // Winit event loop
     let event_loop = EventLoop::new();
     // Vulkano context
-    let context = VulkanoContext::new(VulkanoConfig {
-        instance_create_info: InstanceCreateInfo {
-            application_version: Version::V1_3,
-            enabled_extensions: InstanceExtensions {
-                #[cfg(target_os = "macos")]
-                khr_portability_enumeration: true,
-                ..VulkanoConfig::default().instance_create_info.enabled_extensions
-            },
-            #[cfg(target_os = "macos")]
-            enumerate_portability: true,
-            ..VulkanoConfig::default().instance_create_info
-        },
-        ..VulkanoConfig::default()
-    });
+    let context = VulkanoContext::new(VulkanoConfig::default());
     // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
     windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
@@ -74,11 +59,12 @@ pub fn main() {
     });
     // Create out gui pipeline
     let mut gui_pipeline = SimpleGuiPipeline::new(
-        context.graphics_queue(),
+        context.graphics_queue().clone(),
         windows.get_primary_renderer_mut().unwrap().swapchain_format(),
     );
     // Create gui subpass
     let mut gui = Gui::new_with_subpass(
+        &event_loop,
         windows.get_primary_renderer_mut().unwrap().surface(),
         Some(vulkano::format::Format::B8G8R8A8_SRGB),
         windows.get_primary_renderer_mut().unwrap().graphics_queue(),
@@ -153,7 +139,7 @@ pub fn main() {
 const CODE: &str = r#"
 # Some markup
 ```
-let mut gui = Gui::new(renderer.surface(), renderer.queue());
+let mut gui = Gui::new(&event_loop, renderer.surface(), renderer.queue());
 ```
 
 Vulkan(o) is hard, that I know...

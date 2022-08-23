@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.20.0 - Unreleased
+- `Gui::new()` now takes in `event_loop` ref (due to changes in `egui_winit`)
+
 ## v0.19.0
 - Use `vulkano::format::Format::B8G8R8A8_SRGB` as a default, but allow specifying the format (e.g. `vulkano::format::Format::B8G8R8A8_UNORM`)
 

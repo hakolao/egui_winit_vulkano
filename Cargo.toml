@@ -1,6 +1,6 @@
 [package]
 name = "egui_winit_vulkano"
-version = "0.19.0"
+version = "0.20.0-dev"
 authors = ["hakolao <okkohakola@gmail.com>"]
 edition = "2018"
 description = "Egui immediate mode gui integration with winit and Vulkano"
@@ -11,17 +11,26 @@ repository = "https://github.com/hakolao/egui_winit_vulkano"
 categories = ["gui", "game-development"]
 keywords = ["gui", "imgui", "immediate", "portable", "gamedev"]
 
+[features]
+default = ["clipboard", "links"]
+links = ["egui-winit/links"]
+clipboard = ["egui-winit/clipboard"]
+
 [dependencies]
 ahash = "0.7.6"
 bytemuck = "1.8.0"
-egui = "0.18.1"
-egui-winit = "0.18.0"
+egui = "0.19.0"
+egui-winit = "0.19.0"
 image = "0.23.14"
-vulkano = "0.30.0"
-vulkano-shaders = "0.30.0"
-winit = "0.26"
+winit = "0.27"
+vulkano = { version = "0.30.0", git = "https://github.com/vulkano-rs/vulkano", rev = "ac890aa0a4b8bd4a0469506c27a503c1af7e6205" }
+vulkano-shaders = { version = "0.30.0", git = "https://github.com/vulkano-rs/vulkano", rev = "ac890aa0a4b8bd4a0469506c27a503c1af7e6205" }
 
 [dev-dependencies]
 cgmath = "0.18.0"
-egui_demo_lib = "0.18.0"
-vulkano-util = "0.30.0"
+egui_demo_lib = "0.19.0"
+vulkano-util = { version = "0.30.0", git = "https://github.com/vulkano-rs/vulkano", rev = "ac890aa0a4b8bd4a0469506c27a503c1af7e6205" }
+
+# Ensure ios links work
+[patch.crates-io]
+webbrowser = { git = "https://github.com/amodm/webbrowser-rs", rev = "3ee22d335eafa75e23261e07d05eebfb70caa26e" }
