@@ -21,7 +21,6 @@ use vulkano::{
     device::{Device, Queue},
     format::Format,
     image::ImageAccess,
-    instance::{InstanceCreateInfo, InstanceExtensions},
     pipeline::{
         graphics::{
             input_assembly::InputAssemblyState,
@@ -32,7 +31,6 @@ use vulkano::{
     },
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
-    Version,
 };
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
@@ -52,20 +50,7 @@ pub fn main() {
     // Winit event loop
     let event_loop = EventLoop::new();
     // Vulkano context
-    let context = VulkanoContext::new(VulkanoConfig {
-        instance_create_info: InstanceCreateInfo {
-            application_version: Version::V1_3,
-            enabled_extensions: InstanceExtensions {
-                #[cfg(target_os = "macos")]
-                khr_portability_enumeration: true,
-                ..VulkanoConfig::default().instance_create_info.enabled_extensions
-            },
-            #[cfg(target_os = "macos")]
-            enumerate_portability: true,
-            ..VulkanoConfig::default().instance_create_info
-        },
-        ..VulkanoConfig::default()
-    });
+    let context = VulkanoContext::new(VulkanoConfig::default());
     // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
     windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
@@ -74,11 +59,8 @@ pub fn main() {
     });
     // Create out gui pipeline
     let mut gui_pipeline = SimpleGuiPipeline::new(
-        context.graphics_queue(),
-        windows
-            .get_primary_renderer_mut()
-            .unwrap()
-            .swapchain_format(),
+        context.graphics_queue().clone(),
+        windows.get_primary_renderer_mut().unwrap().swapchain_format(),
     );
     // Create gui subpass
     let mut gui = Gui::new_with_subpass(
@@ -93,19 +75,14 @@ pub fn main() {
     event_loop.run(move |event, _, control_flow| {
         let renderer = windows.get_primary_renderer_mut().unwrap();
         match event {
-            Event::WindowEvent {
-                event,
-                window_id,
-            } if window_id == renderer.window().id() => {
+            Event::WindowEvent { event, window_id } if window_id == renderer.window().id() => {
                 // Update Egui integration so the UI works!
                 let _pass_events_to_game = !gui.update(&event);
                 match event {
                     WindowEvent::Resized(_) => {
                         renderer.resize();
                     }
-                    WindowEvent::ScaleFactorChanged {
-                        ..
-                    } => {
+                    WindowEvent::ScaleFactorChanged { .. } => {
                         renderer.resize();
                     }
                     WindowEvent::CloseRequested => {
@@ -162,7 +139,7 @@ pub fn main() {
 const CODE: &str = r#"
 # Some markup
 ```
-let mut gui = Gui::new(renderer.surface(), renderer.queue());
+let mut gui = Gui::new(&event_loop, renderer.surface(), renderer.queue());
 ```
 
 Vulkan(o) is hard, that I know...
@@ -188,18 +165,9 @@ impl SimpleGuiPipeline {
                 BufferUsage::all(),
                 false,
                 [
-                    Vertex {
-                        position: [-0.5, -0.25],
-                        color: [1.0, 0.0, 0.0, 1.0],
-                    },
-                    Vertex {
-                        position: [0.0, 0.5],
-                        color: [0.0, 1.0, 0.0, 1.0],
-                    },
-                    Vertex {
-                        position: [0.25, -0.1],
-                        color: [0.0, 0.0, 1.0, 1.0],
-                    },
+                    Vertex { position: [-0.5, -0.25], color: [1.0, 0.0, 0.0, 1.0] },
+                    Vertex { position: [0.0, 0.5], color: [0.0, 1.0, 0.0, 1.0] },
+                    Vertex { position: [0.25, -0.1], color: [0.0, 0.0, 1.0, 1.0] },
                 ]
                 .iter()
                 .cloned(),
@@ -207,13 +175,7 @@ impl SimpleGuiPipeline {
             .expect("failed to create buffer")
         };
 
-        Self {
-            queue,
-            render_pass,
-            pipeline,
-            subpass,
-            vertex_buffer,
-        }
+        Self { queue, render_pass, pipeline, subpass, vertex_buffer }
     }
 
     fn create_render_pass(device: Arc<Device>, format: Format) -> Arc<RenderPass> {
@@ -317,9 +279,7 @@ impl SimpleGuiPipeline {
         builder.execute_commands(cb).unwrap();
 
         // Move on to next subpass for gui
-        builder
-            .next_subpass(SubpassContents::SecondaryCommandBuffers)
-            .unwrap();
+        builder.next_subpass(SubpassContents::SecondaryCommandBuffers).unwrap();
         // Draw gui on subpass
         let cb = gui.draw_on_subpass_image(dimensions);
         builder.execute_commands(cb).unwrap();
@@ -327,9 +287,7 @@ impl SimpleGuiPipeline {
         // Last end render pass
         builder.end_render_pass().unwrap();
         let command_buffer = builder.build().unwrap();
-        let after_future = before_future
-            .then_execute(self.queue.clone(), command_buffer)
-            .unwrap();
+        let after_future = before_future.then_execute(self.queue.clone(), command_buffer).unwrap();
 
         after_future.boxed()
     }

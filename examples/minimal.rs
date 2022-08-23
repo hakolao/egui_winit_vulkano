@@ -9,10 +9,6 @@
 
 use egui::{ScrollArea, TextEdit, TextStyle};
 use egui_winit_vulkano::Gui;
-use vulkano::{
-    instance::{InstanceCreateInfo, InstanceExtensions},
-    Version,
-};
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
     window::{VulkanoWindows, WindowDescriptor},
@@ -30,20 +26,8 @@ pub fn main() {
     // Winit event loop
     let event_loop = EventLoop::new();
     // Vulkano context
-    let context = VulkanoContext::new(VulkanoConfig {
-        instance_create_info: InstanceCreateInfo {
-            application_version: Version::V1_3,
-            enabled_extensions: InstanceExtensions {
-                #[cfg(target_os = "macos")]
-                khr_portability_enumeration: true,
-                ..VulkanoConfig::default().instance_create_info.enabled_extensions
-            },
-            #[cfg(target_os = "macos")]
-            enumerate_portability: true,
-            ..VulkanoConfig::default().instance_create_info
-        },
-        ..VulkanoConfig::default()
-    }); // Vulkano windows (create one)
+    let context = VulkanoContext::new(VulkanoConfig::default());
+    // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
     windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
         ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB)
@@ -64,19 +48,16 @@ pub fn main() {
     event_loop.run(move |event, _, control_flow| {
         let renderer = windows.get_primary_renderer_mut().unwrap();
         match event {
-            Event::WindowEvent {
-                event,
-                window_id,
-            } if window_id == renderer.surface().window().id() => {
+            Event::WindowEvent { event, window_id }
+                if window_id == renderer.surface().window().id() =>
+            {
                 // Update Egui integration so the UI works!
                 let _pass_events_to_game = !gui.update(&event);
                 match event {
                     WindowEvent::Resized(_) => {
                         renderer.resize();
                     }
-                    WindowEvent::ScaleFactorChanged {
-                        ..
-                    } => {
+                    WindowEvent::ScaleFactorChanged { .. } => {
                         renderer.resize();
                     }
                     WindowEvent::CloseRequested => {
@@ -133,6 +114,6 @@ pub fn main() {
 const CODE: &str = r#"
 # Some markup
 ```
-let mut gui = Gui::new(renderer.surface(), None, renderer.queue());
+let mut gui = Gui::new(&event_loop, renderer.surface(), None, renderer.queue());
 ```
 "#;

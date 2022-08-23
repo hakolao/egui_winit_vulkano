@@ -8,10 +8,6 @@
 // according to those terms.
 
 use egui_winit_vulkano::Gui;
-use vulkano::{
-    instance::{InstanceCreateInfo, InstanceExtensions},
-    Version,
-};
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
     window::{VulkanoWindows, WindowDescriptor},
@@ -28,20 +24,8 @@ pub fn main() {
     // Winit event loop
     let event_loop = EventLoop::new();
     // Vulkano context
-    let context = VulkanoContext::new(VulkanoConfig {
-        instance_create_info: InstanceCreateInfo {
-            application_version: Version::V1_3,
-            enabled_extensions: InstanceExtensions {
-                #[cfg(target_os = "macos")]
-                khr_portability_enumeration: true,
-                ..VulkanoConfig::default().instance_create_info.enabled_extensions
-            },
-            #[cfg(target_os = "macos")]
-            enumerate_portability: true,
-            ..VulkanoConfig::default().instance_create_info
-        },
-        ..VulkanoConfig::default()
-    }); // Vulkano windows (create one)
+    let context = VulkanoContext::new(VulkanoConfig::default());
+    // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
     let window1 =
         windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
@@ -82,30 +66,17 @@ pub fn main() {
         for (wi, renderer) in windows.iter_mut() {
             // Quick and ugly...
             let gui = if *wi == window1 { &mut gui1 } else { &mut gui2 };
-            let demo_app = if *wi == window1 {
-                &mut demo_app1
-            } else {
-                &mut demo_app2
-            };
-            let egui_test = if *wi == window1 {
-                &mut egui_test1
-            } else {
-                &mut egui_test2
-            };
+            let demo_app = if *wi == window1 { &mut demo_app1 } else { &mut demo_app2 };
+            let egui_test = if *wi == window1 { &mut egui_test1 } else { &mut egui_test2 };
             match &event {
-                Event::WindowEvent {
-                    event,
-                    window_id,
-                } if window_id == wi => {
+                Event::WindowEvent { event, window_id } if window_id == wi => {
                     // Update Egui integration so the UI works!
                     let _pass_events_to_game = !gui.update(&event);
                     match event {
                         WindowEvent::Resized(_) => {
                             renderer.resize();
                         }
-                        WindowEvent::ScaleFactorChanged {
-                            ..
-                        } => {
+                        WindowEvent::ScaleFactorChanged { .. } => {
                             renderer.resize();
                         }
                         WindowEvent::CloseRequested => {

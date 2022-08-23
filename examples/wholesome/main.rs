@@ -12,8 +12,6 @@ use egui_winit_vulkano::Gui;
 use vulkano::{
     format::Format,
     image::{ImageUsage, StorageImage},
-    instance::{InstanceCreateInfo, InstanceExtensions},
-    Version,
 };
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
@@ -118,20 +116,8 @@ pub fn main() {
     // Create renderer for our scene & ui
     let scene_view_size = [256, 256];
     // Vulkano context
-    let context = VulkanoContext::new(VulkanoConfig {
-        instance_create_info: InstanceCreateInfo {
-            application_version: Version::V1_3,
-            enabled_extensions: InstanceExtensions {
-                #[cfg(target_os = "macos")]
-                khr_portability_enumeration: true,
-                ..VulkanoConfig::default().instance_create_info.enabled_extensions
-            },
-            #[cfg(target_os = "macos")]
-            enumerate_portability: true,
-            ..VulkanoConfig::default().instance_create_info
-        },
-        ..VulkanoConfig::default()
-    }); // Vulkano windows (create one)
+    let context = VulkanoContext::new(VulkanoConfig::default());
+    // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
     windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
         ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB)
@@ -139,11 +125,11 @@ pub fn main() {
     // Create gui as main render pass (no overlay means it clears the image each frame)
     let mut gui = {
         let renderer = windows.get_primary_renderer_mut().unwrap();
-        Gui::new(renderer.surface(), None, renderer.graphics_queue(), false)
+        Gui::new(&event_loop, renderer.surface(), None, renderer.graphics_queue(), false)
     };
     // Create a simple image to which we'll draw the triangle scene
     let scene_image = StorageImage::general_purpose_image_view(
-        context.graphics_queue(),
+        context.graphics_queue().clone(),
         scene_view_size,
         DEFAULT_IMAGE_FORMAT,
         ImageUsage { sampled: true, ..ImageUsage::color_attachment() },
@@ -151,7 +137,7 @@ pub fn main() {
     .unwrap();
     // Create our render pipeline
     let mut scene_render_pipeline =
-        RenderPipeline::new(context.graphics_queue(), DEFAULT_IMAGE_FORMAT);
+        RenderPipeline::new(context.graphics_queue().clone(), DEFAULT_IMAGE_FORMAT);
     // Create gui state (pass anything your state requires)
     let mut gui_state = GuiState::new(&mut gui, scene_image.clone(), scene_view_size);
     // Event loop run
