@@ -78,6 +78,7 @@ impl Gui {
         let renderer = Renderer::new_with_render_pass(gfx_queue, format, is_overlay);
         let mut egui_winit = egui_winit::State::new(&event_loop);
         egui_winit.set_max_texture_side(max_texture_side);
+        egui_winit.set_pixels_per_point(surface.window().scale_factor() as f32);
         Gui {
             egui_ctx: Default::default(),
             egui_winit,
@@ -103,6 +104,7 @@ impl Gui {
         let renderer = Renderer::new_with_subpass(gfx_queue, format, subpass);
         let mut egui_winit = egui_winit::State::new(&event_loop);
         egui_winit.set_max_texture_side(max_texture_side);
+        egui_winit.set_pixels_per_point(surface.window().scale_factor() as f32);
         Gui {
             egui_ctx: Default::default(),
             egui_winit,
