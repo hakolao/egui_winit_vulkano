@@ -1,6 +1,6 @@
 [package]
 name = "egui_winit_vulkano"
-version = "0.20.0-dev"
+version = "0.20.0"
 authors = ["hakolao <okkohakola@gmail.com>"]
 edition = "2018"
 description = "Egui immediate mode gui integration with winit and Vulkano"
@@ -30,7 +30,3 @@ vulkano-shaders = "0.31.0"
 cgmath = "0.18.0"
 egui_demo_lib = "0.19.0"
 vulkano-util = "0.31.0"
-
-# Ensure ios links work
-[patch.crates-io]
-webbrowser = { git = "https://github.com/amodm/webbrowser-rs", rev = "3ee22d335eafa75e23261e07d05eebfb70caa26e" }
