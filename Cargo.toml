@@ -23,13 +23,13 @@ egui = "0.19.0"
 egui-winit = "0.19.0"
 image = "0.23.14"
 winit = "0.27"
-vulkano = { version = "0.30.0", git = "https://github.com/vulkano-rs/vulkano", rev = "ac890aa0a4b8bd4a0469506c27a503c1af7e6205" }
-vulkano-shaders = { version = "0.30.0", git = "https://github.com/vulkano-rs/vulkano", rev = "ac890aa0a4b8bd4a0469506c27a503c1af7e6205" }
+vulkano = "0.31.0"
+vulkano-shaders = "0.31.0"
 
 [dev-dependencies]
 cgmath = "0.18.0"
 egui_demo_lib = "0.19.0"
-vulkano-util = { version = "0.30.0", git = "https://github.com/vulkano-rs/vulkano", rev = "ac890aa0a4b8bd4a0469506c27a503c1af7e6205" }
+vulkano-util = "0.31.0"
 
 # Ensure ios links work
 [patch.crates-io]

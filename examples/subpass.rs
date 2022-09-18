@@ -162,7 +162,7 @@ impl SimpleGuiPipeline {
         let vertex_buffer = {
             CpuAccessibleBuffer::from_iter(
                 queue.device().clone(),
-                BufferUsage::all(),
+                BufferUsage { vertex_buffer: true, ..BufferUsage::empty() },
                 false,
                 [
                     Vertex { position: [-0.5, -0.25], color: [1.0, 0.0, 0.0, 1.0] },
@@ -231,7 +231,7 @@ impl SimpleGuiPipeline {
     ) -> Box<dyn GpuFuture> {
         let mut builder = AutoCommandBufferBuilder::primary(
             self.queue.device().clone(),
-            self.queue.family(),
+            self.queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
@@ -257,7 +257,7 @@ impl SimpleGuiPipeline {
         // Render first draw pass
         let mut secondary_builder = AutoCommandBufferBuilder::secondary(
             self.queue.device().clone(),
-            self.queue.family(),
+            self.queue.queue_family_index(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
                 render_pass: Some(self.subpass.clone().into()),

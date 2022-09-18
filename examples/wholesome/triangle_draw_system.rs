@@ -45,7 +45,7 @@ impl TriangleDrawSystem {
         let vertex_buffer = {
             CpuAccessibleBuffer::from_iter(
                 gfx_queue.device().clone(),
-                BufferUsage::all(),
+                BufferUsage { vertex_buffer: true, ..BufferUsage::empty() },
                 false,
                 [
                     Vertex { position: [-0.5, -0.25], color: [1.0, 0.0, 0.0, 1.0] },
@@ -79,7 +79,7 @@ impl TriangleDrawSystem {
     pub fn draw(&self, viewport_dimensions: [u32; 2]) -> SecondaryAutoCommandBuffer {
         let mut builder = AutoCommandBufferBuilder::secondary(
             self.gfx_queue.device().clone(),
-            self.gfx_queue.family(),
+            self.gfx_queue.queue_family_index(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
                 render_pass: Some(self.subpass.clone().into()),

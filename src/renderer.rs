@@ -200,7 +200,8 @@ impl Renderer {
         vertex_buffer_pool
             .reserve(VERTEX_BUFFER_SIZE)
             .expect("Failed to reserve vertex buffer memory");
-        let index_buffer_pool = CpuBufferPool::new(device, BufferUsage::index_buffer());
+        let index_buffer_pool =
+            CpuBufferPool::new(device, BufferUsage { index_buffer: true, ..BufferUsage::empty() });
         index_buffer_pool
             .reserve(INDEX_BUFFER_SIZE)
             .expect("Failed to reserve index buffer memory");
@@ -282,7 +283,7 @@ impl Renderer {
         // Create buffer to be copied to the image
         let texture_data_buffer = CpuAccessibleBuffer::from_iter(
             self.gfx_queue.device().clone(),
-            BufferUsage::transfer_src(),
+            BufferUsage { transfer_src: true, ..BufferUsage::empty() },
             false,
             data,
         )
@@ -301,11 +302,11 @@ impl Renderer {
                 transfer_dst: true,
                 transfer_src: true,
                 sampled: true,
-                ..ImageUsage::none()
+                ..ImageUsage::empty()
             },
             Default::default(),
             ImageLayout::ShaderReadOnlyOptimal,
-            Some(self.gfx_queue.family()),
+            Some(self.gfx_queue.queue_family_index()),
         )
         .unwrap();
         let font_image = ImageView::new_default(img).unwrap();
@@ -313,7 +314,7 @@ impl Renderer {
         // Create command buffer builder
         let mut cbb = AutoCommandBufferBuilder::primary(
             self.gfx_queue.device().clone(),
-            self.gfx_queue.family(),
+            self.gfx_queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
@@ -408,7 +409,7 @@ impl Renderer {
 
         let vertex_chunk = self
             .vertex_buffer_pool
-            .chunk(v_slice.into_iter().map(|v| EguiVertex {
+            .from_iter(v_slice.into_iter().map(|v| EguiVertex {
                 position: [v.pos.x, v.pos.y],
                 tex_coords: [v.uv.x, v.uv.y],
                 color: [
@@ -422,7 +423,7 @@ impl Renderer {
 
         // Copy indices to buffer
         let i_slice = &mesh.indices;
-        let index_chunk = self.index_buffer_pool.chunk(i_slice.clone()).unwrap();
+        let index_chunk = self.index_buffer_pool.from_iter(i_slice.clone()).unwrap();
 
         (vertex_chunk, index_chunk)
     }
@@ -432,7 +433,7 @@ impl Renderer {
     ) -> AutoCommandBufferBuilder<SecondaryAutoCommandBuffer> {
         AutoCommandBufferBuilder::secondary(
             self.gfx_queue.device().clone(),
-            self.gfx_queue.family(),
+            self.gfx_queue.queue_family_index(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
                 render_pass: Some(self.subpass.clone().into()),
@@ -463,7 +464,7 @@ impl Renderer {
         .unwrap();
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.gfx_queue.device().clone(),
-            self.gfx_queue.family(),
+            self.gfx_queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
@@ -654,7 +655,12 @@ void main() {
   // We must convert vertex color to linear
   v_color = linear_from_srgba(color);
   v_tex_coords = tex_coords;
-}"
+}",
+            types_meta: {
+                use bytemuck::{Pod, Zeroable};
+
+                #[derive(Clone, Copy, Zeroable, Pod)]
+            },
     }
 }
 
