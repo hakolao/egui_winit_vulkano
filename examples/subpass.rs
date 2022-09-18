@@ -162,10 +162,7 @@ impl SimpleGuiPipeline {
         let vertex_buffer = {
             CpuAccessibleBuffer::from_iter(
                 queue.device().clone(),
-                BufferUsage {
-                    vertex_buffer: true,
-                    ..BufferUsage::empty()
-                },
+                BufferUsage { vertex_buffer: true, ..BufferUsage::empty() },
                 false,
                 [
                     Vertex { position: [-0.5, -0.25], color: [1.0, 0.0, 0.0, 1.0] },

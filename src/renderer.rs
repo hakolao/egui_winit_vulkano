@@ -200,10 +200,8 @@ impl Renderer {
         vertex_buffer_pool
             .reserve(VERTEX_BUFFER_SIZE)
             .expect("Failed to reserve vertex buffer memory");
-        let index_buffer_pool = CpuBufferPool::new(device,   BufferUsage {
-            index_buffer: true,
-            ..BufferUsage::empty()
-        });
+        let index_buffer_pool =
+            CpuBufferPool::new(device, BufferUsage { index_buffer: true, ..BufferUsage::empty() });
         index_buffer_pool
             .reserve(INDEX_BUFFER_SIZE)
             .expect("Failed to reserve index buffer memory");
@@ -285,10 +283,7 @@ impl Renderer {
         // Create buffer to be copied to the image
         let texture_data_buffer = CpuAccessibleBuffer::from_iter(
             self.gfx_queue.device().clone(),
-            BufferUsage {
-                transfer_src: true,
-                ..BufferUsage::empty()
-            },
+            BufferUsage { transfer_src: true, ..BufferUsage::empty() },
             false,
             data,
         )

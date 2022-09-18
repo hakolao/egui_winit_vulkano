@@ -132,7 +132,7 @@ pub fn main() {
         context.graphics_queue().clone(),
         scene_view_size,
         DEFAULT_IMAGE_FORMAT,
-        ImageUsage { sampled: true, color_attachment:true, ..ImageUsage::empty() },
+        ImageUsage { sampled: true, color_attachment: true, ..ImageUsage::empty() },
     )
     .unwrap();
     // Create our render pipeline
