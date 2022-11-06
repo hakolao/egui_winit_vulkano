@@ -71,7 +71,7 @@ pub fn main() {
             match &event {
                 Event::WindowEvent { event, window_id } if window_id == wi => {
                     // Update Egui integration so the UI works!
-                    let _pass_events_to_game = !gui.update(&event);
+                    let _pass_events_to_game = !gui.update(event);
                     match event {
                         WindowEvent::Resized(_) => {
                             renderer.resize();

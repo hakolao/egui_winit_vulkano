@@ -7,6 +7,8 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
+#![allow(clippy::eq_op)]
+
 use std::{convert::TryFrom, sync::Arc};
 
 use bytemuck::{Pod, Zeroable};
@@ -250,7 +252,7 @@ impl SimpleGuiPipeline {
 
         let dimensions = image.image().dimensions().width_height();
         let framebuffer = Framebuffer::new(self.render_pass.clone(), FramebufferCreateInfo {
-            attachments: vec![image.clone()],
+            attachments: vec![image],
             ..Default::default()
         })
         .unwrap();

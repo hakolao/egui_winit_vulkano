@@ -7,6 +7,8 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
+#![allow(clippy::eq_op)]
+
 use std::sync::Arc;
 
 use egui::{Context, Visuals};
@@ -58,7 +60,7 @@ impl GuiState {
             show_scene_window: true,
             image_texture_id1,
             image_texture_id2,
-            scene_texture_id: gui.register_user_image_view(scene_image.clone()),
+            scene_texture_id: gui.register_user_image_view(scene_image),
             scene_view_size,
         }
     }

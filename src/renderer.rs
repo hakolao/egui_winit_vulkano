@@ -334,7 +334,7 @@ impl Renderer {
         // Copy buffer to image
         cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
             texture_data_buffer,
-            init.clone(),
+            init,
         ))
         .unwrap();
 
@@ -344,8 +344,8 @@ impl Renderer {
                 let src_dims = font_image.image().dimensions();
                 let top_left = [pos[0] as u32, pos[1] as u32, 0];
                 let bottom_right = [
-                    pos[0] as u32 + src_dims.width() as u32,
-                    pos[1] as u32 + src_dims.height() as u32,
+                    pos[0] as u32 + src_dims.width(),
+                    pos[1] as u32 + src_dims.height(),
                     1,
                 ];
 
@@ -355,8 +355,8 @@ impl Renderer {
                     regions: [ImageBlit {
                         src_subresource: font_image.image().subresource_layers(),
                         src_offsets: [[0, 0, 0], [
-                            src_dims.width() as u32,
-                            src_dims.height() as u32,
+                            src_dims.width(),
+                            src_dims.height(),
                             1,
                         ]],
                         dst_subresource: existing_image.image().subresource_layers(),
@@ -418,7 +418,7 @@ impl Renderer {
 
         let vertex_chunk = self
             .vertex_buffer_pool
-            .from_iter(v_slice.into_iter().map(|v| EguiVertex {
+            .from_iter(v_slice.iter().map(|v| EguiVertex {
                 position: [v.pos.x, v.pos.y],
                 tex_coords: [v.uv.x, v.uv.y],
                 color: [
