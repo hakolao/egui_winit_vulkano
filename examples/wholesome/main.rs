@@ -7,9 +7,12 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
+use std::sync::Arc;
+
 use egui::{Context, Visuals};
 use egui_winit_vulkano::Gui;
 use vulkano::{
+    command_buffer::allocator::StandardCommandBufferAllocator,
     format::Format,
     image::{ImageUsage, StorageImage},
 };
@@ -129,6 +132,7 @@ pub fn main() {
     };
     // Create a simple image to which we'll draw the triangle scene
     let scene_image = StorageImage::general_purpose_image_view(
+        context.memory_allocator(),
         context.graphics_queue().clone(),
         scene_view_size,
         DEFAULT_IMAGE_FORMAT,
@@ -136,8 +140,17 @@ pub fn main() {
     )
     .unwrap();
     // Create our render pipeline
-    let mut scene_render_pipeline =
-        RenderPipeline::new(context.graphics_queue().clone(), DEFAULT_IMAGE_FORMAT);
+    let mut scene_render_pipeline = RenderPipeline::new(
+        context.graphics_queue().clone(),
+        DEFAULT_IMAGE_FORMAT,
+        &renderer::Allocators {
+            command_buffers: Arc::new(StandardCommandBufferAllocator::new(
+                context.device().clone(),
+                Default::default(),
+            )),
+            memory: context.memory_allocator().clone(),
+        },
+    );
     // Create gui state (pass anything your state requires)
     let mut gui_state = GuiState::new(&mut gui, scene_image.clone(), scene_view_size);
     // Event loop run
@@ -145,9 +158,7 @@ pub fn main() {
         let renderer = windows.get_primary_renderer_mut().unwrap();
         // Update Egui integration so the UI works!
         match event {
-            Event::WindowEvent { event, window_id }
-                if window_id == renderer.surface().window().id() =>
-            {
+            Event::WindowEvent { event, window_id } if window_id == renderer.window().id() => {
                 let _pass_events_to_game = !gui.update(&event);
                 match event {
                     WindowEvent::Resized(_) => {

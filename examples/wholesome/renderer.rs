@@ -10,7 +10,10 @@
 use std::sync::Arc;
 
 use cgmath::{Matrix4, SquareMatrix};
-use vulkano::{device::Queue, image::ImageViewAbstract, sync::GpuFuture};
+use vulkano::{
+    command_buffer::allocator::StandardCommandBufferAllocator, device::Queue,
+    image::ImageViewAbstract, memory::allocator::StandardMemoryAllocator, sync::GpuFuture,
+};
 use vulkano_util::renderer::DeviceImageView;
 
 use crate::{
@@ -23,10 +26,21 @@ pub struct RenderPipeline {
     draw_pipeline: TriangleDrawSystem,
 }
 
+#[derive(Clone)]
+pub struct Allocators {
+    pub command_buffers: Arc<StandardCommandBufferAllocator>,
+    pub memory: Arc<StandardMemoryAllocator>,
+}
+
 impl RenderPipeline {
-    pub fn new(queue: Arc<Queue>, image_format: vulkano::format::Format) -> Self {
-        let frame_system = FrameSystem::new(queue.clone(), image_format);
-        let draw_pipeline = TriangleDrawSystem::new(queue.clone(), frame_system.deferred_subpass());
+    pub fn new(
+        queue: Arc<Queue>,
+        image_format: vulkano::format::Format,
+        allocators: &Allocators,
+    ) -> Self {
+        let frame_system = FrameSystem::new(queue.clone(), image_format, allocators.clone());
+        let draw_pipeline =
+            TriangleDrawSystem::new(queue.clone(), frame_system.deferred_subpass(), allocators);
 
         Self { frame_system, draw_pipeline }
     }

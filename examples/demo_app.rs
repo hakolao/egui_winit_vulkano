@@ -110,7 +110,7 @@ pub fn main() {
                     renderer.present(after_future, true);
                 }
                 Event::MainEventsCleared => {
-                    renderer.surface().window().request_redraw();
+                    renderer.window().request_redraw();
                 }
                 _ => (),
             }
