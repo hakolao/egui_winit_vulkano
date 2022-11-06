@@ -24,6 +24,11 @@ jobs:
       - name: check rustfmt
         run: cargo fmt -- --check --color always
 
+      - run: rustup component add clippy
+      - run: cargo fetch
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
   windows_stable:
     runs-on: windows-latest
     steps:
