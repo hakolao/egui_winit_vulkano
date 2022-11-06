@@ -27,7 +27,7 @@ use crate::{
 };
 
 fn get_surface_image_format(
-    surface: &Arc<Surface<Window>>,
+    surface: &Arc<Surface>,
     preferred_format: Option<Format>,
     gfx_queue: &Arc<Queue>,
 ) -> vulkano::format::Format {
@@ -35,7 +35,7 @@ fn get_surface_image_format(
         gfx_queue
             .device()
             .physical_device()
-            .surface_formats(&surface, Default::default())
+            .surface_formats(surface, Default::default())
             .unwrap()
             .iter()
             .find(|f| f.0.type_color().unwrap() == NumericType::SRGB)
@@ -48,7 +48,7 @@ pub struct Gui {
     pub egui_ctx: egui::Context,
     pub egui_winit: egui_winit::State,
     renderer: Renderer,
-    surface: Arc<Surface<Window>>,
+    surface: Arc<Surface>,
 
     shapes: Vec<egui::epaint::ClippedShape>,
     textures_delta: egui::TexturesDelta,
@@ -59,14 +59,14 @@ impl Gui {
     /// This is to be called once we have access to vulkano_win's winit window surface
     /// and gfx queue. Created with this, the renderer will own a render pass which is useful to e.g. place your render pass' images
     /// onto egui windows
-    /// - `surface`: Vulkano's Winit Surface [`Arc<Surface<Window>>`]
+    /// - `surface`: Vulkano's Winit-compatible Surface [`Arc<Surface>`]
     /// - `preferred_format`: If target surface was created with custom format, it has to be
     /// provided here. If the surface uses default format, use None
     /// - `gfx_queue`: Vulkano's [`Queue`]
     /// - `is_overlay`: If true, you should be responsible for clearing the image before `draw_on_image`, else it gets cleared
     pub fn new<T>(
         event_loop: &EventLoopWindowTarget<T>,
-        surface: Arc<Surface<Window>>,
+        surface: Arc<Surface>,
         preferred_format: Option<Format>,
         gfx_queue: Arc<Queue>,
         is_overlay: bool,
@@ -76,9 +76,9 @@ impl Gui {
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
         let renderer = Renderer::new_with_render_pass(gfx_queue, format, is_overlay);
-        let mut egui_winit = egui_winit::State::new(&event_loop);
+        let mut egui_winit = egui_winit::State::new(event_loop);
         egui_winit.set_max_texture_side(max_texture_side);
-        egui_winit.set_pixels_per_point(surface.window().scale_factor() as f32);
+        egui_winit.set_pixels_per_point(surface_window(&surface).scale_factor() as f32);
         Gui {
             egui_ctx: Default::default(),
             egui_winit,
@@ -92,7 +92,7 @@ impl Gui {
     /// Same as `new` but instead of integration owning a render pass, egui renders on your subpass
     pub fn new_with_subpass<T>(
         event_loop: &EventLoopWindowTarget<T>,
-        surface: Arc<Surface<Window>>,
+        surface: Arc<Surface>,
         preferred_format: Option<Format>,
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
@@ -102,9 +102,9 @@ impl Gui {
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
         let renderer = Renderer::new_with_subpass(gfx_queue, format, subpass);
-        let mut egui_winit = egui_winit::State::new(&event_loop);
+        let mut egui_winit = egui_winit::State::new(event_loop);
         egui_winit.set_max_texture_side(max_texture_side);
-        egui_winit.set_pixels_per_point(surface.window().scale_factor() as f32);
+        egui_winit.set_pixels_per_point(surface_window(&surface).scale_factor() as f32);
         Gui {
             egui_ctx: Default::default(),
             egui_winit,
@@ -128,7 +128,7 @@ impl Gui {
 
     /// Begins Egui frame & determines what will be drawn later. This must be called before draw, and after `update` (winit event).
     pub fn immediate_ui(&mut self, layout_function: impl FnOnce(&mut Self)) {
-        let raw_input = self.egui_winit.take_egui_input(self.surface.window());
+        let raw_input = self.egui_winit.take_egui_input(surface_window(&self.surface));
         self.egui_ctx.begin_frame(raw_input);
         // Render Egui
         layout_function(self);
@@ -137,7 +137,7 @@ impl Gui {
     /// If you wish to better control when to begin frame, do so by calling this function
     /// (Finish by drawing)
     pub fn begin_frame(&mut self) {
-        let raw_input = self.egui_winit.take_egui_input(self.surface.window());
+        let raw_input = self.egui_winit.take_egui_input(surface_window(&self.surface));
         self.egui_ctx.begin_frame(raw_input);
     }
 
@@ -208,7 +208,7 @@ impl Gui {
             self.egui_ctx.end_frame();
 
         self.egui_winit.handle_platform_output(
-            self.surface.window(),
+            surface_window(&self.surface),
             &self.egui_ctx,
             platform_output,
         );
@@ -232,8 +232,13 @@ impl Gui {
         image_file_bytes: &[u8],
         format: vulkano::format::Format,
     ) -> egui::TextureId {
-        let image = immutable_texture_from_file(self.renderer.queue(), image_file_bytes, format)
-            .expect("Failed to create image");
+        let image = immutable_texture_from_file(
+            self.renderer.allocators(),
+            self.renderer.queue(),
+            image_file_bytes,
+            format,
+        )
+        .expect("Failed to create image");
         self.renderer.register_image(image)
     }
 
@@ -244,6 +249,7 @@ impl Gui {
         format: vulkano::format::Format,
     ) -> egui::TextureId {
         let image = immutable_texture_from_bytes(
+            self.renderer.allocators(),
             self.renderer.queue(),
             image_byte_data,
             dimensions,
@@ -262,4 +268,9 @@ impl Gui {
     pub fn context(&self) -> egui::Context {
         self.egui_ctx.clone()
     }
+}
+
+// Helper to retrieve Window from surface object
+fn surface_window(surface: &Surface) -> &Window {
+    surface.object().unwrap().downcast_ref::<Window>().unwrap()
 }

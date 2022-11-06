@@ -17,7 +17,7 @@ use cgmath::Matrix4;
 use vulkano::{
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
-        RenderPassBeginInfo, SecondaryCommandBuffer, SubpassContents,
+        RenderPassBeginInfo, SecondaryCommandBufferAbstract, SubpassContents,
     },
     device::Queue,
     format::Format,
@@ -26,15 +26,22 @@ use vulkano::{
     sync::GpuFuture,
 };
 
+use crate::renderer::Allocators;
+
 /// System that contains the necessary facilities for rendering a single frame.
 pub struct FrameSystem {
     gfx_queue: Arc<Queue>,
     render_pass: Arc<RenderPass>,
     depth_buffer: Arc<ImageView<AttachmentImage>>,
+    allocators: Allocators,
 }
 
 impl FrameSystem {
-    pub fn new(gfx_queue: Arc<Queue>, final_output_format: Format) -> FrameSystem {
+    pub fn new(
+        gfx_queue: Arc<Queue>,
+        final_output_format: Format,
+        allocators: Allocators,
+    ) -> FrameSystem {
         let render_pass = vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
             attachments: {
                 final_color: {
@@ -61,14 +68,15 @@ impl FrameSystem {
         .unwrap();
         let depth_buffer = ImageView::new_default(
             AttachmentImage::transient_input_attachment(
-                gfx_queue.device().clone(),
+                &allocators.memory,
                 [1, 1],
                 Format::D16_UNORM,
             )
             .unwrap(),
         )
         .unwrap();
-        FrameSystem { gfx_queue, render_pass, depth_buffer }
+
+        FrameSystem { gfx_queue, render_pass, depth_buffer, allocators }
     }
 
     #[inline]
@@ -89,7 +97,7 @@ impl FrameSystem {
         if self.depth_buffer.image().dimensions().width_height() != img_dims {
             self.depth_buffer = ImageView::new_default(
                 AttachmentImage::transient_input_attachment(
-                    self.gfx_queue.device().clone(),
+                    &self.allocators.memory,
                     img_dims,
                     Format::D16_UNORM,
                 )
@@ -97,13 +105,16 @@ impl FrameSystem {
             )
             .unwrap();
         }
-        let framebuffer = Framebuffer::new(self.render_pass.clone(), FramebufferCreateInfo {
-            attachments: vec![final_image, self.depth_buffer.clone()],
-            ..Default::default()
-        })
+        let framebuffer = Framebuffer::new(
+            self.render_pass.clone(),
+            FramebufferCreateInfo {
+                attachments: vec![final_image, self.depth_buffer.clone()],
+                ..Default::default()
+            },
+        )
         .unwrap();
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-            self.gfx_queue.device().clone(),
+            self.allocators.command_buffers.as_ref(),
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
@@ -176,7 +187,7 @@ impl<'f, 's: 'f> DrawPass<'f, 's> {
     #[inline]
     pub fn execute<C>(&mut self, command_buffer: C)
     where
-        C: SecondaryCommandBuffer + Send + Sync + 'static,
+        C: SecondaryCommandBufferAbstract + Send + Sync + 'static,
     {
         self.frame
             .command_buffer_builder

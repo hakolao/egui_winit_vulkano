@@ -11,14 +11,21 @@ use std::sync::Arc;
 
 use image::RgbaImage;
 use vulkano::{
-    device::Queue,
+    command_buffer::{
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
+        PrimaryCommandBufferAbstract,
+    },
+    descriptor_set::allocator::StandardDescriptorSetAllocator,
+    device::{Device, Queue},
     image::{
         immutable::ImmutableImageCreationError, view::ImageView, ImageDimensions,
         ImageViewAbstract, ImmutableImage, MipmapsCount,
     },
+    memory::allocator::StandardMemoryAllocator,
 };
 
 pub fn immutable_texture_from_bytes(
+    allocators: &Allocators,
     queue: Arc<Queue>,
     byte_data: &[u8],
     dimensions: [u32; 2],
@@ -27,18 +34,26 @@ pub fn immutable_texture_from_bytes(
     let vko_dims =
         ImageDimensions::Dim2d { width: dimensions[0], height: dimensions[1], array_layers: 1 };
 
-    let (texture, _tex_fut) = ImmutableImage::from_iter(
+    let mut cbb = AutoCommandBufferBuilder::primary(
+        &allocators.command_buffer,
+        queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )?;
+    let texture = ImmutableImage::from_iter(
+        &allocators.memory,
         byte_data.iter().cloned(),
         vko_dims,
         MipmapsCount::One,
         format,
-        queue,
+        &mut cbb,
     )?;
+    let _fut = cbb.build().unwrap().execute(queue).unwrap();
 
     Ok(ImageView::new_default(texture).unwrap())
 }
 
 pub fn immutable_texture_from_file(
+    allocators: &Allocators,
     queue: Arc<Queue>,
     file_bytes: &[u8],
     format: vulkano::format::Format,
@@ -62,5 +77,21 @@ pub fn immutable_texture_from_file(
         new_rgba.to_vec()
     };
     let dimensions = img.dimensions();
-    immutable_texture_from_bytes(queue, &rgba, [dimensions.0, dimensions.1], format)
+    immutable_texture_from_bytes(allocators, queue, &rgba, [dimensions.0, dimensions.1], format)
+}
+
+pub struct Allocators {
+    pub memory: Arc<StandardMemoryAllocator>,
+    pub descriptor_set: StandardDescriptorSetAllocator,
+    pub command_buffer: StandardCommandBufferAllocator,
+}
+
+impl Allocators {
+    pub fn new_default(device: &Arc<Device>) -> Self {
+        Self {
+            memory: Arc::new(StandardMemoryAllocator::new_default(device.clone())),
+            descriptor_set: StandardDescriptorSetAllocator::new(device.clone()),
+            command_buffer: StandardCommandBufferAllocator::new(device.clone(), Default::default()),
+        }
+    }
 }

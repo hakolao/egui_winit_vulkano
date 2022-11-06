@@ -48,9 +48,7 @@ pub fn main() {
     event_loop.run(move |event, _, control_flow| {
         let renderer = windows.get_primary_renderer_mut().unwrap();
         match event {
-            Event::WindowEvent { event, window_id }
-                if window_id == renderer.surface().window().id() =>
-            {
+            Event::WindowEvent { event, window_id } if window_id == renderer.window().id() => {
                 // Update Egui integration so the UI works!
                 let _pass_events_to_game = !gui.update(&event);
                 match event {
@@ -104,7 +102,7 @@ pub fn main() {
                 renderer.present(after_future, true);
             }
             Event::MainEventsCleared => {
-                renderer.surface().window().request_redraw();
+                renderer.window().request_redraw();
             }
             _ => (),
         }

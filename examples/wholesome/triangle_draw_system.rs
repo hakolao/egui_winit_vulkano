@@ -17,8 +17,8 @@ use bytemuck::{Pod, Zeroable};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
-        AutoCommandBufferBuilder, CommandBufferInheritanceInfo, CommandBufferUsage,
-        SecondaryAutoCommandBuffer,
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
+        CommandBufferInheritanceInfo, CommandBufferUsage, SecondaryAutoCommandBuffer,
     },
     device::Queue,
     pipeline::{
@@ -33,18 +33,25 @@ use vulkano::{
     render_pass::Subpass,
 };
 
+use crate::renderer::Allocators;
+
 pub struct TriangleDrawSystem {
     gfx_queue: Arc<Queue>,
     vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
+    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
 }
 
 impl TriangleDrawSystem {
-    pub fn new(gfx_queue: Arc<Queue>, subpass: Subpass) -> TriangleDrawSystem {
+    pub fn new(
+        gfx_queue: Arc<Queue>,
+        subpass: Subpass,
+        allocators: &Allocators,
+    ) -> TriangleDrawSystem {
         let vertex_buffer = {
             CpuAccessibleBuffer::from_iter(
-                gfx_queue.device().clone(),
+                &allocators.memory,
                 BufferUsage { vertex_buffer: true, ..BufferUsage::empty() },
                 false,
                 [
@@ -73,12 +80,18 @@ impl TriangleDrawSystem {
                 .unwrap()
         };
 
-        TriangleDrawSystem { gfx_queue, vertex_buffer, pipeline, subpass }
+        TriangleDrawSystem {
+            gfx_queue,
+            vertex_buffer,
+            pipeline,
+            subpass,
+            command_buffer_allocator: allocators.command_buffers.clone(),
+        }
     }
 
     pub fn draw(&self, viewport_dimensions: [u32; 2]) -> SecondaryAutoCommandBuffer {
         let mut builder = AutoCommandBufferBuilder::secondary(
-            self.gfx_queue.device().clone(),
+            &self.command_buffer_allocator,
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
@@ -89,11 +102,14 @@ impl TriangleDrawSystem {
         .unwrap();
         builder
             .bind_pipeline_graphics(self.pipeline.clone())
-            .set_viewport(0, [Viewport {
-                origin: [0.0, 0.0],
-                dimensions: [viewport_dimensions[0] as f32, viewport_dimensions[1] as f32],
-                depth_range: 0.0..1.0,
-            }])
+            .set_viewport(
+                0,
+                [Viewport {
+                    origin: [0.0, 0.0],
+                    dimensions: [viewport_dimensions[0] as f32, viewport_dimensions[1] as f32],
+                    depth_range: 0.0..1.0,
+                }],
+            )
             .bind_vertex_buffers(0, self.vertex_buffer.clone())
             .draw(self.vertex_buffer.len() as u32, 1, 0, 0)
             .unwrap();

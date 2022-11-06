@@ -15,12 +15,13 @@ use egui_winit_vulkano::Gui;
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
-        AutoCommandBufferBuilder, CommandBufferInheritanceInfo, CommandBufferUsage,
-        RenderPassBeginInfo, SubpassContents,
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
+        CommandBufferInheritanceInfo, CommandBufferUsage, RenderPassBeginInfo, SubpassContents,
     },
     device::{Device, Queue},
     format::Format,
     image::ImageAccess,
+    memory::allocator::StandardMemoryAllocator,
     pipeline::{
         graphics::{
             input_assembly::InputAssemblyState,
@@ -61,6 +62,7 @@ pub fn main() {
     let mut gui_pipeline = SimpleGuiPipeline::new(
         context.graphics_queue().clone(),
         windows.get_primary_renderer_mut().unwrap().swapchain_format(),
+        context.memory_allocator(),
     );
     // Create gui subpass
     let mut gui = Gui::new_with_subpass(
@@ -70,6 +72,7 @@ pub fn main() {
         windows.get_primary_renderer_mut().unwrap().graphics_queue(),
         gui_pipeline.gui_pass(),
     );
+
     // Create gui state (pass anything your state requires)
     let mut code = CODE.to_owned();
     event_loop.run(move |event, _, control_flow| {
@@ -151,17 +154,22 @@ struct SimpleGuiPipeline {
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
     vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
+    command_buffer_allocator: StandardCommandBufferAllocator,
 }
 
 impl SimpleGuiPipeline {
-    pub fn new(queue: Arc<Queue>, image_format: vulkano::format::Format) -> Self {
+    pub fn new(
+        queue: Arc<Queue>,
+        image_format: vulkano::format::Format,
+        allocator: &StandardMemoryAllocator,
+    ) -> Self {
         let render_pass = Self::create_render_pass(queue.device().clone(), image_format);
         let (pipeline, subpass) =
             Self::create_pipeline(queue.device().clone(), render_pass.clone());
 
         let vertex_buffer = {
             CpuAccessibleBuffer::from_iter(
-                queue.device().clone(),
+                allocator,
                 BufferUsage { vertex_buffer: true, ..BufferUsage::empty() },
                 false,
                 [
@@ -175,7 +183,11 @@ impl SimpleGuiPipeline {
             .expect("failed to create buffer")
         };
 
-        Self { queue, render_pass, pipeline, subpass, vertex_buffer }
+        // Create an allocator for command-buffer data
+        let command_buffer_allocator =
+            StandardCommandBufferAllocator::new(queue.device().clone(), Default::default());
+
+        Self { queue, render_pass, pipeline, subpass, vertex_buffer, command_buffer_allocator }
     }
 
     fn create_render_pass(device: Arc<Device>, format: Format) -> Arc<RenderPass> {
@@ -230,17 +242,17 @@ impl SimpleGuiPipeline {
         gui: &mut Gui,
     ) -> Box<dyn GpuFuture> {
         let mut builder = AutoCommandBufferBuilder::primary(
-            self.queue.device().clone(),
+            &self.command_buffer_allocator,
             self.queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
 
         let dimensions = image.image().dimensions().width_height();
-        let framebuffer = Framebuffer::new(self.render_pass.clone(), FramebufferCreateInfo {
-            attachments: vec![image.clone()],
-            ..Default::default()
-        })
+        let framebuffer = Framebuffer::new(
+            self.render_pass.clone(),
+            FramebufferCreateInfo { attachments: vec![image.clone()], ..Default::default() },
+        )
         .unwrap();
 
         // Begin render pipeline commands
@@ -256,7 +268,7 @@ impl SimpleGuiPipeline {
 
         // Render first draw pass
         let mut secondary_builder = AutoCommandBufferBuilder::secondary(
-            self.queue.device().clone(),
+            &self.command_buffer_allocator,
             self.queue.queue_family_index(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
@@ -267,11 +279,14 @@ impl SimpleGuiPipeline {
         .unwrap();
         secondary_builder
             .bind_pipeline_graphics(self.pipeline.clone())
-            .set_viewport(0, vec![Viewport {
-                origin: [0.0, 0.0],
-                dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-                depth_range: 0.0..1.0,
-            }])
+            .set_viewport(
+                0,
+                vec![Viewport {
+                    origin: [0.0, 0.0],
+                    dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+                    depth_range: 0.0..1.0,
+                }],
+            )
             .bind_vertex_buffers(0, self.vertex_buffer.clone())
             .draw(self.vertex_buffer.len() as u32, 1, 0, 0)
             .unwrap();
