@@ -40,7 +40,7 @@ impl RenderPipeline {
     ) -> Self {
         let frame_system = FrameSystem::new(queue.clone(), image_format, allocators.clone());
         let draw_pipeline =
-            TriangleDrawSystem::new(queue.clone(), frame_system.deferred_subpass(), allocators);
+            TriangleDrawSystem::new(queue, frame_system.deferred_subpass(), allocators);
 
         Self { frame_system, draw_pipeline }
     }

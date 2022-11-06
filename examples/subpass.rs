@@ -7,6 +7,8 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
+#![allow(clippy::eq_op)]
+
 use std::{convert::TryFrom, sync::Arc};
 
 use bytemuck::{Pod, Zeroable};
@@ -249,10 +251,10 @@ impl SimpleGuiPipeline {
         .unwrap();
 
         let dimensions = image.image().dimensions().width_height();
-        let framebuffer = Framebuffer::new(
-            self.render_pass.clone(),
-            FramebufferCreateInfo { attachments: vec![image.clone()], ..Default::default() },
-        )
+        let framebuffer = Framebuffer::new(self.render_pass.clone(), FramebufferCreateInfo {
+            attachments: vec![image],
+            ..Default::default()
+        })
         .unwrap();
 
         // Begin render pipeline commands
@@ -279,14 +281,11 @@ impl SimpleGuiPipeline {
         .unwrap();
         secondary_builder
             .bind_pipeline_graphics(self.pipeline.clone())
-            .set_viewport(
-                0,
-                vec![Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-                    depth_range: 0.0..1.0,
-                }],
-            )
+            .set_viewport(0, vec![Viewport {
+                origin: [0.0, 0.0],
+                dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+                depth_range: 0.0..1.0,
+            }])
             .bind_vertex_buffers(0, self.vertex_buffer.clone())
             .draw(self.vertex_buffer.len() as u32, 1, 0, 0)
             .unwrap();

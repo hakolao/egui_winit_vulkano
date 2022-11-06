@@ -95,16 +95,13 @@ impl Renderer {
         let allocators = Allocators::new_default(gfx_queue.device());
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
-        let sampler = Sampler::new(
-            gfx_queue.device().clone(),
-            SamplerCreateInfo {
-                mag_filter: Filter::Linear,
-                min_filter: Filter::Linear,
-                address_mode: [SamplerAddressMode::ClampToEdge; 3],
-                mipmap_mode: SamplerMipmapMode::Linear,
-                ..Default::default()
-            },
-        )
+        let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
+            mag_filter: Filter::Linear,
+            min_filter: Filter::Linear,
+            address_mode: [SamplerAddressMode::ClampToEdge; 3],
+            mipmap_mode: SamplerMipmapMode::Linear,
+            ..Default::default()
+        })
         .unwrap();
         Renderer {
             gfx_queue,
@@ -172,16 +169,13 @@ impl Renderer {
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
-        let sampler = Sampler::new(
-            gfx_queue.device().clone(),
-            SamplerCreateInfo {
-                mag_filter: Filter::Linear,
-                min_filter: Filter::Linear,
-                address_mode: [SamplerAddressMode::ClampToEdge; 3],
-                mipmap_mode: SamplerMipmapMode::Linear,
-                ..Default::default()
-            },
-        )
+        let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
+            mag_filter: Filter::Linear,
+            min_filter: Filter::Linear,
+            address_mode: [SamplerAddressMode::ClampToEdge; 3],
+            mipmap_mode: SamplerMipmapMode::Linear,
+            ..Default::default()
+        })
         .unwrap();
         Renderer {
             gfx_queue,
@@ -256,11 +250,9 @@ impl Renderer {
         layout: &Arc<DescriptorSetLayout>,
         image: Arc<dyn ImageViewAbstract + 'static>,
     ) -> Arc<PersistentDescriptorSet> {
-        PersistentDescriptorSet::new(
-            &self.allocators.descriptor_set,
-            layout.clone(),
-            [WriteDescriptorSet::image_view_sampler(0, image.clone(), self.sampler.clone())],
-        )
+        PersistentDescriptorSet::new(&self.allocators.descriptor_set, layout.clone(), [
+            WriteDescriptorSet::image_view_sampler(0, image.clone(), self.sampler.clone()),
+        ])
         .unwrap()
     }
 
@@ -340,32 +332,23 @@ impl Renderer {
         .unwrap();
 
         // Copy buffer to image
-        cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
-            texture_data_buffer,
-            init.clone(),
-        ))
-        .unwrap();
+        cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(texture_data_buffer, init))
+            .unwrap();
 
         // Blit texture data to existing image if delta pos exists (e.g. font changed)
         if let Some(pos) = delta.pos {
             if let Some(existing_image) = self.texture_images.get(&texture_id) {
                 let src_dims = font_image.image().dimensions();
                 let top_left = [pos[0] as u32, pos[1] as u32, 0];
-                let bottom_right = [
-                    pos[0] as u32 + src_dims.width() as u32,
-                    pos[1] as u32 + src_dims.height() as u32,
-                    1,
-                ];
+                let bottom_right =
+                    [pos[0] as u32 + src_dims.width(), pos[1] as u32 + src_dims.height(), 1];
 
                 cbb.blit_image(BlitImageInfo {
                     src_image_layout: ImageLayout::General,
                     dst_image_layout: ImageLayout::General,
                     regions: [ImageBlit {
                         src_subresource: font_image.image().subresource_layers(),
-                        src_offsets: [
-                            [0, 0, 0],
-                            [src_dims.width() as u32, src_dims.height() as u32, 1],
-                        ],
+                        src_offsets: [[0, 0, 0], [src_dims.width(), src_dims.height(), 1]],
                         dst_subresource: existing_image.image().subresource_layers(),
                         dst_offsets: [top_left, bottom_right],
                         ..Default::default()
@@ -425,7 +408,7 @@ impl Renderer {
 
         let vertex_chunk = self
             .vertex_buffer_pool
-            .from_iter(v_slice.into_iter().map(|v| EguiVertex {
+            .from_iter(v_slice.iter().map(|v| EguiVertex {
                 position: [v.pos.x, v.pos.y],
                 tex_coords: [v.uv.x, v.uv.y],
                 color: [
@@ -603,17 +586,14 @@ impl Renderer {
                     let desc_set = self.texture_desc_sets.get(&mesh.texture_id).unwrap().clone();
                     builder
                         .bind_pipeline_graphics(self.pipeline.clone())
-                        .set_viewport(
-                            0,
-                            vec![Viewport {
-                                origin: [0.0, 0.0],
-                                dimensions: [
-                                    framebuffer_dimensions[0] as f32,
-                                    framebuffer_dimensions[1] as f32,
-                                ],
-                                depth_range: 0.0..1.0,
-                            }],
-                        )
+                        .set_viewport(0, vec![Viewport {
+                            origin: [0.0, 0.0],
+                            dimensions: [
+                                framebuffer_dimensions[0] as f32,
+                                framebuffer_dimensions[1] as f32,
+                            ],
+                            depth_range: 0.0..1.0,
+                        }])
                         .set_scissor(0, scissors)
                         .bind_descriptor_sets(
                             PipelineBindPoint::Graphics,
