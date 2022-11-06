@@ -332,33 +332,23 @@ impl Renderer {
         .unwrap();
 
         // Copy buffer to image
-        cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
-            texture_data_buffer,
-            init,
-        ))
-        .unwrap();
+        cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(texture_data_buffer, init))
+            .unwrap();
 
         // Blit texture data to existing image if delta pos exists (e.g. font changed)
         if let Some(pos) = delta.pos {
             if let Some(existing_image) = self.texture_images.get(&texture_id) {
                 let src_dims = font_image.image().dimensions();
                 let top_left = [pos[0] as u32, pos[1] as u32, 0];
-                let bottom_right = [
-                    pos[0] as u32 + src_dims.width(),
-                    pos[1] as u32 + src_dims.height(),
-                    1,
-                ];
+                let bottom_right =
+                    [pos[0] as u32 + src_dims.width(), pos[1] as u32 + src_dims.height(), 1];
 
                 cbb.blit_image(BlitImageInfo {
                     src_image_layout: ImageLayout::General,
                     dst_image_layout: ImageLayout::General,
                     regions: [ImageBlit {
                         src_subresource: font_image.image().subresource_layers(),
-                        src_offsets: [[0, 0, 0], [
-                            src_dims.width(),
-                            src_dims.height(),
-                            1,
-                        ]],
+                        src_offsets: [[0, 0, 0], [src_dims.width(), src_dims.height(), 1]],
                         dst_subresource: existing_image.image().subresource_layers(),
                         dst_offsets: [top_left, bottom_right],
                         ..Default::default()
