@@ -17,8 +17,8 @@ use egui::{
 };
 use vulkano::{
     buffer::{
-        cpu_pool::CpuBufferPoolChunk, BufferUsage, CpuAccessibleBuffer, CpuBufferPool,
-        TypedBufferAccess,
+        allocator::{CpuBufferAllocator, CpuBufferAllocatorCreateInfo, CpuSubbuffer},
+        BufferUsage, CpuAccessibleBuffer, TypedBufferAccess,
     },
     command_buffer::{
         AutoCommandBufferBuilder, BlitImageInfo, CommandBufferInheritanceInfo, CommandBufferUsage,
@@ -75,8 +75,8 @@ pub struct Renderer {
     sampler: Arc<Sampler>,
 
     allocators: Allocators,
-    vertex_buffer_pool: CpuBufferPool<EguiVertex>,
-    index_buffer_pool: CpuBufferPool<u32>,
+    vertex_buffer_pool: CpuBufferAllocator,
+    index_buffer_pool: CpuBufferAllocator,
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
 
@@ -201,24 +201,23 @@ impl Renderer {
 
     fn create_buffers(
         allocator: &Arc<StandardMemoryAllocator>,
-    ) -> (CpuBufferPool<EguiVertex>, CpuBufferPool<u32>) {
+    ) -> (CpuBufferAllocator, CpuBufferAllocator) {
         // Create vertex and index buffers
-        let vertex_buffer_pool = CpuBufferPool::new(
-            allocator.clone(),
-            BufferUsage { vertex_buffer: true, ..BufferUsage::empty() },
-            MemoryUsage::Upload,
-        );
-        vertex_buffer_pool
-            .reserve(VERTEX_BUFFER_SIZE)
-            .expect("Failed to reserve vertex buffer memory");
-        let index_buffer_pool = CpuBufferPool::new(
-            allocator.clone(),
-            BufferUsage { index_buffer: true, ..BufferUsage::empty() },
-            MemoryUsage::Upload,
-        );
-        index_buffer_pool
-            .reserve(INDEX_BUFFER_SIZE)
-            .expect("Failed to reserve index buffer memory");
+        let vertex_buffer_pool =
+            CpuBufferAllocator::new(allocator.clone(), CpuBufferAllocatorCreateInfo {
+                arena_size: VERTEX_BUFFER_SIZE,
+                memory_usage: MemoryUsage::Upload,
+                buffer_usage: BufferUsage::VERTEX_BUFFER,
+                ..CpuBufferAllocatorCreateInfo::default()
+            });
+
+        let index_buffer_pool =
+            CpuBufferAllocator::new(allocator.clone(), CpuBufferAllocatorCreateInfo {
+                arena_size: INDEX_BUFFER_SIZE,
+                memory_usage: MemoryUsage::Upload,
+                buffer_usage: BufferUsage::INDEX_BUFFER,
+                ..CpuBufferAllocatorCreateInfo::default()
+            });
 
         (vertex_buffer_pool, index_buffer_pool)
     }
@@ -295,7 +294,7 @@ impl Renderer {
         // Create buffer to be copied to the image
         let texture_data_buffer = CpuAccessibleBuffer::from_iter(
             &self.allocators.memory,
-            BufferUsage { transfer_src: true, ..BufferUsage::empty() },
+            BufferUsage::TRANSFER_SRC,
             false,
             data,
         )
@@ -310,12 +309,7 @@ impl Renderer {
             },
             Format::R8G8B8A8_SRGB,
             vulkano::image::MipmapsCount::One,
-            ImageUsage {
-                transfer_dst: true,
-                transfer_src: true,
-                sampled: true,
-                ..ImageUsage::empty()
-            },
+            ImageUsage::TRANSFER_DST | ImageUsage::TRANSFER_SRC | ImageUsage::SAMPLED,
             Default::default(),
             ImageLayout::ShaderReadOnlyOptimal,
             Some(self.gfx_queue.queue_family_index()),
@@ -402,7 +396,7 @@ impl Renderer {
     fn create_subbuffers(
         &self,
         mesh: &Mesh,
-    ) -> (Arc<CpuBufferPoolChunk<EguiVertex>>, Arc<CpuBufferPoolChunk<u32>>) {
+    ) -> (Arc<CpuSubbuffer<[EguiVertex]>>, Arc<CpuSubbuffer<[u32]>>) {
         // Copy vertices to buffer
         let v_slice = &mesh.vertices;
 
