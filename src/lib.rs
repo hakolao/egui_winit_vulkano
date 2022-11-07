@@ -7,6 +7,8 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
+#![allow(clippy::type_complexity)]
+
 mod integration;
 mod renderer;
 mod utils;
