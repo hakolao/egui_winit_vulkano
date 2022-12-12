@@ -172,7 +172,7 @@ impl SimpleGuiPipeline {
         let vertex_buffer = {
             CpuAccessibleBuffer::from_iter(
                 allocator,
-                BufferUsage { vertex_buffer: true, ..BufferUsage::empty() },
+                BufferUsage::VERTEX_BUFFER,
                 false,
                 [
                     Vertex { position: [-0.5, -0.25], color: [1.0, 0.0, 0.0, 1.0] },

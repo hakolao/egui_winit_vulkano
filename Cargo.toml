@@ -23,10 +23,10 @@ egui = "0.19.0"
 egui-winit = "0.19.0"
 image = "0.24.4"
 winit = "0.27.5"
-vulkano = "0.32"
-vulkano-shaders = "0.32"
+vulkano = { version = "0.32", git = "https://github.com/hakolao/vulkano", branch = "remove-old-windows-drag-drop-fix" }
+vulkano-shaders = { version = "0.32", git = "https://github.com/hakolao/vulkano", branch = "remove-old-windows-drag-drop-fix" }
 
 [dev-dependencies]
 cgmath = "0.18.0"
 egui_demo_lib = "0.19.0"
-vulkano-util = "0.32"
+vulkano-util = { version = "0.32", git = "https://github.com/hakolao/vulkano", branch = "remove-old-windows-drag-drop-fix" }
