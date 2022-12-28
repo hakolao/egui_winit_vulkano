@@ -22,7 +22,7 @@ use vulkano::{
 use winit::window::Window;
 
 use crate::{
-    renderer::Renderer,
+    renderer::{RenderResources, Renderer},
     utils::{immutable_texture_from_bytes, immutable_texture_from_file},
 };
 
@@ -113,6 +113,12 @@ impl Gui {
             shapes: vec![],
             textures_delta: Default::default(),
         }
+    }
+
+    /// Returns a set of resources used to construct the render pipeline. These can be reused
+    /// to create additional pipelines and buffers to be rendered in a `PaintCallback`.
+    pub fn render_resources(&self) -> RenderResources {
+        self.renderer.render_resources()
     }
 
     /// Updates context state by winit window event.

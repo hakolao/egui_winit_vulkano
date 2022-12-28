@@ -13,7 +13,7 @@ use ahash::AHashMap;
 use bytemuck::{Pod, Zeroable};
 use egui::{
     epaint::{Mesh, Primitive},
-    ClippedPrimitive, Rect, TexturesDelta,
+    ClippedPrimitive, PaintCallbackInfo, Rect, TexturesDelta,
 };
 use vulkano::{
     buffer::{
@@ -21,11 +21,15 @@ use vulkano::{
         TypedBufferAccess,
     },
     command_buffer::{
-        AutoCommandBufferBuilder, BlitImageInfo, CommandBufferInheritanceInfo, CommandBufferUsage,
-        CopyBufferToImageInfo, ImageBlit, PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract,
-        RenderPassBeginInfo, SecondaryAutoCommandBuffer, SubpassContents,
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, BlitImageInfo,
+        CommandBufferInheritanceInfo, CommandBufferUsage, CopyBufferToImageInfo, ImageBlit,
+        PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, RenderPassBeginInfo,
+        SecondaryAutoCommandBuffer, SubpassContents,
     },
-    descriptor_set::{layout::DescriptorSetLayout, PersistentDescriptorSet, WriteDescriptorSet},
+    descriptor_set::{
+        allocator::StandardDescriptorSetAllocator, layout::DescriptorSetLayout,
+        PersistentDescriptorSet, WriteDescriptorSet,
+    },
     device::Queue,
     format::{Format, NumericType},
     image::{
@@ -607,8 +611,63 @@ impl Renderer {
                         .draw_indexed(indices.len() as u32, 1, 0, 0, 0)
                         .unwrap();
                 }
-                _ => continue,
+                Primitive::Callback(callback) => {
+                    if callback.rect.is_positive() {
+                        let rect_min_x = scale_factor * callback.rect.min.x;
+                        let rect_min_y = scale_factor * callback.rect.min.y;
+                        let rect_max_x = scale_factor * callback.rect.max.x;
+                        let rect_max_y = scale_factor * callback.rect.max.y;
+
+                        let rect_min_x = rect_min_x.round();
+                        let rect_min_y = rect_min_y.round();
+                        let rect_max_x = rect_max_x.round();
+                        let rect_max_y = rect_max_y.round();
+
+                        let scissors = vec![self.get_rect_scissor(
+                            scale_factor,
+                            framebuffer_dimensions,
+                            *clip_rect,
+                        )];
+
+                        builder
+                            .set_viewport(0, vec![Viewport {
+                                origin: [rect_min_x, rect_min_y],
+                                dimensions: [rect_max_x - rect_min_x, rect_max_y - rect_min_y],
+                                depth_range: 0.0..1.0,
+                            }])
+                            .set_scissor(0, scissors);
+
+                        let info = egui::PaintCallbackInfo {
+                            viewport: callback.rect,
+                            clip_rect: *clip_rect,
+                            pixels_per_point: scale_factor,
+                            screen_size_px: framebuffer_dimensions,
+                        };
+
+                        if let Some(callback) = callback.callback.downcast_ref::<CallbackFn>() {
+                            (callback.f)(info, &mut CallbackContext {
+                                builder,
+                                resources: self.render_resources(),
+                            });
+                        } else {
+                            println!(
+                                "Warning: Unsupported render callback. Expected \
+                                 egui_winit_vulkano::CallbackFn"
+                            );
+                        }
+                    }
+                }
             }
+        }
+    }
+
+    pub fn render_resources(&self) -> RenderResources {
+        RenderResources {
+            queue: self.queue(),
+            subpass: self.subpass.clone(),
+            memory_allocator: self.allocators.memory.clone(),
+            descriptor_set_allocator: &self.allocators.descriptor_set,
+            command_buffer_allocator: &self.allocators.command_buffer,
         }
     }
 
@@ -618,6 +677,53 @@ impl Renderer {
 
     pub fn allocators(&self) -> &Allocators {
         &self.allocators
+    }
+}
+
+/// A set of objects used to perform custom rendering in a `PaintCallback`. It
+/// includes [`RenderResources`] for constructing a subpass pipeline and a secondary
+/// command buffer for pushing render commands onto it.
+///
+/// # Example
+///
+/// See the `triangle` demo source for a detailed usage example.
+pub struct CallbackContext<'a> {
+    pub builder: &'a mut AutoCommandBufferBuilder<SecondaryAutoCommandBuffer>,
+    pub resources: RenderResources<'a>,
+}
+
+/// A set of resources used to construct the render pipeline. These can be reused
+/// to create additional pipelines and buffers to be rendered in a `PaintCallback`.
+///
+/// # Example
+///
+/// See the `triangle` demo source for a detailed usage example.
+pub struct RenderResources<'a> {
+    pub memory_allocator: Arc<StandardMemoryAllocator>,
+    pub descriptor_set_allocator: &'a StandardDescriptorSetAllocator,
+    pub command_buffer_allocator: &'a StandardCommandBufferAllocator,
+    pub queue: Arc<Queue>,
+    pub subpass: Subpass,
+}
+
+/// A callback function that can be used to compose an [`epaint::PaintCallback`] for
+/// custom rendering with [`vulkano`].
+///
+/// The callback is passed an [`egui::PaintCallbackInfo`] and a [`CallbackContext`] which
+/// can be used to construct Vulkano graphics pipelines and buffers.
+///
+/// # Example
+///
+/// See the `triangle` demo source for a detailed usage example.
+pub struct CallbackFn {
+    pub(crate) f: Box<dyn Fn(PaintCallbackInfo, &mut CallbackContext) + Sync + Send>,
+}
+impl CallbackFn {
+    pub fn new<F: Fn(PaintCallbackInfo, &mut CallbackContext) + Sync + Send + 'static>(
+        callback: F,
+    ) -> Self {
+        let f = Box::new(callback);
+        CallbackFn { f }
     }
 }
 
