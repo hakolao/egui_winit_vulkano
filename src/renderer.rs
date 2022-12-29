@@ -698,6 +698,7 @@ pub struct CallbackContext<'a> {
 /// # Example
 ///
 /// See the `triangle` demo source for a detailed usage example.
+#[derive(Clone)]
 pub struct RenderResources<'a> {
     pub memory_allocator: Arc<StandardMemoryAllocator>,
     pub descriptor_set_allocator: &'a StandardDescriptorSetAllocator,
