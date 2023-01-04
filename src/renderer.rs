@@ -255,7 +255,7 @@ impl Renderer {
         image: Arc<dyn ImageViewAbstract + 'static>,
     ) -> Arc<PersistentDescriptorSet> {
         PersistentDescriptorSet::new(&self.allocators.descriptor_set, layout.clone(), [
-            WriteDescriptorSet::image_view_sampler(0, image.clone(), self.sampler.clone()),
+            WriteDescriptorSet::image_view_sampler(0, image, self.sampler.clone()),
         ])
         .unwrap()
     }
@@ -359,10 +359,7 @@ impl Renderer {
                     }]
                     .into(),
                     filter: Filter::Nearest,
-                    ..BlitImageInfo::images(
-                        font_image.image().clone(),
-                        existing_image.image().clone(),
-                    )
+                    ..BlitImageInfo::images(font_image.image().clone(), existing_image.image())
                 })
                 .unwrap();
             }
@@ -707,6 +704,8 @@ pub struct RenderResources<'a> {
     pub subpass: Subpass,
 }
 
+pub type CallbackFnDef = dyn Fn(PaintCallbackInfo, &mut CallbackContext) + Sync + Send;
+
 /// A callback function that can be used to compose an [`epaint::PaintCallback`] for
 /// custom rendering with [`vulkano`].
 ///
@@ -717,7 +716,7 @@ pub struct RenderResources<'a> {
 ///
 /// See the `triangle` demo source for a detailed usage example.
 pub struct CallbackFn {
-    pub(crate) f: Box<dyn Fn(PaintCallbackInfo, &mut CallbackContext) + Sync + Send>,
+    pub(crate) f: Box<CallbackFnDef>,
 }
 impl CallbackFn {
     pub fn new<F: Fn(PaintCallbackInfo, &mut CallbackContext) + Sync + Send + 'static>(

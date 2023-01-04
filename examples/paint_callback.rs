@@ -81,7 +81,7 @@ pub fn main() {
                     _ => (),
                 }
             }
-            Event::RedrawRequested(window_id) if window_id == window_id => {
+            Event::RedrawRequested(window_id) if window_id == renderer.window().id() => {
                 let scene = scene.clone();
                 // Set immediate UI in redraw here
                 gui.immediate_ui(|gui| {
