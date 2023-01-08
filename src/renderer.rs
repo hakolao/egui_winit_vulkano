@@ -251,7 +251,7 @@ impl Renderer {
         image: Arc<dyn ImageViewAbstract + 'static>,
     ) -> Arc<PersistentDescriptorSet> {
         PersistentDescriptorSet::new(&self.allocators.descriptor_set, layout.clone(), [
-            WriteDescriptorSet::image_view_sampler(0, image.clone(), self.sampler.clone()),
+            WriteDescriptorSet::image_view_sampler(0, image, self.sampler.clone()),
         ])
         .unwrap()
     }
@@ -356,7 +356,7 @@ impl Renderer {
                     filter: Filter::Nearest,
                     ..BlitImageInfo::images(
                         font_image.image().clone(),
-                        existing_image.image().clone(),
+                        existing_image.image(),
                     )
                 })
                 .unwrap();
