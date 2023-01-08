@@ -292,8 +292,7 @@ impl Renderer {
                 image.pixels.iter().flat_map(|color| color.to_array()).collect()
             }
             egui::ImageData::Font(image) => {
-                let gamma = 1.0;
-                image.srgba_pixels(gamma).flat_map(|color| color.to_array()).collect()
+                image.srgba_pixels(None).flat_map(|color| color.to_array()).collect()
             }
         };
         // Create buffer to be copied to the image
