@@ -354,10 +354,7 @@ impl Renderer {
                     }]
                     .into(),
                     filter: Filter::Nearest,
-                    ..BlitImageInfo::images(
-                        font_image.image().clone(),
-                        existing_image.image(),
-                    )
+                    ..BlitImageInfo::images(font_image.image().clone(), existing_image.image())
                 })
                 .unwrap();
             }
