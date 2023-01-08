@@ -123,7 +123,7 @@ impl Gui {
     ///
     /// Note that egui uses `tab` to move focus between elements, so this will always return `true` for tabs.
     pub fn update(&mut self, winit_event: &winit::event::WindowEvent<'_>) -> bool {
-        self.egui_winit.on_event(&self.egui_ctx, winit_event)
+        self.egui_winit.on_event(&self.egui_ctx, winit_event).consumed
     }
 
     /// Begins Egui frame & determines what will be drawn later. This must be called before draw, and after `update` (winit event).
