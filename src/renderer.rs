@@ -233,6 +233,8 @@ impl Renderer {
 
         let mut blend = AttachmentBlend::alpha();
         blend.color_source = BlendFactor::One;
+        blend.alpha_source = BlendFactor::OneMinusDstAlpha;
+        blend.alpha_destination = BlendFactor::One;
         let blend_state = ColorBlendState::new(1).blend(blend);
 
         GraphicsPipeline::start()
