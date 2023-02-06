@@ -10,8 +10,7 @@
 #![allow(clippy::eq_op)]
 
 use egui::{ScrollArea, TextEdit, TextStyle};
-use egui_winit_vulkano::Gui;
-use vulkano::image::SampleCount;
+use egui_winit_vulkano::{Gui, GuiConfig};
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
     window::{VulkanoWindows, WindowDescriptor},
@@ -38,14 +37,7 @@ pub fn main() {
     // Create gui as main render pass (no overlay means it clears the image each frame)
     let mut gui = {
         let renderer = windows.get_primary_renderer_mut().unwrap();
-        Gui::new(
-            &event_loop,
-            renderer.surface(),
-            Some(vulkano::format::Format::B8G8R8A8_SRGB),
-            renderer.graphics_queue(),
-            false,
-            SampleCount::Sample1,
-        )
+        Gui::new(&event_loop, renderer.surface(), renderer.graphics_queue(), GuiConfig::default())
     };
     // Create gui state (pass anything your state requires)
     let mut code = CODE.to_owned();

@@ -13,7 +13,7 @@ use std::{convert::TryFrom, sync::Arc};
 
 use bytemuck::{Pod, Zeroable};
 use egui::{epaint::Shadow, style::Margin, vec2, Align, Align2, Color32, Frame, Rounding, Window};
-use egui_winit_vulkano::Gui;
+use egui_winit_vulkano::{Gui, GuiConfig};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
@@ -69,9 +69,12 @@ pub fn main() {
     let mut gui = Gui::new_with_subpass(
         &event_loop,
         windows.get_primary_renderer_mut().unwrap().surface(),
-        Some(vulkano::format::Format::B8G8R8A8_SRGB),
         windows.get_primary_renderer_mut().unwrap().graphics_queue(),
         gui_pipeline.gui_pass(),
+        GuiConfig {
+            preferred_format: Some(vulkano::format::Format::B8G8R8A8_SRGB),
+            ..Default::default()
+        },
     );
 
     // Create gui state (pass anything your state requires)
