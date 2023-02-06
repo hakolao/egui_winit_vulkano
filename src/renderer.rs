@@ -34,12 +34,14 @@ use vulkano::{
     format::{Format, NumericType},
     image::{
         view::ImageView, ImageAccess, ImageLayout, ImageUsage, ImageViewAbstract, ImmutableImage,
+        SampleCount,
     },
     memory::allocator::{MemoryUsage, StandardMemoryAllocator},
     pipeline::{
         graphics::{
             color_blend::{AttachmentBlend, BlendFactor, ColorBlendState},
             input_assembly::InputAssemblyState,
+            multisample::MultisampleState,
             rasterization::{CullMode as CullModeEnum, RasterizationState},
             vertex_input::BuffersDefinition,
             viewport::{Scissor, Viewport, ViewportState},
@@ -94,11 +96,12 @@ impl Renderer {
         gfx_queue: Arc<Queue>,
         final_output_format: Format,
         subpass: Subpass,
+        samples: SampleCount,
     ) -> Renderer {
         let need_srgb_conv = final_output_format.type_color().unwrap() == NumericType::UNORM;
         let allocators = Allocators::new_default(gfx_queue.device());
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
-        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
+        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone(), samples);
         let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
             mag_filter: Filter::Linear,
             min_filter: Filter::Linear,
@@ -131,6 +134,7 @@ impl Renderer {
         gfx_queue: Arc<Queue>,
         final_output_format: Format,
         is_overlay: bool,
+        samples: SampleCount,
     ) -> Renderer {
         // Create Gui render pass with just depth and final color
         let render_pass = if is_overlay {
@@ -140,7 +144,7 @@ impl Renderer {
                         load: Load,
                         store: Store,
                         format: final_output_format,
-                        samples: 1,
+                        samples: samples,
                     }
                 },
                 pass: {
@@ -156,7 +160,7 @@ impl Renderer {
                         load: Clear,
                         store: Store,
                         format: final_output_format,
-                        samples: 1,
+                        samples: samples,
                     }
                 },
                 pass: {
@@ -172,7 +176,7 @@ impl Renderer {
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
-        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
+        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone(), samples);
         let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
             mag_filter: Filter::Linear,
             min_filter: Filter::Linear,
@@ -227,7 +231,11 @@ impl Renderer {
         (vertex_buffer_pool, index_buffer_pool)
     }
 
-    fn create_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
+    fn create_pipeline(
+        gfx_queue: Arc<Queue>,
+        subpass: Subpass,
+        samples: SampleCount,
+    ) -> Arc<GraphicsPipeline> {
         let vs = vs::load(gfx_queue.device().clone()).expect("failed to create shader module");
         let fs = fs::load(gfx_queue.device().clone()).expect("failed to create shader module");
 
@@ -246,6 +254,10 @@ impl Renderer {
             .color_blend_state(blend_state)
             .rasterization_state(RasterizationState::new().cull_mode(CullModeEnum::None))
             .render_pass(subpass)
+            .multisample_state(MultisampleState {
+                rasterization_samples: samples,
+                ..Default::default()
+            })
             .build(gfx_queue.device().clone())
             .unwrap()
     }

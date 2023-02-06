@@ -14,6 +14,7 @@ use egui::{mutex::Mutex, vec2, PaintCallback, PaintCallbackInfo, Rgba, Sense};
 use egui_winit_vulkano::{CallbackContext, CallbackFn, Gui, RenderResources};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
+    image::SampleCount,
     pipeline::{
         graphics::{
             depth_stencil::DepthStencilState, input_assembly::InputAssemblyState,
@@ -54,6 +55,7 @@ pub fn main() {
             Some(vulkano::format::Format::B8G8R8A8_SRGB),
             renderer.graphics_queue(),
             false,
+            SampleCount::Sample1,
         );
 
         let scene = Arc::new(Mutex::new(Scene::new(gui.render_resources())));

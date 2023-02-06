@@ -22,11 +22,12 @@ use vulkano::{
     },
     device::{Device, Queue},
     format::Format,
-    image::ImageAccess,
+    image::{ImageAccess, SampleCount},
     memory::allocator::StandardMemoryAllocator,
     pipeline::{
         graphics::{
             input_assembly::InputAssemblyState,
+            multisample::MultisampleState,
             vertex_input::BuffersDefinition,
             viewport::{Viewport, ViewportState},
         },
@@ -184,7 +185,7 @@ impl SimpleGuiPipeline {
                     load: Clear,
                     store: Store,
                     format: format,
-                    samples: 1,
+                    samples: SampleCount::Sample1,
                 }
             },
             passes: [
@@ -215,6 +216,10 @@ impl SimpleGuiPipeline {
                 .fragment_shader(fs.entry_point("main").unwrap(), ())
                 .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
                 .render_pass(subpass.clone())
+                .multisample_state(MultisampleState {
+                    rasterization_samples: SampleCount::Sample1,
+                    ..Default::default()
+                })
                 .build(device)
                 .unwrap(),
             subpass,

@@ -8,6 +8,7 @@
 // according to those terms.
 
 use egui_winit_vulkano::Gui;
+use vulkano::image::SampleCount;
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
     window::{VulkanoWindows, WindowDescriptor},
@@ -44,6 +45,7 @@ pub fn main() {
             Some(renderer.swapchain_format()),
             renderer.graphics_queue(),
             false,
+            SampleCount::Sample1,
         )
     };
     let mut gui2 = {
@@ -54,6 +56,7 @@ pub fn main() {
             Some(renderer.swapchain_format()),
             renderer.graphics_queue(),
             false,
+            SampleCount::Sample1,
         )
     };
     // Display the demo application that ships with egui.
