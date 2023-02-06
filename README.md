@@ -15,12 +15,11 @@ The aim of this is to allow a simple enough API to separate UI nicely out of you
 2. Create Gui integration with the surface & gfx queue
 
 ```rust
-// Has its own renderpass (is_overlay = false means that the renderpass will clear the image, true means
-// that the caller is responsible for clearing the image
-let mut gui = Gui::new(&event_loop, renderer.surface(), None, renderer.queue(), false);
+// Has its own renderpass. Modify GuiConfig to determine image clear behavior etc.
+let mut gui = Gui::new(&event_loop, renderer.surface(), renderer.queue(), GuiConfig::default());
 // Or with subpass. This means that you must create the renderpass yourself. Egui subpass will then draw on your
 // image.
-let mut gui = Gui::new_with_subpass(&event_loop, renderer.surface(), None, renderer.queue(), subpass);
+let mut gui = Gui::new_with_subpass(&event_loop, renderer.surface(), renderer.queue(), subpass, GuiConfig::default());
 ```
 
 3. Inside your event loop, update `gui` integration with `WindowEvent`
@@ -67,10 +66,7 @@ sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
 # Examples
 
 ```sh
-cargo run --example wholesome
-cargo run --example minimal
-cargo run --example subpass
-cargo run --example demo_app
+./run_all_examples.sh
 ```
 
 # Notes
