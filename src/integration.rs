@@ -55,18 +55,11 @@ pub struct GuiConfig {
     /// Multisample count. Defaults to 1. If you use more than 1, you'll have to ensure your
     /// pipeline and target image matches that.
     pub samples: SampleCount,
-    /// If you use `UNORM` color space for subpass images, set this to true.
-    pub disable_srgb_conversion: bool,
 }
 
 impl Default for GuiConfig {
     fn default() -> Self {
-        GuiConfig {
-            preferred_format: None,
-            is_overlay: false,
-            samples: SampleCount::Sample1,
-            disable_srgb_conversion: false,
-        }
+        GuiConfig { preferred_format: None, is_overlay: false, samples: SampleCount::Sample1 }
     }
 }
 
