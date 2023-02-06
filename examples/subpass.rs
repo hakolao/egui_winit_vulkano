@@ -12,7 +12,7 @@
 use std::{convert::TryFrom, sync::Arc};
 
 use bytemuck::{Pod, Zeroable};
-use egui::{ScrollArea, TextEdit, TextStyle};
+use egui::{epaint::Shadow, style::Margin, vec2, Align, Align2, Color32, Frame, Rounding, Window};
 use egui_winit_vulkano::Gui;
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
@@ -45,9 +45,7 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
 };
 
-fn sized_text(ui: &mut egui::Ui, text: impl Into<String>, size: f32) {
-    ui.label(egui::RichText::new(text).size(size));
-}
+// Render a triangle (scene) and a gui from a subpass on top of it (with some transparent fill)
 
 pub fn main() {
     // Winit event loop
@@ -76,7 +74,6 @@ pub fn main() {
     );
 
     // Create gui state (pass anything your state requires)
-    let mut code = CODE.to_owned();
     event_loop.run(move |event, _, control_flow| {
         let renderer = windows.get_primary_renderer_mut().unwrap();
         match event {
@@ -100,33 +97,29 @@ pub fn main() {
                 // Set immediate UI in redraw here
                 gui.immediate_ui(|gui| {
                     let ctx = gui.context();
-                    egui::CentralPanel::default().show(&ctx, |ui| {
-                        ui.vertical_centered(|ui| {
-                            ui.add(egui::widgets::Label::new("Hi there!"));
-                            sized_text(ui, "Rich Text", 32.0);
+                    Window::new("Transparent Window")
+                        .anchor(Align2([Align::RIGHT, Align::TOP]), vec2(-545.0, 500.0))
+                        .resizable(false)
+                        .default_width(300.0)
+                        .frame(
+                            Frame::none()
+                                .fill(Color32::from_white_alpha(125))
+                                .shadow(Shadow {
+                                    extrusion: 8.0,
+                                    color: Color32::from_black_alpha(125),
+                                })
+                                .rounding(Rounding::same(5.0))
+                                .inner_margin(Margin::same(10.0)),
+                        )
+                        .show(&ctx, |ui| {
+                            ui.colored_label(Color32::BLACK, "Content :)");
                         });
-                        ui.separator();
-                        ui.columns(2, |columns| {
-                            ScrollArea::vertical().id_source("source").show(
-                                &mut columns[0],
-                                |ui| {
-                                    ui.add(
-                                        TextEdit::multiline(&mut code).font(TextStyle::Monospace),
-                                    );
-                                },
-                            );
-                            ScrollArea::vertical().id_source("rendered").show(
-                                &mut columns[1],
-                                |ui| {
-                                    egui_demo_lib::easy_mark::easy_mark(ui, &code);
-                                },
-                            );
-                        });
-                    });
                 });
-                // Render UI
+                // Render
                 // Acquire swapchain future
                 let before_future = renderer.acquire().unwrap();
+                // Render scene
+
                 // Render gui
                 let after_future =
                     gui_pipeline.render(before_future, renderer.swapchain_image_view(), &mut gui);
@@ -140,15 +133,6 @@ pub fn main() {
         }
     });
 }
-
-const CODE: &str = r#"
-# Some markup
-```
-let mut gui = Gui::new(&event_loop, renderer.surface(), renderer.queue());
-```
-
-Vulkan(o) is hard, that I know...
-"#;
 
 struct SimpleGuiPipeline {
     queue: Arc<Queue>,
@@ -261,7 +245,7 @@ impl SimpleGuiPipeline {
         builder
             .begin_render_pass(
                 RenderPassBeginInfo {
-                    clear_values: vec![Some([0.0, 1.0, 0.0, 1.0].into())],
+                    clear_values: vec![Some([0.0, 0.0, 0.0, 1.0].into())],
                     ..RenderPassBeginInfo::framebuffer(framebuffer)
                 },
                 SubpassContents::SecondaryCommandBuffers,
