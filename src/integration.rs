@@ -88,12 +88,8 @@ impl Gui {
         let format = get_surface_image_format(&surface, config.preferred_format, &gfx_queue);
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
-        let renderer = Renderer::new_with_render_pass(
-            gfx_queue,
-            format,
-            config.is_overlay,
-            config.samples,
-        );
+        let renderer =
+            Renderer::new_with_render_pass(gfx_queue, format, config.is_overlay, config.samples);
         let mut egui_winit = egui_winit::State::new(event_loop);
         egui_winit.set_max_texture_side(max_texture_side);
         egui_winit.set_pixels_per_point(surface_window(&surface).scale_factor() as f32);
@@ -119,8 +115,7 @@ impl Gui {
         let format = get_surface_image_format(&surface, config.preferred_format, &gfx_queue);
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
-        let renderer =
-            Renderer::new_with_subpass(gfx_queue, format, subpass, config.samples);
+        let renderer = Renderer::new_with_subpass(gfx_queue, format, subpass, config.samples);
         let mut egui_winit = egui_winit::State::new(event_loop);
         egui_winit.set_max_texture_side(max_texture_side);
         egui_winit.set_pixels_per_point(surface_window(&surface).scale_factor() as f32);
