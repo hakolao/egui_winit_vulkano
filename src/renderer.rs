@@ -96,12 +96,11 @@ impl Renderer {
         gfx_queue: Arc<Queue>,
         final_output_format: Format,
         subpass: Subpass,
-        samples: SampleCount,
     ) -> Renderer {
         let need_srgb_conv = final_output_format.type_color().unwrap() == NumericType::UNORM;
         let allocators = Allocators::new_default(gfx_queue.device());
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
-        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone(), samples);
+        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
         let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
             mag_filter: Filter::Linear,
             min_filter: Filter::Linear,
@@ -176,7 +175,7 @@ impl Renderer {
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
-        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone(), samples);
+        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
         let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
             mag_filter: Filter::Linear,
             min_filter: Filter::Linear,
@@ -231,11 +230,7 @@ impl Renderer {
         (vertex_buffer_pool, index_buffer_pool)
     }
 
-    fn create_pipeline(
-        gfx_queue: Arc<Queue>,
-        subpass: Subpass,
-        samples: SampleCount,
-    ) -> Arc<GraphicsPipeline> {
+    fn create_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
         let vs = vs::load(gfx_queue.device().clone()).expect("failed to create shader module");
         let fs = fs::load(gfx_queue.device().clone()).expect("failed to create shader module");
 
@@ -253,11 +248,11 @@ impl Renderer {
             .viewport_state(ViewportState::viewport_dynamic_scissor_dynamic(1))
             .color_blend_state(blend_state)
             .rasterization_state(RasterizationState::new().cull_mode(CullModeEnum::None))
-            .render_pass(subpass)
             .multisample_state(MultisampleState {
-                rasterization_samples: samples,
+                rasterization_samples: subpass.num_samples().unwrap_or(SampleCount::Sample1),
                 ..Default::default()
             })
+            .render_pass(subpass)
             .build(gfx_queue.device().clone())
             .unwrap()
     }
