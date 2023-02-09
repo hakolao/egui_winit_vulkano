@@ -34,12 +34,14 @@ use vulkano::{
     format::{Format, NumericType},
     image::{
         view::ImageView, ImageAccess, ImageLayout, ImageUsage, ImageViewAbstract, ImmutableImage,
+        SampleCount,
     },
     memory::allocator::{MemoryUsage, StandardMemoryAllocator},
     pipeline::{
         graphics::{
             color_blend::{AttachmentBlend, BlendFactor, ColorBlendState},
             input_assembly::InputAssemblyState,
+            multisample::MultisampleState,
             rasterization::{CullMode as CullModeEnum, RasterizationState},
             vertex_input::BuffersDefinition,
             viewport::{Scissor, Viewport, ViewportState},
@@ -131,6 +133,7 @@ impl Renderer {
         gfx_queue: Arc<Queue>,
         final_output_format: Format,
         is_overlay: bool,
+        samples: SampleCount,
     ) -> Renderer {
         // Create Gui render pass with just depth and final color
         let render_pass = if is_overlay {
@@ -140,7 +143,7 @@ impl Renderer {
                         load: Load,
                         store: Store,
                         format: final_output_format,
-                        samples: 1,
+                        samples: samples,
                     }
                 },
                 pass: {
@@ -156,7 +159,7 @@ impl Renderer {
                         load: Clear,
                         store: Store,
                         format: final_output_format,
-                        samples: 1,
+                        samples: samples,
                     }
                 },
                 pass: {
@@ -233,6 +236,8 @@ impl Renderer {
 
         let mut blend = AttachmentBlend::alpha();
         blend.color_source = BlendFactor::One;
+        blend.alpha_source = BlendFactor::OneMinusDstAlpha;
+        blend.alpha_destination = BlendFactor::One;
         let blend_state = ColorBlendState::new(1).blend(blend);
 
         GraphicsPipeline::start()
@@ -243,6 +248,10 @@ impl Renderer {
             .viewport_state(ViewportState::viewport_dynamic_scissor_dynamic(1))
             .color_blend_state(blend_state)
             .rasterization_state(RasterizationState::new().cull_mode(CullModeEnum::None))
+            .multisample_state(MultisampleState {
+                rasterization_samples: subpass.num_samples().unwrap_or(SampleCount::Sample1),
+                ..Default::default()
+            })
             .render_pass(subpass)
             .build(gfx_queue.device().clone())
             .unwrap()

@@ -7,7 +7,7 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use egui_winit_vulkano::Gui;
+use egui_winit_vulkano::{Gui, GuiConfig};
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
     window::{VulkanoWindows, WindowDescriptor},
@@ -38,23 +38,17 @@ pub fn main() {
     // Create gui as main render pass (no overlay means it clears the image each frame)
     let mut gui1 = {
         let renderer = windows.get_renderer_mut(window1).unwrap();
-        Gui::new(
-            &event_loop,
-            renderer.surface(),
-            Some(renderer.swapchain_format()),
-            renderer.graphics_queue(),
-            false,
-        )
+        Gui::new(&event_loop, renderer.surface(), renderer.graphics_queue(), GuiConfig {
+            preferred_format: Some(renderer.swapchain_format()),
+            ..Default::default()
+        })
     };
     let mut gui2 = {
         let renderer = windows.get_renderer_mut(window2).unwrap();
-        Gui::new(
-            &event_loop,
-            renderer.surface(),
-            Some(renderer.swapchain_format()),
-            renderer.graphics_queue(),
-            false,
-        )
+        Gui::new(&event_loop, renderer.surface(), renderer.graphics_queue(), GuiConfig {
+            preferred_format: Some(renderer.swapchain_format()),
+            ..Default::default()
+        })
     };
     // Display the demo application that ships with egui.
     let mut demo_app1 = egui_demo_lib::DemoWindows::default();

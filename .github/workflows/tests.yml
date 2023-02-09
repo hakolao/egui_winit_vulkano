@@ -19,11 +19,13 @@ jobs:
         with:
           toolchain: nightly
           override: true
-
+      - name: Rust Lint Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "${{ runner.os }}-rust-lint"
       - run: rustup component add rustfmt
       - name: check rustfmt
         run: cargo fmt -- --check --color always
-
       - run: rustup component add clippy
       - run: cargo fetch
       - name: cargo clippy
@@ -35,6 +37,10 @@ jobs:
       - name: Ninja Install
         run: pip install ninja
       - uses: actions/checkout@v3
+      - name: Rust Windows Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "${{ runner.os }}-rust-windows"
       - name: Build
         run: cargo build --verbose
       - name: Run tests
@@ -43,6 +49,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Rust Linux Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "${{ runner.os }}-rust-linux"
       - name: Build
         run: cargo build --verbose
       - name: Run tests
@@ -51,6 +61,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Rust Macos Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "${{ runner.os }}-rust-macos"
       - name: Build
         run: cargo build --verbose
       - name: Run tests

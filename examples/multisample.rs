@@ -22,7 +22,9 @@ use vulkano::{
     },
     device::{Device, Queue},
     format::Format,
-    image::{ImageAccess, SampleCount},
+    image::{
+        view::ImageView, AttachmentImage, ImageAccess, ImageUsage, ImageViewAbstract, SampleCount,
+    },
     memory::allocator::StandardMemoryAllocator,
     pipeline::{
         graphics::{
@@ -46,8 +48,6 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
 };
 
-// Render a triangle (scene) and a gui from a subpass on top of it (with some transparent fill)
-
 pub fn main() {
     // Winit event loop
     let event_loop = EventLoop::new();
@@ -56,22 +56,30 @@ pub fn main() {
     // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
     windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
-        ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB)
+        ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB);
+        ci.image_usage = ImageUsage {
+            // Necessary for the pipeline's resolve
+            transfer_dst: true,
+            ..ci.image_usage
+        };
     });
     // Create out gui pipeline
-    let mut gui_pipeline = SimpleGuiPipeline::new(
+    let mut pipeline = MSAAPipeline::new(
         context.graphics_queue().clone(),
         windows.get_primary_renderer_mut().unwrap().swapchain_format(),
         context.memory_allocator(),
+        SampleCount::Sample4,
     );
     // Create gui subpass
     let mut gui = Gui::new_with_subpass(
         &event_loop,
         windows.get_primary_renderer_mut().unwrap().surface(),
         windows.get_primary_renderer_mut().unwrap().graphics_queue(),
-        gui_pipeline.gui_pass(),
+        pipeline.gui_pass(),
         GuiConfig {
             preferred_format: Some(vulkano::format::Format::B8G8R8A8_SRGB),
+            // Must match your pipeline's sample count
+            samples: SampleCount::Sample4,
             ..Default::default()
         },
     );
@@ -121,11 +129,9 @@ pub fn main() {
                 // Render
                 // Acquire swapchain future
                 let before_future = renderer.acquire().unwrap();
-                // Render scene
-
-                // Render gui
+                // Render
                 let after_future =
-                    gui_pipeline.render(before_future, renderer.swapchain_image_view(), &mut gui);
+                    pipeline.render(before_future, renderer.swapchain_image_view(), &mut gui);
                 // Present swapchain
                 renderer.present(after_future, true);
             }
@@ -137,22 +143,26 @@ pub fn main() {
     });
 }
 
-struct SimpleGuiPipeline {
+struct MSAAPipeline {
+    allocator: Arc<StandardMemoryAllocator>,
     queue: Arc<Queue>,
     render_pass: Arc<RenderPass>,
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
+    intermediary: Arc<ImageView<AttachmentImage>>,
     vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
     command_buffer_allocator: StandardCommandBufferAllocator,
 }
 
-impl SimpleGuiPipeline {
+impl MSAAPipeline {
     pub fn new(
         queue: Arc<Queue>,
         image_format: vulkano::format::Format,
-        allocator: &StandardMemoryAllocator,
+        allocator: &Arc<StandardMemoryAllocator>,
+        sample_count: SampleCount,
     ) -> Self {
-        let render_pass = Self::create_render_pass(queue.device().clone(), image_format);
+        let render_pass =
+            Self::create_render_pass(queue.device().clone(), image_format, sample_count);
         let (pipeline, subpass) =
             Self::create_pipeline(queue.device().clone(), render_pass.clone());
 
@@ -176,30 +186,58 @@ impl SimpleGuiPipeline {
         let command_buffer_allocator =
             StandardCommandBufferAllocator::new(queue.device().clone(), Default::default());
 
-        Self { queue, render_pass, pipeline, subpass, vertex_buffer, command_buffer_allocator }
+        let intermediary = ImageView::new_default(
+            AttachmentImage::transient_multisampled(allocator, [1, 1], sample_count, image_format)
+                .unwrap(),
+        )
+        .unwrap();
+
+        Self {
+            allocator: allocator.clone(),
+            queue,
+            render_pass,
+            pipeline,
+            subpass,
+            intermediary,
+            vertex_buffer,
+            command_buffer_allocator,
+        }
     }
 
-    fn create_render_pass(device: Arc<Device>, format: Format) -> Arc<RenderPass> {
-        vulkano::ordered_passes_renderpass!(
+    fn create_render_pass(
+        device: Arc<Device>,
+        format: Format,
+        samples: SampleCount,
+    ) -> Arc<RenderPass> {
+        vulkano::single_pass_renderpass!(
             device,
             attachments: {
-                color: {
+                // The first framebuffer attachment is the intermediary image.
+                intermediary: {
                     load: Clear,
+                    store: DontCare,
+                    format: format,
+                    samples: samples,
+                },
+                // The second framebuffer attachment is the final image.
+                color: {
+                    load: DontCare,
                     store: Store,
                     format: format,
-                    samples: SampleCount::Sample1,
+                    samples: 1,
                 }
             },
-            passes: [
-                { color: [color], depth_stencil: {}, input: [] }, // Draw what you want on this pass
-                { color: [color], depth_stencil: {}, input: [] } // Gui render pass
-            ]
+            pass: {
+                color: [intermediary],
+                depth_stencil: {},
+                resolve: [color],
+            }
         )
         .unwrap()
     }
 
     fn gui_pass(&self) -> Subpass {
-        Subpass::from(self.render_pass.clone(), 1).unwrap()
+        self.subpass.clone()
     }
 
     fn create_pipeline(
@@ -219,7 +257,7 @@ impl SimpleGuiPipeline {
                 .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
                 .render_pass(subpass.clone())
                 .multisample_state(MultisampleState {
-                    rasterization_samples: SampleCount::Sample1,
+                    rasterization_samples: subpass.num_samples().unwrap(),
                     ..Default::default()
                 })
                 .build(device)
@@ -242,8 +280,22 @@ impl SimpleGuiPipeline {
         .unwrap();
 
         let dimensions = image.image().dimensions().width_height();
+        // Resize intermediary image
+        if dimensions != self.intermediary.dimensions().width_height() {
+            self.intermediary = ImageView::new_default(
+                AttachmentImage::transient_multisampled(
+                    &self.allocator,
+                    dimensions,
+                    self.subpass.num_samples().unwrap(),
+                    image.image().format(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        }
+
         let framebuffer = Framebuffer::new(self.render_pass.clone(), FramebufferCreateInfo {
-            attachments: vec![image],
+            attachments: vec![self.intermediary.clone(), image],
             ..Default::default()
         })
         .unwrap();
@@ -252,7 +304,10 @@ impl SimpleGuiPipeline {
         builder
             .begin_render_pass(
                 RenderPassBeginInfo {
-                    clear_values: vec![Some([0.0, 0.0, 0.0, 1.0].into())],
+                    clear_values: vec![
+                        Some([0.0, 0.0, 0.0, 1.0].into()),
+                        Some([0.0, 0.0, 0.0, 1.0].into()),
+                    ],
                     ..RenderPassBeginInfo::framebuffer(framebuffer)
                 },
                 SubpassContents::SecondaryCommandBuffers,
@@ -283,8 +338,6 @@ impl SimpleGuiPipeline {
         let cb = secondary_builder.build().unwrap();
         builder.execute_commands(cb).unwrap();
 
-        // Move on to next subpass for gui
-        builder.next_subpass(SubpassContents::SecondaryCommandBuffers).unwrap();
         // Draw gui on subpass
         let cb = gui.draw_on_subpass_image(dimensions);
         builder.execute_commands(cb).unwrap();

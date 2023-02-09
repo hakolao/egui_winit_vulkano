@@ -14,7 +14,7 @@ use vulkano::{
     command_buffer::SecondaryAutoCommandBuffer,
     device::Queue,
     format::{Format, NumericType},
-    image::ImageViewAbstract,
+    image::{ImageViewAbstract, SampleCount},
     render_pass::Subpass,
     swapchain::Surface,
     sync::GpuFuture,
@@ -44,6 +44,25 @@ fn get_surface_image_format(
     })
 }
 
+pub struct GuiConfig {
+    /// Preferred target image format. This should match the surface format. Sometimes the user
+    /// may prefer linear color space rather than non linear. Hence the option. SRGB is selected by
+    /// default.
+    pub preferred_format: Option<Format>,
+    /// Whether to render gui as overlay. Only relevant in the case of `Gui::new`, not when using
+    /// subpass. Determines whether the pipeline should clear the target image.
+    pub is_overlay: bool,
+    /// Multisample count. Defaults to 1. If you use more than 1, you'll have to ensure your
+    /// pipeline and target image matches that.
+    pub samples: SampleCount,
+}
+
+impl Default for GuiConfig {
+    fn default() -> Self {
+        GuiConfig { preferred_format: None, is_overlay: false, samples: SampleCount::Sample1 }
+    }
+}
+
 pub struct Gui {
     pub egui_ctx: egui::Context,
     pub egui_winit: egui_winit::State,
@@ -59,23 +78,18 @@ impl Gui {
     /// This is to be called once we have access to vulkano_win's winit window surface
     /// and gfx queue. Created with this, the renderer will own a render pass which is useful to e.g. place your render pass' images
     /// onto egui windows
-    /// - `surface`: Vulkano's Winit-compatible Surface [`Arc<Surface>`]
-    /// - `preferred_format`: If target surface was created with custom format, it has to be
-    /// provided here. If the surface uses default format, use None
-    /// - `gfx_queue`: Vulkano's [`Queue`]
-    /// - `is_overlay`: If true, you should be responsible for clearing the image before `draw_on_image`, else it gets cleared
     pub fn new<T>(
         event_loop: &EventLoopWindowTarget<T>,
         surface: Arc<Surface>,
-        preferred_format: Option<Format>,
         gfx_queue: Arc<Queue>,
-        is_overlay: bool,
+        config: GuiConfig,
     ) -> Gui {
         // Pick preferred format if provided, otherwise use the default one
-        let format = get_surface_image_format(&surface, preferred_format, &gfx_queue);
+        let format = get_surface_image_format(&surface, config.preferred_format, &gfx_queue);
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
-        let renderer = Renderer::new_with_render_pass(gfx_queue, format, is_overlay);
+        let renderer =
+            Renderer::new_with_render_pass(gfx_queue, format, config.is_overlay, config.samples);
         let mut egui_winit = egui_winit::State::new(event_loop);
         egui_winit.set_max_texture_side(max_texture_side);
         egui_winit.set_pixels_per_point(surface_window(&surface).scale_factor() as f32);
@@ -93,12 +107,12 @@ impl Gui {
     pub fn new_with_subpass<T>(
         event_loop: &EventLoopWindowTarget<T>,
         surface: Arc<Surface>,
-        preferred_format: Option<Format>,
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
+        config: GuiConfig,
     ) -> Gui {
         // Pick preferred format if provided, otherwise use the default one
-        let format = get_surface_image_format(&surface, preferred_format, &gfx_queue);
+        let format = get_surface_image_format(&surface, config.preferred_format, &gfx_queue);
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
         let renderer = Renderer::new_with_subpass(gfx_queue, format, subpass);

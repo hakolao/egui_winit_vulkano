@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use egui::{Context, Visuals};
-use egui_winit_vulkano::Gui;
+use egui_winit_vulkano::{Gui, GuiConfig};
 use vulkano::{
     command_buffer::allocator::StandardCommandBufferAllocator,
     format::Format,
@@ -130,7 +130,7 @@ pub fn main() {
     // Create gui as main render pass (no overlay means it clears the image each frame)
     let mut gui = {
         let renderer = windows.get_primary_renderer_mut().unwrap();
-        Gui::new(&event_loop, renderer.surface(), None, renderer.graphics_queue(), false)
+        Gui::new(&event_loop, renderer.surface(), renderer.graphics_queue(), GuiConfig::default())
     };
     // Create a simple image to which we'll draw the triangle scene
     let scene_image = StorageImage::general_purpose_image_view(
