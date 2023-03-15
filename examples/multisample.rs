@@ -13,7 +13,7 @@ use std::{convert::TryFrom, sync::Arc};
 
 use bytemuck::{Pod, Zeroable};
 use egui::{epaint::Shadow, style::Margin, vec2, Align, Align2, Color32, Frame, Rounding, Window};
-use egui_winit_vulkano::{Gui, GuiConfig};
+use egui_winit_vulkano::{Allocators, Gui, GuiConfig};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
@@ -75,6 +75,7 @@ pub fn main() {
         &event_loop,
         windows.get_primary_renderer_mut().unwrap().surface(),
         windows.get_primary_renderer_mut().unwrap().graphics_queue(),
+        Allocators::new_default(context.device()),
         pipeline.gui_pass(),
         GuiConfig {
             preferred_format: Some(vulkano::format::Format::B8G8R8A8_SRGB),

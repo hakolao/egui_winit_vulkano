@@ -11,7 +11,9 @@ use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 use egui::{mutex::Mutex, vec2, PaintCallback, PaintCallbackInfo, Rgba, Sense};
-use egui_winit_vulkano::{CallbackContext, CallbackFn, Gui, GuiConfig, RenderResources};
+use egui_winit_vulkano::{
+    Allocators, CallbackContext, CallbackFn, Gui, GuiConfig, RenderResources,
+};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     pipeline::{
@@ -48,10 +50,16 @@ pub fn main() {
     let (mut gui, scene) = {
         let renderer = windows.get_primary_renderer_mut().unwrap();
 
-        let gui = Gui::new(&event_loop, renderer.surface(), renderer.graphics_queue(), GuiConfig {
-            preferred_format: Some(vulkano::format::Format::B8G8R8A8_SRGB),
-            ..Default::default()
-        });
+        let gui = Gui::new(
+            &event_loop,
+            renderer.surface(),
+            renderer.graphics_queue(),
+            Allocators::new_default(context.device()),
+            GuiConfig {
+                preferred_format: Some(vulkano::format::Format::B8G8R8A8_SRGB),
+                ..Default::default()
+            },
+        );
 
         let scene = Arc::new(Mutex::new(Scene::new(gui.render_resources())));
 

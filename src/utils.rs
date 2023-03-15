@@ -80,18 +80,22 @@ pub fn immutable_texture_from_file(
     immutable_texture_from_bytes(allocators, queue, &rgba, [dimensions.0, dimensions.1], format)
 }
 
+#[derive(Clone)]
 pub struct Allocators {
     pub memory: Arc<StandardMemoryAllocator>,
-    pub descriptor_set: StandardDescriptorSetAllocator,
-    pub command_buffer: StandardCommandBufferAllocator,
+    pub descriptor_set: Arc<StandardDescriptorSetAllocator>,
+    pub command_buffer: Arc<StandardCommandBufferAllocator>,
 }
 
 impl Allocators {
     pub fn new_default(device: &Arc<Device>) -> Self {
         Self {
             memory: Arc::new(StandardMemoryAllocator::new_default(device.clone())),
-            descriptor_set: StandardDescriptorSetAllocator::new(device.clone()),
-            command_buffer: StandardCommandBufferAllocator::new(device.clone(), Default::default()),
+            descriptor_set: Arc::new(StandardDescriptorSetAllocator::new(device.clone())),
+            command_buffer: Arc::new(StandardCommandBufferAllocator::new(
+                device.clone(),
+                Default::default(),
+            )),
         }
     }
 }

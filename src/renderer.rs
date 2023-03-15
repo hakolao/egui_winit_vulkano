@@ -94,11 +94,11 @@ pub struct Renderer {
 impl Renderer {
     pub fn new_with_subpass(
         gfx_queue: Arc<Queue>,
+        allocators: Allocators,
         final_output_format: Format,
         subpass: Subpass,
     ) -> Renderer {
         let need_srgb_conv = final_output_format.type_color().unwrap() == NumericType::UNORM;
-        let allocators = Allocators::new_default(gfx_queue.device());
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
         let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
@@ -131,6 +131,7 @@ impl Renderer {
     /// See examples
     pub fn new_with_render_pass(
         gfx_queue: Arc<Queue>,
+        allocators: Allocators,
         final_output_format: Format,
         is_overlay: bool,
         samples: SampleCount,
@@ -171,7 +172,6 @@ impl Renderer {
         };
 
         let need_srgb_conv = final_output_format.type_color().unwrap() == NumericType::UNORM;
-        let allocators = Allocators::new_default(gfx_queue.device());
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
@@ -440,7 +440,7 @@ impl Renderer {
         &self,
     ) -> AutoCommandBufferBuilder<SecondaryAutoCommandBuffer> {
         AutoCommandBufferBuilder::secondary(
-            &self.allocators.command_buffer,
+            &*self.allocators.command_buffer,
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
             CommandBufferInheritanceInfo {
@@ -471,7 +471,7 @@ impl Renderer {
         )
         .unwrap();
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-            &self.allocators.command_buffer,
+            &*self.allocators.command_buffer,
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )

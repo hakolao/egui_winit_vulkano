@@ -24,6 +24,7 @@ use winit::window::Window;
 use crate::{
     renderer::{RenderResources, Renderer},
     utils::{immutable_texture_from_bytes, immutable_texture_from_file},
+    Allocators,
 };
 
 fn get_surface_image_format(
@@ -82,14 +83,20 @@ impl Gui {
         event_loop: &EventLoopWindowTarget<T>,
         surface: Arc<Surface>,
         gfx_queue: Arc<Queue>,
+        allocators: Allocators,
         config: GuiConfig,
     ) -> Gui {
         // Pick preferred format if provided, otherwise use the default one
         let format = get_surface_image_format(&surface, config.preferred_format, &gfx_queue);
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
-        let renderer =
-            Renderer::new_with_render_pass(gfx_queue, format, config.is_overlay, config.samples);
+        let renderer = Renderer::new_with_render_pass(
+            gfx_queue,
+            allocators,
+            format,
+            config.is_overlay,
+            config.samples,
+        );
         let mut egui_winit = egui_winit::State::new(event_loop);
         egui_winit.set_max_texture_side(max_texture_side);
         egui_winit.set_pixels_per_point(surface_window(&surface).scale_factor() as f32);
@@ -108,6 +115,7 @@ impl Gui {
         event_loop: &EventLoopWindowTarget<T>,
         surface: Arc<Surface>,
         gfx_queue: Arc<Queue>,
+        allocators: Allocators,
         subpass: Subpass,
         config: GuiConfig,
     ) -> Gui {
@@ -115,7 +123,7 @@ impl Gui {
         let format = get_surface_image_format(&surface, config.preferred_format, &gfx_queue);
         let max_texture_side =
             gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
-        let renderer = Renderer::new_with_subpass(gfx_queue, format, subpass);
+        let renderer = Renderer::new_with_subpass(gfx_queue, allocators, format, subpass);
         let mut egui_winit = egui_winit::State::new(event_loop);
         egui_winit.set_max_texture_side(max_texture_side);
         egui_winit.set_pixels_per_point(surface_window(&surface).scale_factor() as f32);
