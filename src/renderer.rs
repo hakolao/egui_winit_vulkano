@@ -289,52 +289,7 @@ impl Renderer {
         self.texture_images.remove(&texture_id);
     }
 
-    fn update_texture(&mut self, texture_id: egui::TextureId, delta: &egui::epaint::ImageDelta) {
-        // Extract pixel data from egui
-        let data: Vec<u8> = match &delta.image {
-            egui::ImageData::Color(image) => {
-                assert_eq!(
-                    image.width() * image.height(),
-                    image.pixels.len(),
-                    "Mismatch between texture size and texel count"
-                );
-                image.pixels.iter().flat_map(|color| color.to_array()).collect()
-            }
-            egui::ImageData::Font(image) => {
-                image.srgba_pixels(None).flat_map(|color| color.to_array()).collect()
-            }
-        };
-        // Create buffer to be copied to the image
-        let texture_data_buffer = CpuAccessibleBuffer::from_iter(
-            &self.allocators.memory,
-            BufferUsage { transfer_src: true, ..BufferUsage::empty() },
-            false,
-            data,
-        )
-        .unwrap();
-        // Create image
-        let (img, init) = ImmutableImage::uninitialized(
-            &self.allocators.memory,
-            vulkano::image::ImageDimensions::Dim2d {
-                width: delta.image.width() as u32,
-                height: delta.image.height() as u32,
-                array_layers: 1,
-            },
-            Format::R8G8B8A8_SRGB,
-            vulkano::image::MipmapsCount::One,
-            ImageUsage {
-                transfer_dst: true,
-                transfer_src: true,
-                sampled: true,
-                ..ImageUsage::empty()
-            },
-            Default::default(),
-            ImageLayout::ShaderReadOnlyOptimal,
-            Some(self.gfx_queue.queue_family_index()),
-        )
-        .unwrap();
-        let font_image = ImageView::new_default(img).unwrap();
-
+    fn update_textures(&mut self, set: &[(egui::TextureId, egui::epaint::ImageDelta)]) {
         // Create command buffer builder
         let mut cbb = AutoCommandBufferBuilder::primary(
             &self.allocators.command_buffer,
@@ -343,41 +298,92 @@ impl Renderer {
         )
         .unwrap();
 
-        // Copy buffer to image
-        cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(texture_data_buffer, init))
+        for (texture_id, delta) in set {
+            // Extract pixel data from egui
+            let data: Vec<u8> = match &delta.image {
+                egui::ImageData::Color(image) => {
+                    assert_eq!(
+                        image.width() * image.height(),
+                        image.pixels.len(),
+                        "Mismatch between texture size and texel count"
+                    );
+                    image.pixels.iter().flat_map(|color| color.to_array()).collect()
+                }
+                egui::ImageData::Font(image) => {
+                    image.srgba_pixels(None).flat_map(|color| color.to_array()).collect()
+                }
+            };
+            // Create buffer to be copied to the image
+            let texture_data_buffer = CpuAccessibleBuffer::from_iter(
+                &self.allocators.memory,
+                BufferUsage { transfer_src: true, ..BufferUsage::empty() },
+                false,
+                data,
+            )
+            .unwrap();
+            // Create image
+            let (img, init) = ImmutableImage::uninitialized(
+                &self.allocators.memory,
+                vulkano::image::ImageDimensions::Dim2d {
+                    width: delta.image.width() as u32,
+                    height: delta.image.height() as u32,
+                    array_layers: 1,
+                },
+                Format::R8G8B8A8_SRGB,
+                vulkano::image::MipmapsCount::One,
+                ImageUsage {
+                    transfer_dst: true,
+                    transfer_src: true,
+                    sampled: true,
+                    ..ImageUsage::empty()
+                },
+                Default::default(),
+                ImageLayout::ShaderReadOnlyOptimal,
+                Some(self.gfx_queue.queue_family_index()),
+            )
+            .unwrap();
+            let font_image = ImageView::new_default(img).unwrap();
+
+            // Copy buffer to image
+            cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+                texture_data_buffer,
+                init,
+            ))
             .unwrap();
 
-        // Blit texture data to existing image if delta pos exists (e.g. font changed)
-        if let Some(pos) = delta.pos {
-            if let Some(existing_image) = self.texture_images.get(&texture_id) {
-                let src_dims = font_image.image().dimensions();
-                let top_left = [pos[0] as u32, pos[1] as u32, 0];
-                let bottom_right =
-                    [pos[0] as u32 + src_dims.width(), pos[1] as u32 + src_dims.height(), 1];
+            // Blit texture data to existing image if delta pos exists (e.g. font changed)
+            if let Some(pos) = delta.pos {
+                if let Some(existing_image) = self.texture_images.get(&texture_id) {
+                    let src_dims = font_image.image().dimensions();
+                    let top_left = [pos[0] as u32, pos[1] as u32, 0];
+                    let bottom_right =
+                        [pos[0] as u32 + src_dims.width(), pos[1] as u32 + src_dims.height(), 1];
 
-                cbb.blit_image(BlitImageInfo {
-                    src_image_layout: ImageLayout::General,
-                    dst_image_layout: ImageLayout::General,
-                    regions: [ImageBlit {
-                        src_subresource: font_image.image().subresource_layers(),
-                        src_offsets: [[0, 0, 0], [src_dims.width(), src_dims.height(), 1]],
-                        dst_subresource: existing_image.image().subresource_layers(),
-                        dst_offsets: [top_left, bottom_right],
-                        ..Default::default()
-                    }]
-                    .into(),
-                    filter: Filter::Nearest,
-                    ..BlitImageInfo::images(font_image.image().clone(), existing_image.image())
-                })
-                .unwrap();
+                    cbb.blit_image(BlitImageInfo {
+                        src_image_layout: ImageLayout::General,
+                        dst_image_layout: ImageLayout::General,
+                        regions: [ImageBlit {
+                            src_subresource: font_image.image().subresource_layers(),
+                            src_offsets: [[0, 0, 0], [src_dims.width(), src_dims.height(), 1]],
+                            dst_subresource: existing_image.image().subresource_layers(),
+                            dst_offsets: [top_left, bottom_right],
+                            ..Default::default()
+                        }]
+                        .into(),
+                        filter: Filter::Nearest,
+                        ..BlitImageInfo::images(font_image.image().clone(), existing_image.image())
+                    })
+                    .unwrap();
+                }
+                // Otherwise save the newly created image
+            } else {
+                let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
+                let font_desc_set = self.sampled_image_desc_set(layout, font_image.clone());
+                self.texture_desc_sets.insert(*texture_id, font_desc_set);
+                self.texture_images.insert(*texture_id, font_image);
             }
-            // Otherwise save the newly created image
-        } else {
-            let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
-            let font_desc_set = self.sampled_image_desc_set(layout, font_image.clone());
-            self.texture_desc_sets.insert(texture_id, font_desc_set);
-            self.texture_images.insert(texture_id, font_image);
         }
+
         // Execute command buffer
         let command_buffer = cbb.build().unwrap();
         let finished = command_buffer.execute(self.gfx_queue.clone()).unwrap();
@@ -501,9 +507,7 @@ impl Renderer {
     where
         F: GpuFuture + 'static,
     {
-        for (id, image_delta) in &textures_delta.set {
-            self.update_texture(*id, image_delta);
-        }
+        self.update_textures(&textures_delta.set);
 
         let (mut command_buffer_builder, framebuffer_dimensions) = self.start(final_image);
         let mut builder = self.create_secondary_command_buffer_builder();
@@ -545,9 +549,7 @@ impl Renderer {
         scale_factor: f32,
         framebuffer_dimensions: [u32; 2],
     ) -> SecondaryAutoCommandBuffer {
-        for (id, image_delta) in &textures_delta.set {
-            self.update_texture(*id, image_delta);
-        }
+        self.update_textures(&textures_delta.set);
         let mut builder = self.create_secondary_command_buffer_builder();
         self.draw_egui(scale_factor, clipped_meshes, framebuffer_dimensions, &mut builder);
         let buffer = builder.build().unwrap();
