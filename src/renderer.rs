@@ -22,9 +22,8 @@ use vulkano::{
     },
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, BlitImageInfo,
-        CommandBufferInheritanceInfo, CommandBufferUsage, CopyBufferToImageInfo, ImageBlit,
-        PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, RenderPassBeginInfo,
-        SecondaryAutoCommandBuffer, SubpassContents,
+        CommandBufferUsage, CopyBufferToImageInfo, ImageBlit, PrimaryAutoCommandBuffer,
+        PrimaryCommandBufferAbstract, RenderPassBeginInfo, SubpassContents,
     },
     descriptor_set::{
         allocator::StandardDescriptorSetAllocator, layout::DescriptorSetLayout,
@@ -442,21 +441,6 @@ impl Renderer {
         (vertex_chunk, index_chunk)
     }
 
-    fn create_secondary_command_buffer_builder(
-        &self,
-    ) -> AutoCommandBufferBuilder<SecondaryAutoCommandBuffer> {
-        AutoCommandBufferBuilder::secondary(
-            &*self.allocators.command_buffer,
-            self.gfx_queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
-            CommandBufferInheritanceInfo {
-                render_pass: Some(self.subpass.clone().into()),
-                ..Default::default()
-            },
-        )
-        .unwrap()
-    }
-
     // Starts the rendering pipeline and returns [`AutoCommandBufferBuilder`] for drawing
     fn start(
         &mut self,
@@ -489,7 +473,7 @@ impl Renderer {
                     clear_values: vec![if !self.is_overlay { Some([0.0; 4].into()) } else { None }],
                     ..RenderPassBeginInfo::framebuffer(framebuffer)
                 },
-                SubpassContents::SecondaryCommandBuffers,
+                SubpassContents::Inline,
             )
             .unwrap();
         (command_buffer_builder, img_dims)
@@ -510,11 +494,13 @@ impl Renderer {
         self.update_textures(&textures_delta.set);
 
         let (mut command_buffer_builder, framebuffer_dimensions) = self.start(final_image);
-        let mut builder = self.create_secondary_command_buffer_builder();
-        self.draw_egui(scale_factor, clipped_meshes, framebuffer_dimensions, &mut builder);
+        self.draw_egui(
+            scale_factor,
+            clipped_meshes,
+            framebuffer_dimensions,
+            &mut command_buffer_builder,
+        );
         // Execute draw commands
-        let command_buffer = builder.build().unwrap();
-        command_buffer_builder.execute_commands(command_buffer).unwrap();
         let done_future = self.finish(command_buffer_builder, Box::new(before_future));
 
         for &id in &textures_delta.free {
@@ -548,15 +534,13 @@ impl Renderer {
         textures_delta: &TexturesDelta,
         scale_factor: f32,
         framebuffer_dimensions: [u32; 2],
-    ) -> SecondaryAutoCommandBuffer {
+        command_buffer: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+    ) {
         self.update_textures(&textures_delta.set);
-        let mut builder = self.create_secondary_command_buffer_builder();
-        self.draw_egui(scale_factor, clipped_meshes, framebuffer_dimensions, &mut builder);
-        let buffer = builder.build().unwrap();
+        self.draw_egui(scale_factor, clipped_meshes, framebuffer_dimensions, command_buffer);
         for &id in &textures_delta.free {
             self.unregister_image(id);
         }
-        buffer
     }
 
     fn draw_egui(
@@ -564,7 +548,7 @@ impl Renderer {
         scale_factor: f32,
         clipped_meshes: &[ClippedPrimitive],
         framebuffer_dimensions: [u32; 2],
-        builder: &mut AutoCommandBufferBuilder<SecondaryAutoCommandBuffer>,
+        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     ) {
         let push_constants = vs::ty::PushConstants {
             screen_size: [
@@ -695,7 +679,7 @@ impl Renderer {
 ///
 /// See the `triangle` demo source for a detailed usage example.
 pub struct CallbackContext<'a> {
-    pub builder: &'a mut AutoCommandBufferBuilder<SecondaryAutoCommandBuffer>,
+    pub builder: &'a mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     pub resources: RenderResources<'a>,
 }
 

@@ -23,6 +23,7 @@ use vulkano::{
     device::{Device, Queue},
     format::Format,
     image::{ImageAccess, SampleCount},
+    instance::InstanceCreateInfo,
     memory::allocator::StandardMemoryAllocator,
     pipeline::{
         graphics::{
@@ -52,7 +53,27 @@ pub fn main() {
     // Winit event loop
     let event_loop = EventLoop::new();
     // Vulkano context
-    let context = VulkanoContext::new(VulkanoConfig::default());
+    let context = VulkanoContext::new(VulkanoConfig {
+        instance_create_info: InstanceCreateInfo {
+            application_version: vulkano::Version::V1_3,
+            enabled_extensions: vulkano::instance::InstanceExtensions {
+                ext_debug_utils: true,
+                ..vulkano::instance::InstanceExtensions::empty()
+            },
+            ..Default::default()
+        },
+        debug_create_info: Some(
+            vulkano::instance::debug::DebugUtilsMessengerCreateInfo::user_callback(Arc::new(
+                |msg| {
+                    println!(
+                        "{:?} {:?} {:?}: {}",
+                        msg.layer_prefix, msg.severity, msg.ty, msg.description
+                    )
+                },
+            )),
+        ),
+        ..VulkanoConfig::default()
+    });
     // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
     windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
@@ -285,10 +306,9 @@ impl SimpleGuiPipeline {
         builder.execute_commands(cb).unwrap();
 
         // Move on to next subpass for gui
-        builder.next_subpass(SubpassContents::SecondaryCommandBuffers).unwrap();
+        builder.next_subpass(SubpassContents::Inline).unwrap();
         // Draw gui on subpass
-        let cb = gui.draw_on_subpass_image(dimensions);
-        builder.execute_commands(cb).unwrap();
+        gui.draw_on_subpass_image(dimensions, &mut builder);
 
         // Last end render pass
         builder.end_render_pass().unwrap();

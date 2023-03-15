@@ -17,8 +17,8 @@ use egui_winit_vulkano::{Allocators, Gui, GuiConfig};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
-        CommandBufferInheritanceInfo, CommandBufferUsage, RenderPassBeginInfo, SubpassContents,
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
+        RenderPassBeginInfo, SubpassContents,
     },
     device::{Device, Queue},
     format::Format,
@@ -311,22 +311,12 @@ impl MSAAPipeline {
                     ],
                     ..RenderPassBeginInfo::framebuffer(framebuffer)
                 },
-                SubpassContents::SecondaryCommandBuffers,
+                SubpassContents::Inline,
             )
             .unwrap();
 
         // Render first draw pass
-        let mut secondary_builder = AutoCommandBufferBuilder::secondary(
-            &self.command_buffer_allocator,
-            self.queue.queue_family_index(),
-            CommandBufferUsage::MultipleSubmit,
-            CommandBufferInheritanceInfo {
-                render_pass: Some(self.subpass.clone().into()),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        secondary_builder
+        builder
             .bind_pipeline_graphics(self.pipeline.clone())
             .set_viewport(0, vec![Viewport {
                 origin: [0.0, 0.0],
@@ -336,12 +326,9 @@ impl MSAAPipeline {
             .bind_vertex_buffers(0, self.vertex_buffer.clone())
             .draw(self.vertex_buffer.len() as u32, 1, 0, 0)
             .unwrap();
-        let cb = secondary_builder.build().unwrap();
-        builder.execute_commands(cb).unwrap();
 
         // Draw gui on subpass
-        let cb = gui.draw_on_subpass_image(dimensions);
-        builder.execute_commands(cb).unwrap();
+        gui.draw_on_subpass_image(dimensions, &mut builder);
 
         // Last end render pass
         builder.end_render_pass().unwrap();
