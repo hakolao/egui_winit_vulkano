@@ -17,16 +17,15 @@ links = ["egui-winit/links"]
 clipboard = ["egui-winit/clipboard"]
 
 [dependencies]
-ahash = "0.8.1"
-bytemuck = "1.12.2"
-egui = "0.20.1"
-egui-winit = "0.20.1"
-image = "0.24.4"
-winit = "0.27.5"
-vulkano = "0.32"
-vulkano-shaders = "0.32"
+ahash = "0.8.3"
+egui = "0.21.0"
+egui-winit = "0.21.1"
+image = "0.24.5"
+winit = "0.28.2"
+vulkano = "0.33"
+vulkano-shaders = "0.33"
 
 [dev-dependencies]
 cgmath = "0.18.0"
-egui_demo_lib = "0.20.0"
-vulkano-util = "0.32"
+egui_demo_lib = "0.21.0"
+vulkano-util = "0.33"

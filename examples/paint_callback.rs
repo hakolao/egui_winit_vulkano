@@ -7,17 +7,17 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use std::sync::Arc;
+use std::{convert::TryInto, sync::Arc};
 
-use bytemuck::{Pod, Zeroable};
 use egui::{mutex::Mutex, vec2, PaintCallback, PaintCallbackInfo, Rgba, Sense};
 use egui_winit_vulkano::{CallbackContext, CallbackFn, Gui, GuiConfig, RenderResources};
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
+    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
+    memory::allocator::{AllocationCreateInfo, MemoryUsage},
     pipeline::{
         graphics::{
             depth_stencil::DepthStencilState, input_assembly::InputAssemblyState,
-            vertex_input::BuffersDefinition, viewport::ViewportState,
+            vertex_input::Vertex, viewport::ViewportState,
         },
         GraphicsPipeline,
     },
@@ -124,24 +124,22 @@ pub fn main() {
 
 struct Scene {
     pipeline: Arc<GraphicsPipeline>,
-    vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
+    vertex_buffer: Subbuffer<[MyVertex]>,
 }
 impl Scene {
     pub fn new(resources: RenderResources) -> Self {
         // Create the vertex buffer for the triangle
-        let vertex_buffer = CpuAccessibleBuffer::from_iter(
+        let vertex_buffer = Buffer::from_iter(
             &resources.memory_allocator,
-            BufferUsage { vertex_buffer: true, ..BufferUsage::empty() },
-            false,
+            BufferCreateInfo { usage: BufferUsage::VERTEX_BUFFER, ..Default::default() },
+            AllocationCreateInfo { usage: MemoryUsage::Upload, ..Default::default() },
             [
-                Vertex { position: [-0.5, -0.25], color: [1.0, 0.0, 0.0, 1.0] },
-                Vertex { position: [0.0, 0.5], color: [0.0, 1.0, 0.0, 1.0] },
-                Vertex { position: [0.25, -0.1], color: [0.0, 0.0, 1.0, 1.0] },
-            ]
-            .iter()
-            .cloned(),
+                MyVertex { position: [-0.5, -0.25], color: [1.0, 0.0, 0.0, 1.0] },
+                MyVertex { position: [0.0, 0.5], color: [0.0, 1.0, 0.0, 1.0] },
+                MyVertex { position: [0.25, -0.1], color: [0.0, 0.0, 1.0, 1.0] },
+            ],
         )
-        .expect("failed to create buffer");
+        .unwrap();
 
         // Create the graphics pipeline
         let vs =
@@ -150,7 +148,7 @@ impl Scene {
             fs::load(resources.queue.device().clone()).expect("failed to create shader module");
 
         let pipeline = GraphicsPipeline::start()
-            .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
+            .vertex_input_state(MyVertex::per_vertex())
             .vertex_shader(vs.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
             .fragment_shader(fs.entry_point("main").unwrap(), ())
@@ -176,12 +174,13 @@ impl Scene {
 }
 
 #[repr(C)]
-#[derive(Default, Debug, Copy, Clone, Zeroable, Pod)]
-struct Vertex {
+#[derive(BufferContents, Vertex)]
+struct MyVertex {
+    #[format(R32G32_SFLOAT)]
     position: [f32; 2],
+    #[format(R32G32B32A32_SFLOAT)]
     color: [f32; 4],
 }
-vulkano::impl_vertex!(Vertex, position, color);
 
 mod vs {
     vulkano_shaders::shader! {

@@ -9,13 +9,15 @@
 
 #![allow(clippy::eq_op)]
 
-use std::{convert::TryFrom, sync::Arc};
+use std::{
+    convert::{TryFrom, TryInto},
+    sync::Arc,
+};
 
-use bytemuck::{Pod, Zeroable};
 use egui::{epaint::Shadow, style::Margin, vec2, Align, Align2, Color32, Frame, Rounding, Window};
 use egui_winit_vulkano::{Gui, GuiConfig};
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
+    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
         CommandBufferInheritanceInfo, CommandBufferUsage, RenderPassBeginInfo, SubpassContents,
@@ -23,12 +25,12 @@ use vulkano::{
     device::{Device, Queue},
     format::Format,
     image::{ImageAccess, SampleCount},
-    memory::allocator::StandardMemoryAllocator,
+    memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator},
     pipeline::{
         graphics::{
             input_assembly::InputAssemblyState,
             multisample::MultisampleState,
-            vertex_input::BuffersDefinition,
+            vertex_input::Vertex,
             viewport::{Viewport, ViewportState},
         },
         GraphicsPipeline,
@@ -45,7 +47,6 @@ use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
 };
-
 // Render a triangle (scene) and a gui from a subpass on top of it (with some transparent fill)
 
 pub fn main() {
@@ -142,7 +143,7 @@ struct SimpleGuiPipeline {
     render_pass: Arc<RenderPass>,
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
-    vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
+    vertex_buffer: Subbuffer<[MyVertex]>,
     command_buffer_allocator: StandardCommandBufferAllocator,
 }
 
@@ -156,21 +157,17 @@ impl SimpleGuiPipeline {
         let (pipeline, subpass) =
             Self::create_pipeline(queue.device().clone(), render_pass.clone());
 
-        let vertex_buffer = {
-            CpuAccessibleBuffer::from_iter(
-                allocator,
-                BufferUsage { vertex_buffer: true, ..BufferUsage::empty() },
-                false,
-                [
-                    Vertex { position: [-0.5, -0.25], color: [1.0, 0.0, 0.0, 1.0] },
-                    Vertex { position: [0.0, 0.5], color: [0.0, 1.0, 0.0, 1.0] },
-                    Vertex { position: [0.25, -0.1], color: [0.0, 0.0, 1.0, 1.0] },
-                ]
-                .iter()
-                .cloned(),
-            )
-            .expect("failed to create buffer")
-        };
+        let vertex_buffer = Buffer::from_iter(
+            allocator,
+            BufferCreateInfo { usage: BufferUsage::VERTEX_BUFFER, ..Default::default() },
+            AllocationCreateInfo { usage: MemoryUsage::Upload, ..Default::default() },
+            [
+                MyVertex { position: [-0.5, -0.25], color: [1.0, 0.0, 0.0, 1.0] },
+                MyVertex { position: [0.0, 0.5], color: [0.0, 1.0, 0.0, 1.0] },
+                MyVertex { position: [0.25, -0.1], color: [0.0, 0.0, 1.0, 1.0] },
+            ],
+        )
+        .unwrap();
 
         // Create an allocator for command-buffer data
         let command_buffer_allocator =
@@ -212,7 +209,7 @@ impl SimpleGuiPipeline {
         let subpass = Subpass::from(render_pass, 0).unwrap();
         (
             GraphicsPipeline::start()
-                .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
+                .vertex_input_state(MyVertex::per_vertex())
                 .vertex_shader(vs.entry_point("main").unwrap(), ())
                 .input_assembly_state(InputAssemblyState::new())
                 .fragment_shader(fs.entry_point("main").unwrap(), ())
@@ -299,12 +296,13 @@ impl SimpleGuiPipeline {
 }
 
 #[repr(C)]
-#[derive(Default, Debug, Copy, Clone, Zeroable, Pod)]
-struct Vertex {
+#[derive(BufferContents, Vertex)]
+struct MyVertex {
+    #[format(R32G32_SFLOAT)]
     position: [f32; 2],
+    #[format(R32G32B32A32_SFLOAT)]
     color: [f32; 4],
 }
-vulkano::impl_vertex!(Vertex, position, color);
 
 mod vs {
     vulkano_shaders::shader! {
