@@ -7,12 +7,13 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use std::sync::Arc;
+use std::{convert::TryInto, sync::Arc};
 
 use egui::{mutex::Mutex, vec2, PaintCallback, PaintCallbackInfo, Rgba, Sense};
 use egui_winit_vulkano::{CallbackContext, CallbackFn, Gui, GuiConfig, RenderResources};
 use vulkano::{
-    buffer::{Buffer, BufferAllocateInfo, BufferContents, BufferUsage, Subbuffer},
+    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
+    memory::allocator::{AllocationCreateInfo, MemoryUsage},
     pipeline::{
         graphics::{
             depth_stencil::DepthStencilState, input_assembly::InputAssemblyState,
@@ -130,7 +131,8 @@ impl Scene {
         // Create the vertex buffer for the triangle
         let vertex_buffer = Buffer::from_iter(
             &resources.memory_allocator,
-            BufferAllocateInfo { buffer_usage: BufferUsage::VERTEX_BUFFER, ..Default::default() },
+            BufferCreateInfo { usage: BufferUsage::VERTEX_BUFFER, ..Default::default() },
+            AllocationCreateInfo { usage: MemoryUsage::Upload, ..Default::default() },
             [
                 MyVertex { position: [-0.5, -0.25], color: [1.0, 0.0, 0.0, 1.0] },
                 MyVertex { position: [0.0, 0.5], color: [0.0, 1.0, 0.0, 1.0] },

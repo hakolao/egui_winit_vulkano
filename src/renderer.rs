@@ -7,7 +7,10 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use std::{convert::TryFrom, sync::Arc};
+use std::{
+    convert::{TryFrom, TryInto},
+    sync::Arc,
+};
 
 use ahash::AHashMap;
 use egui::{
@@ -17,7 +20,7 @@ use egui::{
 use vulkano::{
     buffer::{
         allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
-        Buffer, BufferAllocateInfo, BufferContents, BufferUsage, Subbuffer,
+        Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer,
     },
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, BlitImageInfo,
@@ -35,7 +38,7 @@ use vulkano::{
         view::ImageView, ImageAccess, ImageLayout, ImageUsage, ImageViewAbstract, ImmutableImage,
         SampleCount,
     },
-    memory::allocator::{MemoryUsage, StandardMemoryAllocator},
+    memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator},
     pipeline::{
         graphics::{
             color_blend::{AttachmentBlend, BlendFactor, ColorBlendState},
@@ -307,7 +310,8 @@ impl Renderer {
         // Create buffer to be copied to the image
         let texture_data_buffer = Buffer::from_iter(
             &self.allocators.memory,
-            BufferAllocateInfo { buffer_usage: BufferUsage::TRANSFER_SRC, ..Default::default() },
+            BufferCreateInfo { usage: BufferUsage::TRANSFER_SRC, ..Default::default() },
+            AllocationCreateInfo { usage: MemoryUsage::Upload, ..Default::default() },
             data,
         )
         .unwrap();

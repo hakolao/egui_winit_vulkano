@@ -9,12 +9,15 @@
 
 #![allow(clippy::eq_op)]
 
-use std::{convert::TryFrom, sync::Arc};
+use std::{
+    convert::{TryFrom, TryInto},
+    sync::Arc,
+};
 
 use egui::{epaint::Shadow, style::Margin, vec2, Align, Align2, Color32, Frame, Rounding, Window};
 use egui_winit_vulkano::{Gui, GuiConfig};
 use vulkano::{
-    buffer::{Buffer, BufferAllocateInfo, BufferContents, BufferUsage, Subbuffer},
+    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
         CommandBufferInheritanceInfo, CommandBufferUsage, RenderPassBeginInfo, SubpassContents,
@@ -24,7 +27,7 @@ use vulkano::{
     image::{
         view::ImageView, AttachmentImage, ImageAccess, ImageUsage, ImageViewAbstract, SampleCount,
     },
-    memory::allocator::StandardMemoryAllocator,
+    memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator},
     pipeline::{
         graphics::{
             input_assembly::InputAssemblyState,
@@ -163,7 +166,8 @@ impl MSAAPipeline {
 
         let vertex_buffer = Buffer::from_iter(
             allocator,
-            BufferAllocateInfo { buffer_usage: BufferUsage::VERTEX_BUFFER, ..Default::default() },
+            BufferCreateInfo { usage: BufferUsage::VERTEX_BUFFER, ..Default::default() },
+            AllocationCreateInfo { usage: MemoryUsage::Upload, ..Default::default() },
             [
                 MyVertex { position: [-0.5, -0.25], color: [1.0, 0.0, 0.0, 1.0] },
                 MyVertex { position: [0.0, 0.5], color: [0.0, 1.0, 0.0, 1.0] },

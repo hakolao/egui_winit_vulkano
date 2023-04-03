@@ -11,15 +11,16 @@
 // https://github.com/vulkano-rs/vulkano-examples/blob/master/src/bin/deferred/triangle_draw_system.rs
 // To simplify this wholesome example :)
 
-use std::sync::Arc;
+use std::{convert::TryInto, sync::Arc};
 
 use vulkano::{
-    buffer::{Buffer, BufferAllocateInfo, BufferContents, BufferUsage, Subbuffer},
+    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
         CommandBufferInheritanceInfo, CommandBufferUsage, SecondaryAutoCommandBuffer,
     },
     device::Queue,
+    memory::allocator::{AllocationCreateInfo, MemoryUsage},
     pipeline::{
         graphics::{
             depth_stencil::DepthStencilState,
@@ -50,7 +51,8 @@ impl TriangleDrawSystem {
     ) -> TriangleDrawSystem {
         let vertex_buffer = Buffer::from_iter(
             &allocators.memory,
-            BufferAllocateInfo { buffer_usage: BufferUsage::VERTEX_BUFFER, ..Default::default() },
+            BufferCreateInfo { usage: BufferUsage::VERTEX_BUFFER, ..Default::default() },
+            AllocationCreateInfo { usage: MemoryUsage::Upload, ..Default::default() },
             [
                 MyVertex { position: [-0.5, -0.25], color: [1.0, 0.0, 0.0, 1.0] },
                 MyVertex { position: [0.0, 0.5], color: [0.0, 1.0, 0.0, 1.0] },
