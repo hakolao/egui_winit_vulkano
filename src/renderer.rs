@@ -62,7 +62,7 @@ const VERTICES_PER_QUAD: DeviceSize = 4;
 const VERTEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * VERTICES_PER_QUAD;
 const INDEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * 2;
 
-/// Should match vertex definition of egui (except color is `[f32; 4]`)
+/// Should match vertex definition of egui
 #[repr(C)]
 #[derive(BufferContents, Vertex)]
 pub struct EguiVertex {
@@ -70,8 +70,8 @@ pub struct EguiVertex {
     pub position: [f32; 2],
     #[format(R32G32_SFLOAT)]
     pub tex_coords: [f32; 2],
-    #[format(R32G32B32A32_SFLOAT)]
-    pub color: [f32; 4],
+    #[format(R8G8B8A8_UNORM)]
+    pub color: [u8; 4],
 }
 
 pub struct Renderer {
@@ -418,12 +418,7 @@ impl Renderer {
                 vertex_write[i] = EguiVertex {
                     position: [v.pos.x, v.pos.y],
                     tex_coords: [v.uv.x, v.uv.y],
-                    color: [
-                        v.color.r() as f32 / 255.0,
-                        v.color.g() as f32 / 255.0,
-                        v.color.b() as f32 / 255.0,
-                        v.color.a() as f32 / 255.0,
-                    ],
+                    color: v.color.to_array(),
                 };
             }
         }
