@@ -631,7 +631,6 @@ impl Renderer {
             need_srgb_conv: self.need_srgb_conv.into(),
         };
 
-        println!("{}", clipped_meshes.len());
         for ClippedPrimitive { clip_rect, primitive } in clipped_meshes {
             match primitive {
                 Primitive::Mesh(mesh) => {
