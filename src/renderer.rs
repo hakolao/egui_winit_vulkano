@@ -15,7 +15,7 @@ use std::{
 use ahash::AHashMap;
 use egui::{
     epaint::{Mesh, Primitive},
-    ClippedPrimitive, PaintCallbackInfo, Rect, TexturesDelta,
+    ClippedPrimitive, PaintCallbackInfo, Rect, TexturesDelta, TextureFilter,
 };
 use vulkano::{
     buffer::{
@@ -62,6 +62,30 @@ const VERTICES_PER_QUAD: DeviceSize = 4;
 const VERTEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * VERTICES_PER_QUAD;
 const INDEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * 2;
 
+
+type SamplerId = u8;
+const MAX_SAMPLER_ID: usize = 4;
+
+struct TextureFilters {}
+impl TextureFilters {
+    /// Maps an egui-filter to a an id
+    fn get_egui_sampler_id(mag_min: (egui::TextureFilter, egui::TextureFilter)) -> SamplerId {
+        let ordinal_fn = |filter| match filter {
+            TextureFilter::Nearest => 0,
+            TextureFilter::Linear => 1,
+        };
+        ordinal_fn(mag_min.0)*2 + ordinal_fn(mag_min.1)
+    }
+
+    /// Maps an id to a vulkano-filter
+    fn get_vulkano_filters_by_sampler_id(filter_id: SamplerId) -> (vulkano::sampler::Filter, vulkano::sampler::Filter) {
+        let ordinal_fn = |ordinal| {
+            [Filter::Nearest, Filter::Linear][ordinal as usize]
+        };
+        (ordinal_fn((filter_id>>1) & 0b1), ordinal_fn((filter_id) & 0b1))
+    }
+}
+
 /// Should match vertex definition of egui
 #[repr(C)]
 #[derive(BufferContents, Vertex)]
@@ -82,7 +106,7 @@ pub struct Renderer {
 
     #[allow(unused)]
     format: vulkano::format::Format,
-    sampler: Arc<Sampler>,
+    samplers: [Arc<Sampler>; MAX_SAMPLER_ID],
 
     allocators: Allocators,
     vertex_buffer_pool: SubbufferAllocator,
@@ -105,14 +129,8 @@ impl Renderer {
         let allocators = Allocators::new_default(gfx_queue.device());
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
-        let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
-            mag_filter: Filter::Linear,
-            min_filter: Filter::Linear,
-            address_mode: [SamplerAddressMode::ClampToEdge; 3],
-            mipmap_mode: SamplerMipmapMode::Linear,
-            ..Default::default()
-        })
-        .unwrap();
+        let samplers = Self::new_samplers(&gfx_queue);
+
         Renderer {
             gfx_queue,
             format: final_output_format,
@@ -126,9 +144,38 @@ impl Renderer {
             next_native_tex_id: 0,
             is_overlay: false,
             need_srgb_conv,
-            sampler,
+            samplers,
             allocators,
         }
+    }
+
+    fn get_sampler(&self, mag_min: (TextureFilter, TextureFilter)) -> Arc<Sampler> {
+        self.samplers[TextureFilters::get_egui_sampler_id(mag_min) as usize].clone()
+    }
+
+    fn new_samplers(gfx_queue: &Arc<Queue>) -> [Arc<Sampler>; MAX_SAMPLER_ID] {
+        let samplers : [Arc<Sampler>; MAX_SAMPLER_ID] = (0..MAX_SAMPLER_ID).map(|id| {
+            Renderer::new_sampler(&gfx_queue, id as SamplerId)
+        })
+            .collect::<Vec<Arc<Sampler>>>()
+            .try_into()
+            .unwrap();
+        samplers
+    }
+
+    fn new_sampler(gfx_queue: &Arc<Queue>, sampler_id: SamplerId) -> Arc<Sampler> {
+        let (mag_filter, min_filter) = TextureFilters::get_vulkano_filters_by_sampler_id(sampler_id);
+        Sampler::new(
+            gfx_queue.device().clone(),
+            SamplerCreateInfo {
+                mag_filter,
+                min_filter,
+                address_mode: [SamplerAddressMode::ClampToEdge; 3],
+                mipmap_mode: SamplerMipmapMode::Linear,
+                ..Default::default()
+            },
+        )
+        .unwrap()
     }
 
     /// Creates a new [Renderer] which is responsible for rendering egui with its own renderpass
@@ -180,14 +227,8 @@ impl Renderer {
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
-        let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
-            mag_filter: Filter::Linear,
-            min_filter: Filter::Linear,
-            address_mode: [SamplerAddressMode::ClampToEdge; 3],
-            mipmap_mode: SamplerMipmapMode::Linear,
-            ..Default::default()
-        })
-        .unwrap();
+        let samplers = Self::new_samplers(&gfx_queue);
+
         Renderer {
             gfx_queue,
             format: final_output_format,
@@ -201,7 +242,7 @@ impl Renderer {
             next_native_tex_id: 0,
             is_overlay,
             need_srgb_conv,
-            sampler,
+            samplers,
             allocators,
         }
     }
@@ -265,20 +306,33 @@ impl Renderer {
         &self,
         layout: &Arc<DescriptorSetLayout>,
         image: Arc<dyn ImageViewAbstract + 'static>,
+        mag_min: (TextureFilter, TextureFilter)
     ) -> Arc<PersistentDescriptorSet> {
         PersistentDescriptorSet::new(&self.allocators.descriptor_set, layout.clone(), [
-            WriteDescriptorSet::image_view_sampler(0, image, self.sampler.clone()),
+            WriteDescriptorSet::image_view_sampler(
+                0,
+                image,
+                self.get_sampler(mag_min)
+            )
         ])
         .unwrap()
     }
 
-    /// Registers a user texture. User texture needs to be unregistered when it is no longer needed
     pub fn register_image(
         &mut self,
         image: Arc<dyn ImageViewAbstract + Send + Sync>,
     ) -> egui::TextureId {
+        self.register_image2(image, (TextureFilter::Linear, TextureFilter::Linear))
+    }
+
+    /// Registers a user texture. User texture needs to be unregistered when it is no longer needed
+    pub fn register_image2(
+        &mut self,
+        image: Arc<dyn ImageViewAbstract + Send + Sync>,
+        mag_min: (TextureFilter, TextureFilter)
+    ) -> egui::TextureId {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
-        let desc_set = self.sampled_image_desc_set(layout, image.clone());
+        let desc_set = self.sampled_image_desc_set(layout, image.clone(), mag_min);
         let id = egui::TextureId::User(self.next_native_tex_id);
         self.next_native_tex_id += 1;
         self.texture_desc_sets.insert(id, desc_set);
@@ -372,7 +426,11 @@ impl Renderer {
             // Otherwise save the newly created image
         } else {
             let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
-            let font_desc_set = self.sampled_image_desc_set(layout, font_image.clone());
+            let font_desc_set = self.sampled_image_desc_set(
+                layout,
+                font_image.clone(),
+                (delta.options.magnification, delta.options.minification)
+            );
             self.texture_desc_sets.insert(texture_id, font_desc_set);
             self.texture_images.insert(texture_id, font_image);
         }
@@ -573,6 +631,7 @@ impl Renderer {
             need_srgb_conv: self.need_srgb_conv.into(),
         };
 
+        println!("{}", clipped_meshes.len());
         for ClippedPrimitive { clip_rect, primitive } in clipped_meshes {
             match primitive {
                 Primitive::Mesh(mesh) => {
@@ -597,12 +656,12 @@ impl Renderer {
                     builder
                         .bind_pipeline_graphics(self.pipeline.clone())
                         .set_viewport(0, vec![Viewport {
-                            origin: [0.0, 0.0],
-                            dimensions: [
-                                framebuffer_dimensions[0] as f32,
-                                framebuffer_dimensions[1] as f32,
-                            ],
-                            depth_range: 0.0..1.0,
+                                origin: [0.0, 0.0],
+                                dimensions: [
+                                    framebuffer_dimensions[0] as f32,
+                                    framebuffer_dimensions[1] as f32,
+                                ],
+                                depth_range: 0.0..1.0,
                         }])
                         .set_scissor(0, scissors)
                         .bind_descriptor_sets(
@@ -637,9 +696,9 @@ impl Renderer {
 
                         builder
                             .set_viewport(0, vec![Viewport {
-                                origin: [rect_min_x, rect_min_y],
-                                dimensions: [rect_max_x - rect_min_x, rect_max_y - rect_min_y],
-                                depth_range: 0.0..1.0,
+                                    origin: [rect_min_x, rect_min_y],
+                                    dimensions: [rect_max_x - rect_min_x, rect_max_y - rect_min_y],
+                                    depth_range: 0.0..1.0,
                             }])
                             .set_scissor(0, scissors);
 
@@ -652,8 +711,8 @@ impl Renderer {
 
                         if let Some(callback) = callback.callback.downcast_ref::<CallbackFn>() {
                             (callback.f)(info, &mut CallbackContext {
-                                builder,
-                                resources: self.render_resources(),
+                                    builder,
+                                    resources: self.render_resources(),
                             });
                         } else {
                             println!(
