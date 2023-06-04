@@ -16,6 +16,7 @@ use vulkano::{
     format::{Format, NumericType},
     image::{ImageViewAbstract, SampleCount},
     render_pass::Subpass,
+    sampler::SamplerCreateInfo,
     swapchain::Surface,
     sync::GpuFuture,
 };
@@ -240,8 +241,9 @@ impl Gui {
     pub fn register_user_image_view(
         &mut self,
         image: Arc<dyn ImageViewAbstract + Send + Sync>,
+        sampler_create_info: SamplerCreateInfo,
     ) -> egui::TextureId {
-        self.renderer.register_image(image)
+        self.renderer.register_image(image, sampler_create_info)
     }
 
     /// Registers a user image to be used by egui
@@ -251,6 +253,7 @@ impl Gui {
         &mut self,
         image_file_bytes: &[u8],
         format: vulkano::format::Format,
+        sampler_create_info: SamplerCreateInfo,
     ) -> egui::TextureId {
         let image = immutable_texture_from_file(
             self.renderer.allocators(),
@@ -259,7 +262,7 @@ impl Gui {
             format,
         )
         .expect("Failed to create image");
-        self.renderer.register_image(image)
+        self.renderer.register_image(image, sampler_create_info)
     }
 
     pub fn register_user_image_from_bytes(
@@ -267,6 +270,7 @@ impl Gui {
         image_byte_data: &[u8],
         dimensions: [u32; 2],
         format: vulkano::format::Format,
+        sampler_create_info: SamplerCreateInfo,
     ) -> egui::TextureId {
         let image = immutable_texture_from_bytes(
             self.renderer.allocators(),
@@ -276,7 +280,7 @@ impl Gui {
             format,
         )
         .expect("Failed to create image");
-        self.renderer.register_image(image)
+        self.renderer.register_image(image, sampler_create_info)
     }
 
     /// Unregisters a user image

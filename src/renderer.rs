@@ -82,7 +82,7 @@ pub struct Renderer {
 
     #[allow(unused)]
     format: vulkano::format::Format,
-    sampler: Arc<Sampler>,
+    font_sampler: Arc<Sampler>,
 
     allocators: Allocators,
     vertex_buffer_pool: SubbufferAllocator,
@@ -105,7 +105,7 @@ impl Renderer {
         let allocators = Allocators::new_default(gfx_queue.device());
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
-        let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
+        let font_sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
             mag_filter: Filter::Linear,
             min_filter: Filter::Linear,
             address_mode: [SamplerAddressMode::ClampToEdge; 3],
@@ -126,7 +126,7 @@ impl Renderer {
             next_native_tex_id: 0,
             is_overlay: false,
             need_srgb_conv,
-            sampler,
+            font_sampler,
             allocators,
         }
     }
@@ -180,7 +180,7 @@ impl Renderer {
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
-        let sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
+        let font_sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
             mag_filter: Filter::Linear,
             min_filter: Filter::Linear,
             address_mode: [SamplerAddressMode::ClampToEdge; 3],
@@ -201,7 +201,7 @@ impl Renderer {
             next_native_tex_id: 0,
             is_overlay,
             need_srgb_conv,
-            sampler,
+            font_sampler,
             allocators,
         }
     }
@@ -265,9 +265,10 @@ impl Renderer {
         &self,
         layout: &Arc<DescriptorSetLayout>,
         image: Arc<dyn ImageViewAbstract + 'static>,
+        sampler: Arc<Sampler>,
     ) -> Arc<PersistentDescriptorSet> {
         PersistentDescriptorSet::new(&self.allocators.descriptor_set, layout.clone(), [
-            WriteDescriptorSet::image_view_sampler(0, image, self.sampler.clone()),
+            WriteDescriptorSet::image_view_sampler(0, image, sampler),
         ])
         .unwrap()
     }
@@ -276,9 +277,11 @@ impl Renderer {
     pub fn register_image(
         &mut self,
         image: Arc<dyn ImageViewAbstract + Send + Sync>,
+        sampler_create_info: SamplerCreateInfo,
     ) -> egui::TextureId {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
-        let desc_set = self.sampled_image_desc_set(layout, image.clone());
+        let sampler = Sampler::new(self.gfx_queue.device().clone(), sampler_create_info).unwrap();
+        let desc_set = self.sampled_image_desc_set(layout, image.clone(), sampler);
         let id = egui::TextureId::User(self.next_native_tex_id);
         self.next_native_tex_id += 1;
         self.texture_desc_sets.insert(id, desc_set);
@@ -372,7 +375,8 @@ impl Renderer {
             // Otherwise save the newly created image
         } else {
             let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
-            let font_desc_set = self.sampled_image_desc_set(layout, font_image.clone());
+            let font_desc_set =
+                self.sampled_image_desc_set(layout, font_image.clone(), self.font_sampler.clone());
             self.texture_desc_sets.insert(texture_id, font_desc_set);
             self.texture_images.insert(texture_id, font_image);
         }
