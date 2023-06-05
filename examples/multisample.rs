@@ -60,6 +60,7 @@ pub fn main() {
     windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
         ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB);
         ci.image_usage = ImageUsage::TRANSFER_DST | ci.image_usage;
+        ci.min_image_count = ci.min_image_count.max(2);
     });
     // Create out gui pipeline
     let mut pipeline = MSAAPipeline::new(

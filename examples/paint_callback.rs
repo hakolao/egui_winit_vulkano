@@ -42,7 +42,10 @@ pub fn main() {
         &event_loop,
         &context,
         &WindowDescriptor { width: 400.0, height: 400.0, ..Default::default() },
-        |ci| ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB),
+        |ci| {
+            ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB);
+            ci.min_image_count = ci.min_image_count.max(2);
+        },
     );
     // Create gui as main render pass (no overlay means it clears the image each frame)
     let (mut gui, scene) = {
