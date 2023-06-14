@@ -597,7 +597,7 @@ impl Renderer {
 
                     let (vertices, indices) = self.create_subbuffers(mesh);
 
-                    let desc_set = self.texture_desc_sets.get(&mesh.texture_id).unwrap().clone();
+                    let desc_set = self.texture_desc_sets.get(&mesh.texture_id).unwrap();
                     builder
                         .bind_pipeline_graphics(self.pipeline.clone())
                         .set_viewport(0, vec![Viewport {
