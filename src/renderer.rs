@@ -820,7 +820,6 @@ void main() {
         f_color = color * texture_color;
     } else {
         f_color = srgba_from_linear(color * texture_color) / 255.0;
-        f_color.a = pow(f_color.a, 1.6);
     }
 }"
     }
