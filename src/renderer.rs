@@ -816,11 +816,7 @@ void main() {
     // We must convert vertex color to linear AFTER interpolation happened
     vec4 color = linear_from_srgba(v_color);
 
-    if (push_constants.need_srgb_conv == 0) {
-        f_color = color * texture_color;
-    } else {
-        f_color = srgba_from_linear(color * texture_color) / 255.0;
-    }
+    f_color = srgba_from_linear(color * texture_color) / 255.0;
 }"
     }
 }
