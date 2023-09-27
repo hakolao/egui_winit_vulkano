@@ -816,11 +816,9 @@ vec4 linear_from_srgba(vec4 srgb) {
 }
 
 void main() {
-    vec4 texture_color = texture(font_texture, v_tex_coords);
-    // We must convert vertex color to linear AFTER interpolation happened
-    vec4 color = linear_from_srgba(v_color);
-
-    f_color = srgba_from_linear(color * texture_color);
+    // ALL calculations are done in gamma space, this includes texture * color and blending
+    vec4 texture_color = srgba_from_linear(texture(font_texture, v_tex_coords));
+    f_color = v_color * texture_color;
 }"
     }
 }
