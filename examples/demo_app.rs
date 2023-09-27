@@ -28,12 +28,18 @@ pub fn main() {
     // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
     let window1 =
-        windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
+        windows.create_window(&event_loop, &context, &WindowDescriptor {
+            title: String::from("egui_winit_vulkano SRGB"),
+            ..WindowDescriptor::default()
+        }, |ci| {
             ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB);
             ci.min_image_count = ci.min_image_count.max(2);
         });
     let window2 =
-        windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
+        windows.create_window(&event_loop, &context, &WindowDescriptor {
+            title: String::from("egui_winit_vulkano UNORM"),
+            ..WindowDescriptor::default()
+        }, |ci| {
             ci.image_format = Some(vulkano::format::Format::B8G8R8A8_UNORM);
             ci.min_image_count = ci.min_image_count.max(2);
         });
