@@ -16,10 +16,10 @@ The aim of this is to allow a simple enough API to separate UI nicely out of you
 
 ```rust
 // Has its own renderpass. Modify GuiConfig to determine image clear behavior etc.
-let mut gui = Gui::new(&event_loop, renderer.surface(), renderer.queue(), GuiConfig::default());
+let mut gui = Gui::new(&event_loop, renderer.surface(), renderer.queue(), renderer.swapchain_format(), GuiConfig::default());
 // Or with subpass. This means that you must create the renderpass yourself. Egui subpass will then draw on your
 // image.
-let mut gui = Gui::new_with_subpass(&event_loop, renderer.surface(), renderer.queue(), subpass, GuiConfig::default());
+let mut gui = Gui::new_with_subpass(&event_loop, renderer.surface(), renderer.queue(), renderer.swapchain_format(), subpass, GuiConfig::default());
 ```
 
 3. Inside your event loop, update `gui` integration with `WindowEvent`
@@ -56,6 +56,8 @@ renderer.present(after_future, true);
 let cb = gui.draw_on_subpass_image(framebuffer_dimensions);
 draw_pass.execute(cb);
 ```
+Note that Egui prefers UNORM render targets. Using an output format with sRGB requires `GuiConfig::allow_srgb_render_target` to be set, to acknowledge that using sRGB will cause minor discoloration of UI elements due to blending in linear color space and not sRGB as Egui expects.
+
 See the examples directory for better usage guidance.
 
 Remember, on Linux, you need to install following to run Egui
