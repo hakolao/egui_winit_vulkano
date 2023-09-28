@@ -112,9 +112,9 @@ pub fn main() {
     });
 }
 
-const CODE: &str = r#"
+const CODE: &str = r"
 # Some markup
 ```
 let mut gui = Gui::new(&event_loop, renderer.surface(), None, renderer.queue(), SampleCount::Sample1);
 ```
-"#;
+";
