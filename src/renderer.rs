@@ -78,7 +78,7 @@ pub struct Renderer {
     gfx_queue: Arc<Queue>,
     render_pass: Option<Arc<RenderPass>>,
     is_overlay: bool,
-    need_srgb_conv: bool,
+    output_in_linear_colorspace: bool,
 
     #[allow(unused)]
     format: vulkano::format::Format,
@@ -101,7 +101,7 @@ impl Renderer {
         final_output_format: Format,
         subpass: Subpass,
     ) -> Renderer {
-        let need_srgb_conv = final_output_format.type_color().unwrap() == NumericType::UNORM;
+        let output_in_linear_colorspace = final_output_format.type_color().unwrap() == NumericType::SRGB;
         let allocators = Allocators::new_default(gfx_queue.device());
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
@@ -125,7 +125,7 @@ impl Renderer {
             texture_images: AHashMap::default(),
             next_native_tex_id: 0,
             is_overlay: false,
-            need_srgb_conv,
+            output_in_linear_colorspace,
             font_sampler,
             allocators,
         }
@@ -174,7 +174,7 @@ impl Renderer {
             .unwrap()
         };
 
-        let need_srgb_conv = final_output_format.type_color().unwrap() == NumericType::UNORM;
+        let output_in_linear_colorspace = final_output_format.type_color().unwrap() == NumericType::SRGB;
         let allocators = Allocators::new_default(gfx_queue.device());
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
 
@@ -200,7 +200,7 @@ impl Renderer {
             texture_images: AHashMap::default(),
             next_native_tex_id: 0,
             is_overlay,
-            need_srgb_conv,
+            output_in_linear_colorspace,
             font_sampler,
             allocators,
         }
@@ -574,7 +574,7 @@ impl Renderer {
                 framebuffer_dimensions[0] as f32 / scale_factor,
                 framebuffer_dimensions[1] as f32 / scale_factor,
             ],
-            need_srgb_conv: self.need_srgb_conv.into(),
+            output_in_linear_colorspace: self.output_in_linear_colorspace.into(),
         };
 
         for ClippedPrimitive { clip_rect, primitive } in clipped_meshes {
@@ -755,7 +755,7 @@ layout(location = 1) out vec2 v_tex_coords;
 
 layout(push_constant) uniform PushConstants {
     vec2 screen_size;
-    int need_srgb_conv;
+    int output_in_linear_colorspace;
 } push_constants;
 
 void main() {
@@ -786,7 +786,7 @@ layout(binding = 0, set = 0) uniform sampler2D font_texture;
 
 layout(push_constant) uniform PushConstants {
     vec2 screen_size;
-    int need_srgb_conv;
+    int output_in_linear_colorspace;
 } push_constants;
 
 // 0-1 sRGB  from  0-1 linear
@@ -816,9 +816,16 @@ vec4 linear_from_srgba(vec4 srgb) {
 }
 
 void main() {
-    // ALL calculations are done in gamma space, this includes texture * color and blending
+    // ALL calculations should be done in gamma space, this includes texture * color and blending
     vec4 texture_color = srgba_from_linear(texture(font_texture, v_tex_coords));
-    f_color = v_color * texture_color;
+    vec4 color = v_color * texture_color;
+
+    // If output_in_linear_colorspace is true, we are rendering into an sRGB image, for which we'll convert to linear color space.
+    // **This will break blending** as it will be performed in linear color space instead of sRGB like egui expects.
+    if (push_constants.output_in_linear_colorspace == 1) {
+        color = linear_from_srgba(color);
+    }
+    f_color = color;
 }"
     }
 }
