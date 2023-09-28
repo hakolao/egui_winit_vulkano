@@ -43,15 +43,23 @@ pub struct GuiConfig {
 
 impl Default for GuiConfig {
     fn default() -> Self {
-        GuiConfig { allow_srgb_render_target: false, is_overlay: false, samples: SampleCount::Sample1 }
+        GuiConfig {
+            allow_srgb_render_target: false,
+            is_overlay: false,
+            samples: SampleCount::Sample1,
+        }
     }
 }
 
 impl GuiConfig {
     pub fn validate(&self, output_format: Format) {
         if output_format.type_color().unwrap() == NumericType::SRGB {
-            assert!(self.allow_srgb_render_target, "Using an output format with sRGB requires GuiConfig::allow_srgb_render_target to be set! \
-            This ensures the user is aware that rendering to an sRGB render target will breaking blending causing discoloration of UI elements");
+            assert!(
+                self.allow_srgb_render_target,
+                "Using an output format with sRGB requires GuiConfig::allow_srgb_render_target to \
+                 be set! This ensures the user is aware that rendering to an sRGB render target \
+                 will breaking blending causing discoloration of UI elements"
+            );
         }
     }
 }
@@ -79,8 +87,12 @@ impl Gui {
         config: GuiConfig,
     ) -> Gui {
         config.validate(output_format);
-        let renderer =
-            Renderer::new_with_render_pass(gfx_queue, output_format, config.is_overlay, config.samples);
+        let renderer = Renderer::new_with_render_pass(
+            gfx_queue,
+            output_format,
+            config.is_overlay,
+            config.samples,
+        );
         Self::new_internal(event_loop, surface, renderer)
     }
 
@@ -105,7 +117,8 @@ impl Gui {
         renderer: Renderer,
     ) -> Gui {
         let max_texture_side =
-            renderer.queue().device().physical_device().properties().max_image_array_layers as usize;
+            renderer.queue().device().physical_device().properties().max_image_array_layers
+                as usize;
         let mut egui_winit = egui_winit::State::new(event_loop);
         egui_winit.set_max_texture_side(max_texture_side);
         egui_winit.set_pixels_per_point(surface_window(&surface).scale_factor() as f32);

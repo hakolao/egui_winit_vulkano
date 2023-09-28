@@ -157,7 +157,8 @@ impl Renderer {
         render_pass: Option<Arc<RenderPass>>,
         is_overlay: bool,
     ) -> Renderer {
-        let output_in_linear_colorspace = final_output_format.type_color().unwrap() == NumericType::SRGB;
+        let output_in_linear_colorspace =
+            final_output_format.type_color().unwrap() == NumericType::SRGB;
         let allocators = Allocators::new_default(gfx_queue.device());
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());

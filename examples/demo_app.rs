@@ -27,33 +27,50 @@ pub fn main() {
     let context = VulkanoContext::new(VulkanoConfig::default());
     // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
-    let window1 =
-        windows.create_window(&event_loop, &context, &WindowDescriptor {
+    let window1 = windows.create_window(
+        &event_loop,
+        &context,
+        &WindowDescriptor {
             title: String::from("egui_winit_vulkano SRGB"),
             ..WindowDescriptor::default()
-        }, |ci| {
+        },
+        |ci| {
             ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB);
             ci.min_image_count = ci.min_image_count.max(2);
-        });
-    let window2 =
-        windows.create_window(&event_loop, &context, &WindowDescriptor {
+        },
+    );
+    let window2 = windows.create_window(
+        &event_loop,
+        &context,
+        &WindowDescriptor {
             title: String::from("egui_winit_vulkano UNORM"),
             ..WindowDescriptor::default()
-        }, |ci| {
+        },
+        |ci| {
             ci.image_format = Some(vulkano::format::Format::B8G8R8A8_UNORM);
             ci.min_image_count = ci.min_image_count.max(2);
-        });
+        },
+    );
     // Create gui as main render pass (no overlay means it clears the image each frame)
     let mut gui1 = {
         let renderer = windows.get_renderer_mut(window1).unwrap();
-        Gui::new(&event_loop, renderer.surface(), renderer.graphics_queue(), renderer.swapchain_format(), GuiConfig {
-            allow_srgb_render_target: true,
-            ..GuiConfig::default()
-        })
+        Gui::new(
+            &event_loop,
+            renderer.surface(),
+            renderer.graphics_queue(),
+            renderer.swapchain_format(),
+            GuiConfig { allow_srgb_render_target: true, ..GuiConfig::default() },
+        )
     };
     let mut gui2 = {
         let renderer = windows.get_renderer_mut(window2).unwrap();
-        Gui::new(&event_loop, renderer.surface(), renderer.graphics_queue(), renderer.swapchain_format(), GuiConfig::default())
+        Gui::new(
+            &event_loop,
+            renderer.surface(),
+            renderer.graphics_queue(),
+            renderer.swapchain_format(),
+            GuiConfig::default(),
+        )
     };
     // Display the demo application that ships with egui.
     let mut demo_app1 = egui_demo_lib::DemoWindows::default();

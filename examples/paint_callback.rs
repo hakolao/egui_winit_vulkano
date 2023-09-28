@@ -51,7 +51,13 @@ pub fn main() {
     let (mut gui, scene) = {
         let renderer = windows.get_primary_renderer_mut().unwrap();
 
-        let gui = Gui::new(&event_loop, renderer.surface(), renderer.graphics_queue(), renderer.swapchain_format(), GuiConfig::default());
+        let gui = Gui::new(
+            &event_loop,
+            renderer.surface(),
+            renderer.graphics_queue(),
+            renderer.swapchain_format(),
+            GuiConfig::default(),
+        );
 
         let scene = Arc::new(Mutex::new(Scene::new(gui.render_resources())));
 
