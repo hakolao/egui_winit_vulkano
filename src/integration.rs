@@ -27,29 +27,12 @@ use crate::{
     utils::{immutable_texture_from_bytes, immutable_texture_from_file},
 };
 
-fn get_surface_image_format(
-    surface: &Arc<Surface>,
-    preferred_format: Option<Format>,
-    gfx_queue: &Arc<Queue>,
-) -> vulkano::format::Format {
-    preferred_format.unwrap_or_else(|| {
-        gfx_queue
-            .device()
-            .physical_device()
-            .surface_formats(surface, Default::default())
-            .unwrap()
-            .iter()
-            .find(|f| f.0.type_color().unwrap() == NumericType::SRGB)
-            .unwrap()
-            .0
-    })
-}
-
 pub struct GuiConfig {
-    /// Preferred target image format. This should match the surface format. Sometimes the user
-    /// may prefer linear color space rather than non linear. Hence the option. SRGB is selected by
-    /// default.
-    pub preferred_format: Option<Format>,
+    /// Allows supplying sRGB ImageViews as render targets instead of just UNORM ImageViews, defaults to false.
+    /// Using sRGB render targets **will break blending** of UI elements, resulting in potential color differences
+    /// compared to "correct" UNORM render targets.
+    /// If you would like to visually compare between UNORM and sRGB render targets, run the `demo_app` example of our crate.
+    pub allow_srgb_render_target: bool,
     /// Whether to render gui as overlay. Only relevant in the case of `Gui::new`, not when using
     /// subpass. Determines whether the pipeline should clear the target image.
     pub is_overlay: bool,
@@ -60,7 +43,16 @@ pub struct GuiConfig {
 
 impl Default for GuiConfig {
     fn default() -> Self {
-        GuiConfig { preferred_format: None, is_overlay: false, samples: SampleCount::Sample1 }
+        GuiConfig { allow_srgb_render_target: false, is_overlay: false, samples: SampleCount::Sample1 }
+    }
+}
+
+impl GuiConfig {
+    pub fn validate(&self, output_format: Format) {
+        if output_format.type_color().unwrap() == NumericType::SRGB {
+            assert!(self.allow_srgb_render_target, "Using an output format with sRGB requires GuiConfig::allow_srgb_render_target to be set! \
+            This ensures the user is aware that rendering to an sRGB render target will breaking blending causing discoloration of UI elements");
+        }
     }
 }
 
@@ -83,12 +75,12 @@ impl Gui {
         event_loop: &EventLoopWindowTarget<T>,
         surface: Arc<Surface>,
         gfx_queue: Arc<Queue>,
+        output_format: Format,
         config: GuiConfig,
     ) -> Gui {
-        // Pick preferred format if provided, otherwise use the default one
-        let format = get_surface_image_format(&surface, config.preferred_format, &gfx_queue);
+        config.validate(output_format);
         let renderer =
-            Renderer::new_with_render_pass(gfx_queue, format, config.is_overlay, config.samples);
+            Renderer::new_with_render_pass(gfx_queue, output_format, config.is_overlay, config.samples);
         Self::new_internal(event_loop, surface, renderer)
     }
 
@@ -98,11 +90,11 @@ impl Gui {
         surface: Arc<Surface>,
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
+        output_format: Format,
         config: GuiConfig,
     ) -> Gui {
-        // Pick preferred format if provided, otherwise use the default one
-        let format = get_surface_image_format(&surface, config.preferred_format, &gfx_queue);
-        let renderer = Renderer::new_with_subpass(gfx_queue, format, subpass);
+        config.validate(output_format);
+        let renderer = Renderer::new_with_subpass(gfx_queue, output_format, subpass);
         Self::new_internal(event_loop, surface, renderer)
     }
 

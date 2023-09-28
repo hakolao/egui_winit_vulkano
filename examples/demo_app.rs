@@ -46,17 +46,14 @@ pub fn main() {
     // Create gui as main render pass (no overlay means it clears the image each frame)
     let mut gui1 = {
         let renderer = windows.get_renderer_mut(window1).unwrap();
-        Gui::new(&event_loop, renderer.surface(), renderer.graphics_queue(), GuiConfig {
-            preferred_format: Some(renderer.swapchain_format()),
-            ..Default::default()
+        Gui::new(&event_loop, renderer.surface(), renderer.graphics_queue(), renderer.swapchain_format(), GuiConfig {
+            allow_srgb_render_target: true,
+            ..GuiConfig::default()
         })
     };
     let mut gui2 = {
         let renderer = windows.get_renderer_mut(window2).unwrap();
-        Gui::new(&event_loop, renderer.surface(), renderer.graphics_queue(), GuiConfig {
-            preferred_format: Some(renderer.swapchain_format()),
-            ..Default::default()
-        })
+        Gui::new(&event_loop, renderer.surface(), renderer.graphics_queue(), renderer.swapchain_format(), GuiConfig::default())
     };
     // Display the demo application that ships with egui.
     let mut demo_app1 = egui_demo_lib::DemoWindows::default();

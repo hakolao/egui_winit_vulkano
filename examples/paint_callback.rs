@@ -43,7 +43,7 @@ pub fn main() {
         &context,
         &WindowDescriptor { width: 400.0, height: 400.0, ..Default::default() },
         |ci| {
-            ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB);
+            ci.image_format = Some(vulkano::format::Format::B8G8R8A8_UNORM);
             ci.min_image_count = ci.min_image_count.max(2);
         },
     );
@@ -51,10 +51,7 @@ pub fn main() {
     let (mut gui, scene) = {
         let renderer = windows.get_primary_renderer_mut().unwrap();
 
-        let gui = Gui::new(&event_loop, renderer.surface(), renderer.graphics_queue(), GuiConfig {
-            preferred_format: Some(vulkano::format::Format::B8G8R8A8_SRGB),
-            ..Default::default()
-        });
+        let gui = Gui::new(&event_loop, renderer.surface(), renderer.graphics_queue(), renderer.swapchain_format(), GuiConfig::default());
 
         let scene = Arc::new(Mutex::new(Scene::new(gui.render_resources())));
 
