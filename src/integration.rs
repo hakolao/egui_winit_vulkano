@@ -29,9 +29,11 @@ use crate::{
 
 pub struct GuiConfig {
     /// Allows supplying sRGB ImageViews as render targets instead of just UNORM ImageViews, defaults to false.
-    /// Using sRGB render targets **will break blending** of UI elements, resulting in potential color differences
-    /// compared to "correct" UNORM render targets.
-    /// If you would like to visually compare between UNORM and sRGB render targets, run the `demo_app` example of our crate.
+    /// **Using sRGB will cause minor discoloration of UI elements** due to blending in linear color space and not
+    /// sRGB as Egui expects.
+    ///
+    /// If you would like to visually compare between UNORM and sRGB render targets, run the `demo_app` example of
+    /// this crate.
     pub allow_srgb_render_target: bool,
     /// Whether to render gui as overlay. Only relevant in the case of `Gui::new`, not when using
     /// subpass. Determines whether the pipeline should clear the target image.
@@ -56,9 +58,10 @@ impl GuiConfig {
         if output_format.type_color().unwrap() == NumericType::SRGB {
             assert!(
                 self.allow_srgb_render_target,
-                "Using an output format with sRGB requires GuiConfig::allow_srgb_render_target to \
-                 be set! This ensures the user is aware that rendering to an sRGB render target \
-                 will breaking blending causing discoloration of UI elements"
+                "Using an output format with sRGB requires `GuiConfig::allow_srgb_render_target` \
+                 to be set! Egui prefers UNORM render targets. Using sRGB will cause minor \
+                 discoloration of UI elements due to blending in linear color space and not sRGB \
+                 as Egui expects."
             );
         }
     }
