@@ -87,21 +87,9 @@ impl Gui {
     ) -> Gui {
         // Pick preferred format if provided, otherwise use the default one
         let format = get_surface_image_format(&surface, config.preferred_format, &gfx_queue);
-        let max_texture_side =
-            gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
         let renderer =
             Renderer::new_with_render_pass(gfx_queue, format, config.is_overlay, config.samples);
-        let mut egui_winit = egui_winit::State::new(event_loop);
-        egui_winit.set_max_texture_side(max_texture_side);
-        egui_winit.set_pixels_per_point(surface_window(&surface).scale_factor() as f32);
-        Gui {
-            egui_ctx: Default::default(),
-            egui_winit,
-            renderer,
-            surface,
-            shapes: vec![],
-            textures_delta: Default::default(),
-        }
+        Self::new_internal(event_loop, surface, renderer)
     }
 
     /// Same as `new` but instead of integration owning a render pass, egui renders on your subpass
@@ -114,9 +102,18 @@ impl Gui {
     ) -> Gui {
         // Pick preferred format if provided, otherwise use the default one
         let format = get_surface_image_format(&surface, config.preferred_format, &gfx_queue);
-        let max_texture_side =
-            gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
         let renderer = Renderer::new_with_subpass(gfx_queue, format, subpass);
+        Self::new_internal(event_loop, surface, renderer)
+    }
+
+    /// Same as `new` but instead of integration owning a render pass, egui renders on your subpass
+    fn new_internal<T>(
+        event_loop: &EventLoopWindowTarget<T>,
+        surface: Arc<Surface>,
+        renderer: Renderer,
+    ) -> Gui {
+        let max_texture_side =
+            renderer.queue().device().physical_device().properties().max_image_array_layers as usize;
         let mut egui_winit = egui_winit::State::new(event_loop);
         egui_winit.set_max_texture_side(max_texture_side);
         egui_winit.set_pixels_per_point(surface_window(&surface).scale_factor() as f32);

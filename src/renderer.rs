@@ -101,34 +101,7 @@ impl Renderer {
         final_output_format: Format,
         subpass: Subpass,
     ) -> Renderer {
-        let output_in_linear_colorspace = final_output_format.type_color().unwrap() == NumericType::SRGB;
-        let allocators = Allocators::new_default(gfx_queue.device());
-        let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
-        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
-        let font_sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
-            mag_filter: Filter::Linear,
-            min_filter: Filter::Linear,
-            address_mode: [SamplerAddressMode::ClampToEdge; 3],
-            mipmap_mode: SamplerMipmapMode::Linear,
-            ..Default::default()
-        })
-        .unwrap();
-        Renderer {
-            gfx_queue,
-            format: final_output_format,
-            render_pass: None,
-            vertex_buffer_pool,
-            index_buffer_pool,
-            pipeline,
-            subpass,
-            texture_desc_sets: AHashMap::default(),
-            texture_images: AHashMap::default(),
-            next_native_tex_id: 0,
-            is_overlay: false,
-            output_in_linear_colorspace,
-            font_sampler,
-            allocators,
-        }
+        Self::new_internal(gfx_queue, final_output_format, subpass, None, false)
     }
 
     /// Creates a new [Renderer] which is responsible for rendering egui with its own renderpass
@@ -173,12 +146,20 @@ impl Renderer {
             )
             .unwrap()
         };
+        let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
+        Self::new_internal(gfx_queue, final_output_format, subpass, Some(render_pass), is_overlay)
+    }
 
+    fn new_internal(
+        gfx_queue: Arc<Queue>,
+        final_output_format: Format,
+        subpass: Subpass,
+        render_pass: Option<Arc<RenderPass>>,
+        is_overlay: bool,
+    ) -> Renderer {
         let output_in_linear_colorspace = final_output_format.type_color().unwrap() == NumericType::SRGB;
         let allocators = Allocators::new_default(gfx_queue.device());
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
-
-        let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
         let font_sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
             mag_filter: Filter::Linear,
@@ -191,7 +172,7 @@ impl Renderer {
         Renderer {
             gfx_queue,
             format: final_output_format,
-            render_pass: Some(render_pass),
+            render_pass,
             vertex_buffer_pool,
             index_buffer_pool,
             pipeline,
