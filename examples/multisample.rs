@@ -58,7 +58,7 @@ pub fn main() {
     // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
     windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
-        ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB);
+        ci.image_format = Some(vulkano::format::Format::B8G8R8A8_UNORM);
         ci.image_usage = ImageUsage::TRANSFER_DST | ci.image_usage;
         ci.min_image_count = ci.min_image_count.max(2);
     });
@@ -75,8 +75,8 @@ pub fn main() {
         windows.get_primary_renderer_mut().unwrap().surface(),
         windows.get_primary_renderer_mut().unwrap().graphics_queue(),
         pipeline.gui_pass(),
+        windows.get_primary_renderer_mut().unwrap().swapchain_format(),
         GuiConfig {
-            preferred_format: Some(vulkano::format::Format::B8G8R8A8_SRGB),
             // Must match your pipeline's sample count
             samples: SampleCount::Sample4,
             ..Default::default()

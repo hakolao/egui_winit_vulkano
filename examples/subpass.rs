@@ -57,7 +57,7 @@ pub fn main() {
     // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
     windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
-        ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB);
+        ci.image_format = Some(vulkano::format::Format::B8G8R8A8_UNORM);
         ci.min_image_count = ci.min_image_count.max(2);
     });
     // Create out gui pipeline
@@ -72,10 +72,8 @@ pub fn main() {
         windows.get_primary_renderer_mut().unwrap().surface(),
         windows.get_primary_renderer_mut().unwrap().graphics_queue(),
         gui_pipeline.gui_pass(),
-        GuiConfig {
-            preferred_format: Some(vulkano::format::Format::B8G8R8A8_SRGB),
-            ..Default::default()
-        },
+        windows.get_primary_renderer_mut().unwrap().swapchain_format(),
+        GuiConfig::default(),
     );
 
     // Create gui state (pass anything your state requires)

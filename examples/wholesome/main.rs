@@ -131,13 +131,19 @@ pub fn main() {
     // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
     windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
-        ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB);
+        ci.image_format = Some(vulkano::format::Format::B8G8R8A8_UNORM);
         ci.min_image_count = ci.min_image_count.max(2);
     });
     // Create gui as main render pass (no overlay means it clears the image each frame)
     let mut gui = {
         let renderer = windows.get_primary_renderer_mut().unwrap();
-        Gui::new(&event_loop, renderer.surface(), renderer.graphics_queue(), GuiConfig::default())
+        Gui::new(
+            &event_loop,
+            renderer.surface(),
+            renderer.graphics_queue(),
+            renderer.swapchain_format(),
+            GuiConfig::default(),
+        )
     };
     // Create a simple image to which we'll draw the triangle scene
     let scene_image = StorageImage::general_purpose_image_view(

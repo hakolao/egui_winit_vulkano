@@ -78,7 +78,7 @@ pub struct Renderer {
     gfx_queue: Arc<Queue>,
     render_pass: Option<Arc<RenderPass>>,
     is_overlay: bool,
-    need_srgb_conv: bool,
+    output_in_linear_colorspace: bool,
 
     #[allow(unused)]
     format: vulkano::format::Format,
@@ -101,34 +101,7 @@ impl Renderer {
         final_output_format: Format,
         subpass: Subpass,
     ) -> Renderer {
-        let need_srgb_conv = final_output_format.type_color().unwrap() == NumericType::UNORM;
-        let allocators = Allocators::new_default(gfx_queue.device());
-        let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
-        let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
-        let font_sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
-            mag_filter: Filter::Linear,
-            min_filter: Filter::Linear,
-            address_mode: [SamplerAddressMode::ClampToEdge; 3],
-            mipmap_mode: SamplerMipmapMode::Linear,
-            ..Default::default()
-        })
-        .unwrap();
-        Renderer {
-            gfx_queue,
-            format: final_output_format,
-            render_pass: None,
-            vertex_buffer_pool,
-            index_buffer_pool,
-            pipeline,
-            subpass,
-            texture_desc_sets: AHashMap::default(),
-            texture_images: AHashMap::default(),
-            next_native_tex_id: 0,
-            is_overlay: false,
-            need_srgb_conv,
-            font_sampler,
-            allocators,
-        }
+        Self::new_internal(gfx_queue, final_output_format, subpass, None, false)
     }
 
     /// Creates a new [Renderer] which is responsible for rendering egui with its own renderpass
@@ -173,12 +146,21 @@ impl Renderer {
             )
             .unwrap()
         };
+        let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
+        Self::new_internal(gfx_queue, final_output_format, subpass, Some(render_pass), is_overlay)
+    }
 
-        let need_srgb_conv = final_output_format.type_color().unwrap() == NumericType::UNORM;
+    fn new_internal(
+        gfx_queue: Arc<Queue>,
+        final_output_format: Format,
+        subpass: Subpass,
+        render_pass: Option<Arc<RenderPass>>,
+        is_overlay: bool,
+    ) -> Renderer {
+        let output_in_linear_colorspace =
+            final_output_format.type_color().unwrap() == NumericType::SRGB;
         let allocators = Allocators::new_default(gfx_queue.device());
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
-
-        let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
         let font_sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
             mag_filter: Filter::Linear,
@@ -191,7 +173,7 @@ impl Renderer {
         Renderer {
             gfx_queue,
             format: final_output_format,
-            render_pass: Some(render_pass),
+            render_pass,
             vertex_buffer_pool,
             index_buffer_pool,
             pipeline,
@@ -200,7 +182,7 @@ impl Renderer {
             texture_images: AHashMap::default(),
             next_native_tex_id: 0,
             is_overlay,
-            need_srgb_conv,
+            output_in_linear_colorspace,
             font_sampler,
             allocators,
         }
@@ -574,7 +556,7 @@ impl Renderer {
                 framebuffer_dimensions[0] as f32 / scale_factor,
                 framebuffer_dimensions[1] as f32 / scale_factor,
             ],
-            need_srgb_conv: self.need_srgb_conv.into(),
+            output_in_linear_colorspace: self.output_in_linear_colorspace.into(),
         };
 
         for ClippedPrimitive { clip_rect, primitive } in clipped_meshes {
@@ -755,28 +737,17 @@ layout(location = 1) out vec2 v_tex_coords;
 
 layout(push_constant) uniform PushConstants {
     vec2 screen_size;
-    int need_srgb_conv;
+    int output_in_linear_colorspace;
 } push_constants;
 
-// 0-1 linear  from  0-255 sRGB
-vec3 linear_from_srgb(vec3 srgb) {
-    bvec3 cutoff = lessThan(srgb, vec3(10.31475));
-    vec3 lower = srgb / vec3(3294.6);
-    vec3 higher = pow((srgb + vec3(14.025)) / vec3(269.025), vec3(2.4));
-    return mix(higher, lower, cutoff);
-}
-
-vec4 linear_from_srgba(vec4 srgba) {
-    return vec4(linear_from_srgb(srgba.rgb * 255.0), srgba.a);
-}
-
 void main() {
-  gl_Position =
-      vec4(2.0 * position.x / push_constants.screen_size.x - 1.0,
-           2.0 * position.y / push_constants.screen_size.y - 1.0, 0.0, 1.0);
-  // We must convert vertex color to linear
-  v_color = linear_from_srgba(color);
-  v_tex_coords = tex_coords;
+    gl_Position = vec4(
+        2.0 * position.x / push_constants.screen_size.x - 1.0,
+        2.0 * position.y / push_constants.screen_size.y - 1.0,
+        0.0, 1.0
+    );
+    v_color = color;
+    v_tex_coords = tex_coords;
 }"
     }
 }
@@ -797,42 +768,46 @@ layout(binding = 0, set = 0) uniform sampler2D font_texture;
 
 layout(push_constant) uniform PushConstants {
     vec2 screen_size;
-    int need_srgb_conv;
+    int output_in_linear_colorspace;
 } push_constants;
 
-// 0-255 sRGB  from  0-1 linear
-vec3 srgb_from_linear(vec3 rgb) {
-  bvec3 cutoff = lessThan(rgb, vec3(0.0031308));
-  vec3 lower = rgb * vec3(3294.6);
-  vec3 higher = vec3(269.025) * pow(rgb, vec3(1.0 / 2.4)) - vec3(14.025);
-  return mix(higher, lower, vec3(cutoff));
+// 0-1 sRGB  from  0-1 linear
+vec3 srgb_from_linear(vec3 linear) {
+    bvec3 cutoff = lessThan(linear, vec3(0.0031308));
+    vec3 lower = linear * vec3(12.92);
+    vec3 higher = vec3(1.055) * pow(linear, vec3(1./2.4)) - vec3(0.055);
+    return mix(higher, lower, vec3(cutoff));
 }
 
-vec4 srgba_from_linear(vec4 rgba) {
-  return vec4(srgb_from_linear(rgba.rgb), 255.0 * rgba.a);
+// 0-1 sRGBA  from  0-1 linear
+vec4 srgba_from_linear(vec4 linear) {
+    return vec4(srgb_from_linear(linear.rgb), linear.a);
 }
 
-// 0-1 linear  from  0-255 sRGB
+// 0-1 linear  from  0-1 sRGB
 vec3 linear_from_srgb(vec3 srgb) {
-    bvec3 cutoff = lessThan(srgb, vec3(10.31475));
-    vec3 lower = srgb / vec3(3294.6);
-    vec3 higher = pow((srgb + vec3(14.025)) / vec3(269.025), vec3(2.4));
-    return mix(higher, lower, cutoff);
+    bvec3 cutoff = lessThan(srgb, vec3(0.04045));
+    vec3 lower = srgb / vec3(12.92);
+    vec3 higher = pow((srgb + vec3(0.055) / vec3(1.055)), vec3(2.4));
+    return mix(higher, lower, vec3(cutoff));
 }
 
-vec4 linear_from_srgba(vec4 srgba) {
-    return vec4(linear_from_srgb(srgba.rgb * 255.0), srgba.a);
+// 0-1 linear  from  0-1 sRGB
+vec4 linear_from_srgba(vec4 srgb) {
+    return vec4(linear_from_srgb(srgb.rgb), srgb.a);
 }
 
 void main() {
-    vec4 texture_color = texture(font_texture, v_tex_coords);
+    // ALL calculations should be done in gamma space, this includes texture * color and blending
+    vec4 texture_color = srgba_from_linear(texture(font_texture, v_tex_coords));
+    vec4 color = v_color * texture_color;
 
-    if (push_constants.need_srgb_conv == 0) {
-        f_color = v_color * texture_color;
-    } else {
-        f_color = srgba_from_linear(v_color * texture_color) / 255.0;
-        f_color.a = pow(f_color.a, 1.6);
+    // If output_in_linear_colorspace is true, we are rendering into an sRGB image, for which we'll convert to linear color space.
+    // **This will break blending** as it will be performed in linear color space instead of sRGB like egui expects.
+    if (push_constants.output_in_linear_colorspace == 1) {
+        color = linear_from_srgba(color);
     }
+    f_color = color;
 }"
     }
 }

@@ -27,29 +27,14 @@ use crate::{
     utils::{immutable_texture_from_bytes, immutable_texture_from_file},
 };
 
-fn get_surface_image_format(
-    surface: &Arc<Surface>,
-    preferred_format: Option<Format>,
-    gfx_queue: &Arc<Queue>,
-) -> vulkano::format::Format {
-    preferred_format.unwrap_or_else(|| {
-        gfx_queue
-            .device()
-            .physical_device()
-            .surface_formats(surface, Default::default())
-            .unwrap()
-            .iter()
-            .find(|f| f.0.type_color().unwrap() == NumericType::SRGB)
-            .unwrap()
-            .0
-    })
-}
-
 pub struct GuiConfig {
-    /// Preferred target image format. This should match the surface format. Sometimes the user
-    /// may prefer linear color space rather than non linear. Hence the option. SRGB is selected by
-    /// default.
-    pub preferred_format: Option<Format>,
+    /// Allows supplying sRGB ImageViews as render targets instead of just UNORM ImageViews, defaults to false.
+    /// **Using sRGB will cause minor discoloration of UI elements** due to blending in linear color space and not
+    /// sRGB as Egui expects.
+    ///
+    /// If you would like to visually compare between UNORM and sRGB render targets, run the `demo_app` example of
+    /// this crate.
+    pub allow_srgb_render_target: bool,
     /// Whether to render gui as overlay. Only relevant in the case of `Gui::new`, not when using
     /// subpass. Determines whether the pipeline should clear the target image.
     pub is_overlay: bool,
@@ -60,7 +45,25 @@ pub struct GuiConfig {
 
 impl Default for GuiConfig {
     fn default() -> Self {
-        GuiConfig { preferred_format: None, is_overlay: false, samples: SampleCount::Sample1 }
+        GuiConfig {
+            allow_srgb_render_target: false,
+            is_overlay: false,
+            samples: SampleCount::Sample1,
+        }
+    }
+}
+
+impl GuiConfig {
+    pub fn validate(&self, output_format: Format) {
+        if output_format.type_color().unwrap() == NumericType::SRGB {
+            assert!(
+                self.allow_srgb_render_target,
+                "Using an output format with sRGB requires `GuiConfig::allow_srgb_render_target` \
+                 to be set! Egui prefers UNORM render targets. Using sRGB will cause minor \
+                 discoloration of UI elements due to blending in linear color space and not sRGB \
+                 as Egui expects."
+            );
+        }
     }
 }
 
@@ -83,25 +86,17 @@ impl Gui {
         event_loop: &EventLoopWindowTarget<T>,
         surface: Arc<Surface>,
         gfx_queue: Arc<Queue>,
+        output_format: Format,
         config: GuiConfig,
     ) -> Gui {
-        // Pick preferred format if provided, otherwise use the default one
-        let format = get_surface_image_format(&surface, config.preferred_format, &gfx_queue);
-        let max_texture_side =
-            gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
-        let renderer =
-            Renderer::new_with_render_pass(gfx_queue, format, config.is_overlay, config.samples);
-        let mut egui_winit = egui_winit::State::new(event_loop);
-        egui_winit.set_max_texture_side(max_texture_side);
-        egui_winit.set_pixels_per_point(surface_window(&surface).scale_factor() as f32);
-        Gui {
-            egui_ctx: Default::default(),
-            egui_winit,
-            renderer,
-            surface,
-            shapes: vec![],
-            textures_delta: Default::default(),
-        }
+        config.validate(output_format);
+        let renderer = Renderer::new_with_render_pass(
+            gfx_queue,
+            output_format,
+            config.is_overlay,
+            config.samples,
+        );
+        Self::new_internal(event_loop, surface, renderer)
     }
 
     /// Same as `new` but instead of integration owning a render pass, egui renders on your subpass
@@ -110,13 +105,23 @@ impl Gui {
         surface: Arc<Surface>,
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
+        output_format: Format,
         config: GuiConfig,
     ) -> Gui {
-        // Pick preferred format if provided, otherwise use the default one
-        let format = get_surface_image_format(&surface, config.preferred_format, &gfx_queue);
+        config.validate(output_format);
+        let renderer = Renderer::new_with_subpass(gfx_queue, output_format, subpass);
+        Self::new_internal(event_loop, surface, renderer)
+    }
+
+    /// Same as `new` but instead of integration owning a render pass, egui renders on your subpass
+    fn new_internal<T>(
+        event_loop: &EventLoopWindowTarget<T>,
+        surface: Arc<Surface>,
+        renderer: Renderer,
+    ) -> Gui {
         let max_texture_side =
-            gfx_queue.device().physical_device().properties().max_image_array_layers as usize;
-        let renderer = Renderer::new_with_subpass(gfx_queue, format, subpass);
+            renderer.queue().device().physical_device().properties().max_image_array_layers
+                as usize;
         let mut egui_winit = egui_winit::State::new(event_loop);
         egui_winit.set_max_texture_side(max_texture_side);
         egui_winit.set_pixels_per_point(surface_window(&surface).scale_factor() as f32);
