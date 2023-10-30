@@ -54,7 +54,6 @@ impl Default for GuiConfig {
 
 impl GuiConfig {
     pub fn validate(&self, output_format: Format) {
-        // if output_format.type_color().unwrap() == NumericType::SRGB {
         if output_format.numeric_format_color().unwrap() == NumericFormat::SRGB {
             assert!(
                 self.allow_srgb_render_target,
@@ -174,7 +173,6 @@ impl Gui {
     pub fn draw_on_image<F>(
         &mut self,
         before_future: F,
-        // final_image: Arc<dyn ImageViewAbstract + 'static>,
         final_image: Arc<ImageView>,
     ) -> Box<dyn GpuFuture>
     where

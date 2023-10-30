@@ -327,7 +327,6 @@ impl SimpleGuiPipeline {
         builder.execute_commands(cb).unwrap();
 
         // Move on to next subpass for gui
-        // builder.next_subpass(SubpassContents::SecondaryCommandBuffers).unwrap();
         builder
             .next_subpass(Default::default(), SubpassBeginInfo {
                 contents: SubpassContents::SecondaryCommandBuffers,

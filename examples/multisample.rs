@@ -199,8 +199,7 @@ impl MSAAPipeline {
                     image_type: ImageType::Dim2d,
                     format: image_format,
                     extent: [1, 1, 1],
-                    // transient_multisampled
-                    usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::SAMPLED,
+                    usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSIENT_ATTACHMENT,
                     samples: sample_count,
                     ..Default::default()
                 },
