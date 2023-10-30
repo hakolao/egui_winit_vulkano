@@ -17,40 +17,39 @@ use egui::{
     epaint::{Mesh, Primitive},
     ClippedPrimitive, PaintCallbackInfo, Rect, TexturesDelta,
 };
-use vulkano::buffer::allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo};
-use vulkano::buffer::Subbuffer;
-use vulkano::command_buffer::{
-    BlitImageInfo, CommandBufferInheritanceInfo, CopyBufferToImageInfo, ImageBlit,
-    PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, SecondaryAutoCommandBuffer,
-};
-use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
-use vulkano::descriptor_set::layout::DescriptorSetLayout;
-use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
-use vulkano::device::Queue;
-use vulkano::format::{Format, NumericFormat};
-use vulkano::image::sampler::{
-    Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode,
-};
-use vulkano::image::{ImageCreateInfo, ImageLayout, ImageType, SampleCount};
-use vulkano::memory::allocator::MemoryTypeFilter;
-use vulkano::pipeline::graphics::color_blend::{AttachmentBlend, BlendFactor};
-use vulkano::pipeline::graphics::viewport::Scissor;
 use vulkano::{
-    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage},
-    command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
-        RenderPassBeginInfo, SubpassBeginInfo, SubpassContents,
+    buffer::{
+        allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
+        Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer,
     },
-    image::{view::ImageView, Image, ImageUsage},
-    memory::allocator::{AllocationCreateInfo, StandardMemoryAllocator},
+    command_buffer::{
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, BlitImageInfo,
+        CommandBufferInheritanceInfo, CommandBufferUsage, CopyBufferToImageInfo, ImageBlit,
+        PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, RenderPassBeginInfo,
+        SecondaryAutoCommandBuffer, SubpassBeginInfo, SubpassContents,
+    },
+    descriptor_set::{
+        allocator::StandardDescriptorSetAllocator, layout::DescriptorSetLayout,
+        PersistentDescriptorSet, WriteDescriptorSet,
+    },
+    device::Queue,
+    format::{Format, NumericFormat},
+    image::{
+        sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode},
+        view::ImageView,
+        Image, ImageCreateInfo, ImageLayout, ImageType, ImageUsage, SampleCount,
+    },
+    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
     pipeline::{
         graphics::{
-            color_blend::{ColorBlendAttachmentState, ColorBlendState},
+            color_blend::{
+                AttachmentBlend, BlendFactor, ColorBlendAttachmentState, ColorBlendState,
+            },
             input_assembly::InputAssemblyState,
             multisample::MultisampleState,
             rasterization::RasterizationState,
             vertex_input::{Vertex, VertexDefinition},
-            viewport::{Viewport, ViewportState},
+            viewport::{Scissor, Viewport, ViewportState},
             GraphicsPipelineCreateInfo,
         },
         layout::PipelineDescriptorSetLayoutCreateInfo,
@@ -169,16 +168,13 @@ impl Renderer {
         let allocators = Allocators::new_default(gfx_queue.device());
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
-        let font_sampler = Sampler::new(
-            gfx_queue.device().clone(),
-            SamplerCreateInfo {
-                mag_filter: Filter::Linear,
-                min_filter: Filter::Linear,
-                address_mode: [SamplerAddressMode::ClampToEdge; 3],
-                mipmap_mode: SamplerMipmapMode::Linear,
-                ..Default::default()
-            },
-        )
+        let font_sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
+            mag_filter: Filter::Linear,
+            min_filter: Filter::Linear,
+            address_mode: [SamplerAddressMode::ClampToEdge; 3],
+            mipmap_mode: SamplerMipmapMode::Linear,
+            ..Default::default()
+        })
         .unwrap();
         Renderer {
             gfx_queue,
@@ -206,27 +202,23 @@ impl Renderer {
         allocator: &Arc<StandardMemoryAllocator>,
     ) -> (SubbufferAllocator, SubbufferAllocator) {
         // Create vertex and index buffers
-        let vertex_buffer_pool = SubbufferAllocator::new(
-            allocator.clone(),
-            SubbufferAllocatorCreateInfo {
+        let vertex_buffer_pool =
+            SubbufferAllocator::new(allocator.clone(), SubbufferAllocatorCreateInfo {
                 arena_size: VERTEX_BUFFER_SIZE,
                 buffer_usage: BufferUsage::VERTEX_BUFFER,
                 memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
                     | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
-            },
-        );
+            });
 
-        let index_buffer_pool = SubbufferAllocator::new(
-            allocator.clone(),
-            SubbufferAllocatorCreateInfo {
+        let index_buffer_pool =
+            SubbufferAllocator::new(allocator.clone(), SubbufferAllocatorCreateInfo {
                 arena_size: INDEX_BUFFER_SIZE,
                 buffer_usage: BufferUsage::INDEX_BUFFER,
                 memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
                     | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
-            },
-        );
+            });
 
         (vertex_buffer_pool, index_buffer_pool)
     }
@@ -267,27 +259,21 @@ impl Renderer {
         )
         .unwrap();
 
-        GraphicsPipeline::new(
-            gfx_queue.device().clone(),
-            None,
-            GraphicsPipelineCreateInfo {
-                stages: stages.into_iter().collect(),
-                vertex_input_state,
-                input_assembly_state: Some(InputAssemblyState::default()),
-                viewport_state: Some(ViewportState::default()),
-                rasterization_state: Some(RasterizationState::default()),
-                multisample_state: Some(MultisampleState {
-                    rasterization_samples: subpass.num_samples().unwrap_or(SampleCount::Sample1),
-                    ..Default::default()
-                }),
-                color_blend_state: Some(blend_state),
-                dynamic_state: [DynamicState::Viewport, DynamicState::Scissor]
-                    .into_iter()
-                    .collect(),
-                subpass: Some(subpass.into()),
-                ..GraphicsPipelineCreateInfo::layout(layout)
-            },
-        )
+        GraphicsPipeline::new(gfx_queue.device().clone(), None, GraphicsPipelineCreateInfo {
+            stages: stages.into_iter().collect(),
+            vertex_input_state,
+            input_assembly_state: Some(InputAssemblyState::default()),
+            viewport_state: Some(ViewportState::default()),
+            rasterization_state: Some(RasterizationState::default()),
+            multisample_state: Some(MultisampleState {
+                rasterization_samples: subpass.num_samples().unwrap_or(SampleCount::Sample1),
+                ..Default::default()
+            }),
+            color_blend_state: Some(blend_state),
+            dynamic_state: [DynamicState::Viewport, DynamicState::Scissor].into_iter().collect(),
+            subpass: Some(subpass.into()),
+            ..GraphicsPipelineCreateInfo::layout(layout)
+        })
         .unwrap()
     }
 
@@ -400,8 +386,7 @@ impl Renderer {
             if let Some(existing_image) = self.texture_images.get(&texture_id) {
                 let src_dims = font_image.image().extent();
                 let top_left = [pos[0] as u32, pos[1] as u32, 0];
-                let bottom_right =
-                    [pos[0] as u32 + src_dims[0], pos[1] as u32 + src_dims[1], 1];
+                let bottom_right = [pos[0] as u32 + src_dims[0], pos[1] as u32 + src_dims[1], 1];
 
                 cbb.blit_image(BlitImageInfo {
                     src_image_layout: ImageLayout::General,
@@ -732,13 +717,10 @@ impl Renderer {
                         };
 
                         if let Some(callback) = callback.callback.downcast_ref::<CallbackFn>() {
-                            (callback.f)(
-                                info,
-                                &mut CallbackContext {
-                                    builder,
-                                    resources: self.render_resources(),
-                                },
-                            );
+                            (callback.f)(info, &mut CallbackContext {
+                                builder,
+                                resources: self.render_resources(),
+                            });
                         } else {
                             println!(
                                 "Warning: Unsupported render callback. Expected \

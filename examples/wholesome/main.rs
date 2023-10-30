@@ -13,12 +13,14 @@ use std::sync::Arc;
 
 use egui::{Context, Visuals};
 use egui_winit_vulkano::{Gui, GuiConfig};
-use vulkano::command_buffer::allocator::StandardCommandBufferAllocatorCreateInfo;
-use vulkano::format::Format;
-use vulkano::image::view::ImageView;
-use vulkano::image::{Image, ImageCreateInfo, ImageType};
-use vulkano::memory::allocator::AllocationCreateInfo;
-use vulkano::{command_buffer::allocator::StandardCommandBufferAllocator, image::ImageUsage};
+use vulkano::{
+    command_buffer::allocator::{
+        StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo,
+    },
+    format::Format,
+    image::{view::ImageView, Image, ImageCreateInfo, ImageType, ImageUsage},
+    memory::allocator::AllocationCreateInfo,
+};
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
     renderer::DEFAULT_IMAGE_FORMAT,
@@ -147,19 +149,22 @@ pub fn main() {
         )
     };
     // Create a simple image to which we'll draw the triangle scene
-    let scene_image = ImageView::new_default(Image::new(
-        context.memory_allocator().clone(),
-        ImageCreateInfo {
-            image_type: ImageType::Dim2d,
-            format: DEFAULT_IMAGE_FORMAT,
-            extent: [scene_view_size[0], scene_view_size[1], 1],
-            array_layers: 1,
-            usage: ImageUsage::SAMPLED | ImageUsage::COLOR_ATTACHMENT,
-            ..Default::default()
-        },
-        AllocationCreateInfo::default(),
+    let scene_image = ImageView::new_default(
+        Image::new(
+            context.memory_allocator().clone(),
+            ImageCreateInfo {
+                image_type: ImageType::Dim2d,
+                format: DEFAULT_IMAGE_FORMAT,
+                extent: [scene_view_size[0], scene_view_size[1], 1],
+                array_layers: 1,
+                usage: ImageUsage::SAMPLED | ImageUsage::COLOR_ATTACHMENT,
+                ..Default::default()
+            },
+            AllocationCreateInfo::default(),
+        )
+        .unwrap(),
     )
-    .unwrap()).unwrap();
+    .unwrap();
 
     // Create our render pipeline
     let mut scene_render_pipeline = RenderPipeline::new(

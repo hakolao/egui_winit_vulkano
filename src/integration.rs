@@ -10,12 +10,14 @@ use std::sync::Arc;
 
 use egui::{ClippedPrimitive, TexturesDelta};
 use egui_winit::winit::event_loop::EventLoopWindowTarget;
-use vulkano::format::NumericFormat;
-use vulkano::image::sampler::SamplerCreateInfo;
-use vulkano::image::view::ImageView;
 use vulkano::{
-    command_buffer::SecondaryAutoCommandBuffer, device::Queue, format::Format, image::SampleCount,
-    render_pass::Subpass, swapchain::Surface, sync::GpuFuture,
+    command_buffer::SecondaryAutoCommandBuffer,
+    device::Queue,
+    format::{Format, NumericFormat},
+    image::{sampler::SamplerCreateInfo, view::ImageView, SampleCount},
+    render_pass::Subpass,
+    swapchain::Surface,
+    sync::GpuFuture,
 };
 use winit::window::Window;
 

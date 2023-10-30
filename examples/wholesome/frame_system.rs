@@ -14,17 +14,15 @@
 use std::{convert::TryFrom, sync::Arc};
 
 use cgmath::Matrix4;
-use vulkano::command_buffer::SubpassBeginInfo;
-use vulkano::format::Format;
-use vulkano::image::{Image, ImageCreateInfo, ImageType, ImageUsage};
-use vulkano::memory::allocator::AllocationCreateInfo;
 use vulkano::{
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
-        RenderPassBeginInfo, SecondaryCommandBufferAbstract, SubpassContents,
+        RenderPassBeginInfo, SecondaryCommandBufferAbstract, SubpassBeginInfo, SubpassContents,
     },
     device::Queue,
-    image::view::ImageView,
+    format::Format,
+    image::{view::ImageView, Image, ImageCreateInfo, ImageType, ImageUsage},
+    memory::allocator::AllocationCreateInfo,
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
 };
@@ -121,13 +119,10 @@ impl FrameSystem {
             )
             .unwrap();
         }
-        let framebuffer = Framebuffer::new(
-            self.render_pass.clone(),
-            FramebufferCreateInfo {
-                attachments: vec![final_image, self.depth_buffer.clone()],
-                ..Default::default()
-            },
-        )
+        let framebuffer = Framebuffer::new(self.render_pass.clone(), FramebufferCreateInfo {
+            attachments: vec![final_image, self.depth_buffer.clone()],
+            ..Default::default()
+        })
         .unwrap();
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.allocators.command_buffers.as_ref(),

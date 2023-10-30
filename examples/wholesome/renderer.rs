@@ -10,11 +10,9 @@
 use std::sync::Arc;
 
 use cgmath::{Matrix4, SquareMatrix};
-use vulkano::format::Format;
-use vulkano::image::view::ImageView;
 use vulkano::{
-    command_buffer::allocator::StandardCommandBufferAllocator, device::Queue,
-    memory::allocator::StandardMemoryAllocator, sync::GpuFuture,
+    command_buffer::allocator::StandardCommandBufferAllocator, device::Queue, format::Format,
+    image::view::ImageView, memory::allocator::StandardMemoryAllocator, sync::GpuFuture,
 };
 
 use crate::{

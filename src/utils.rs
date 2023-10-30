@@ -10,20 +10,17 @@
 use std::sync::Arc;
 
 use image::RgbaImage;
-use vulkano::buffer::{AllocateBufferError, Buffer, BufferCreateInfo, BufferUsage};
-use vulkano::command_buffer::allocator::StandardCommandBufferAllocatorCreateInfo;
-use vulkano::command_buffer::CopyBufferToImageInfo;
-use vulkano::image::view::ImageView;
-use vulkano::image::{AllocateImageError, Image, ImageCreateInfo, ImageType, ImageUsage};
-use vulkano::memory::allocator::{AllocationCreateInfo, MemoryTypeFilter};
 use vulkano::{
+    buffer::{AllocateBufferError, Buffer, BufferCreateInfo, BufferUsage},
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
+        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
+        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferToImageInfo,
         PrimaryCommandBufferAbstract,
     },
     descriptor_set::allocator::StandardDescriptorSetAllocator,
     device::{Device, Queue},
-    memory::allocator::StandardMemoryAllocator,
+    image::{view::ImageView, AllocateImageError, Image, ImageCreateInfo, ImageType, ImageUsage},
+    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
     Validated, ValidationError, VulkanError,
 };
 
