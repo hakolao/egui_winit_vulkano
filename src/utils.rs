@@ -11,18 +11,26 @@ use std::sync::Arc;
 
 use image::RgbaImage;
 use vulkano::{
+    buffer::{AllocateBufferError, Buffer, BufferCreateInfo, BufferUsage},
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
+        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
+        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferToImageInfo,
         PrimaryCommandBufferAbstract,
     },
     descriptor_set::allocator::StandardDescriptorSetAllocator,
     device::{Device, Queue},
-    image::{
-        immutable::ImmutableImageCreationError, view::ImageView, ImageDimensions,
-        ImageViewAbstract, ImmutableImage, MipmapsCount,
-    },
-    memory::allocator::StandardMemoryAllocator,
+    image::{view::ImageView, AllocateImageError, Image, ImageCreateInfo, ImageType, ImageUsage},
+    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
+    Validated, ValidationError, VulkanError,
 };
+
+#[derive(Debug)]
+pub enum ImageCreationError {
+    Vulkan(Validated<VulkanError>),
+    AllocateImage(Validated<AllocateImageError>),
+    AllocateBuffer(Validated<AllocateBufferError>),
+    Validation(Box<ValidationError>),
+}
 
 pub fn immutable_texture_from_bytes(
     allocators: &Allocators,
@@ -30,23 +38,45 @@ pub fn immutable_texture_from_bytes(
     byte_data: &[u8],
     dimensions: [u32; 2],
     format: vulkano::format::Format,
-) -> Result<Arc<dyn ImageViewAbstract + Send + Sync + 'static>, ImmutableImageCreationError> {
-    let vko_dims =
-        ImageDimensions::Dim2d { width: dimensions[0], height: dimensions[1], array_layers: 1 };
-
+) -> Result<Arc<ImageView>, ImageCreationError> {
     let mut cbb = AutoCommandBufferBuilder::primary(
         &allocators.command_buffer,
         queue.queue_family_index(),
         CommandBufferUsage::OneTimeSubmit,
-    )?;
-    let texture = ImmutableImage::from_iter(
-        &allocators.memory,
+    )
+    .map_err(ImageCreationError::Vulkan)?;
+
+    let texture_data_buffer = Buffer::from_iter(
+        allocators.memory.clone(),
+        BufferCreateInfo { usage: BufferUsage::TRANSFER_SRC, ..Default::default() },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
         byte_data.iter().cloned(),
-        vko_dims,
-        MipmapsCount::One,
-        format,
-        &mut cbb,
-    )?;
+    )
+    .map_err(ImageCreationError::AllocateBuffer)?;
+
+    let texture = Image::new(
+        allocators.memory.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim2d,
+            format,
+            extent: [dimensions[0], dimensions[1], 1],
+            usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .map_err(ImageCreationError::AllocateImage)?;
+
+    cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+        texture_data_buffer,
+        texture.clone(),
+    ))
+    .map_err(ImageCreationError::Validation)?;
+
     let _fut = cbb.build().unwrap().execute(queue).unwrap();
 
     Ok(ImageView::new_default(texture).unwrap())
@@ -57,7 +87,7 @@ pub fn immutable_texture_from_file(
     queue: Arc<Queue>,
     file_bytes: &[u8],
     format: vulkano::format::Format,
-) -> Result<Arc<dyn ImageViewAbstract + Send + Sync + 'static>, ImmutableImageCreationError> {
+) -> Result<Arc<ImageView>, ImageCreationError> {
     use image::GenericImageView;
 
     let img = image::load_from_memory(file_bytes).expect("Failed to load image from bytes");
@@ -90,8 +120,14 @@ impl Allocators {
     pub fn new_default(device: &Arc<Device>) -> Self {
         Self {
             memory: Arc::new(StandardMemoryAllocator::new_default(device.clone())),
-            descriptor_set: StandardDescriptorSetAllocator::new(device.clone()),
-            command_buffer: StandardCommandBufferAllocator::new(device.clone(), Default::default()),
+            descriptor_set: StandardDescriptorSetAllocator::new(device.clone(), Default::default()),
+            command_buffer: StandardCommandBufferAllocator::new(
+                device.clone(),
+                StandardCommandBufferAllocatorCreateInfo {
+                    secondary_buffer_count: 32,
+                    ..Default::default()
+                },
+            ),
         }
     }
 }

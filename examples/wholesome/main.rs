@@ -14,13 +14,16 @@ use std::sync::Arc;
 use egui::{Context, Visuals};
 use egui_winit_vulkano::{Gui, GuiConfig};
 use vulkano::{
-    command_buffer::allocator::StandardCommandBufferAllocator,
+    command_buffer::allocator::{
+        StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo,
+    },
     format::Format,
-    image::{ImageUsage, StorageImage},
+    image::{view::ImageView, Image, ImageCreateInfo, ImageType, ImageUsage},
+    memory::allocator::AllocationCreateInfo,
 };
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
-    renderer::{DeviceImageView, DEFAULT_IMAGE_FORMAT},
+    renderer::DEFAULT_IMAGE_FORMAT,
     window::{VulkanoWindows, WindowDescriptor},
 };
 use winit::{
@@ -47,7 +50,7 @@ pub struct GuiState {
 }
 
 impl GuiState {
-    pub fn new(gui: &mut Gui, scene_image: DeviceImageView, scene_view_size: [u32; 2]) -> GuiState {
+    pub fn new(gui: &mut Gui, scene_image: Arc<ImageView>, scene_view_size: [u32; 2]) -> GuiState {
         // tree.png asset is from https://github.com/sotrh/learn-wgpu/tree/master/docs/beginner/tutorial5-textures
         let image_texture_id1 = gui.register_user_image(
             include_bytes!("./assets/tree.png"),
@@ -131,7 +134,7 @@ pub fn main() {
     // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
     windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
-        ci.image_format = Some(vulkano::format::Format::B8G8R8A8_UNORM);
+        ci.image_format = Format::B8G8R8A8_UNORM;
         ci.min_image_count = ci.min_image_count.max(2);
     });
     // Create gui as main render pass (no overlay means it clears the image each frame)
@@ -146,14 +149,23 @@ pub fn main() {
         )
     };
     // Create a simple image to which we'll draw the triangle scene
-    let scene_image = StorageImage::general_purpose_image_view(
-        context.memory_allocator(),
-        context.graphics_queue().clone(),
-        scene_view_size,
-        DEFAULT_IMAGE_FORMAT,
-        ImageUsage::SAMPLED | ImageUsage::COLOR_ATTACHMENT,
+    let scene_image = ImageView::new_default(
+        Image::new(
+            context.memory_allocator().clone(),
+            ImageCreateInfo {
+                image_type: ImageType::Dim2d,
+                format: DEFAULT_IMAGE_FORMAT,
+                extent: [scene_view_size[0], scene_view_size[1], 1],
+                array_layers: 1,
+                usage: ImageUsage::SAMPLED | ImageUsage::COLOR_ATTACHMENT,
+                ..Default::default()
+            },
+            AllocationCreateInfo::default(),
+        )
+        .unwrap(),
     )
     .unwrap();
+
     // Create our render pipeline
     let mut scene_render_pipeline = RenderPipeline::new(
         context.graphics_queue().clone(),
@@ -161,7 +173,10 @@ pub fn main() {
         &renderer::Allocators {
             command_buffers: Arc::new(StandardCommandBufferAllocator::new(
                 context.device().clone(),
-                Default::default(),
+                StandardCommandBufferAllocatorCreateInfo {
+                    secondary_buffer_count: 32,
+                    ..Default::default()
+                },
             )),
             memory: context.memory_allocator().clone(),
         },

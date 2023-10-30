@@ -13,13 +13,19 @@ use egui::{mutex::Mutex, vec2, PaintCallback, PaintCallbackInfo, Rgba, Sense};
 use egui_winit_vulkano::{CallbackContext, CallbackFn, Gui, GuiConfig, RenderResources};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
-    memory::allocator::{AllocationCreateInfo, MemoryUsage},
+    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter},
     pipeline::{
         graphics::{
-            depth_stencil::DepthStencilState, input_assembly::InputAssemblyState,
-            vertex_input::Vertex, viewport::ViewportState,
+            color_blend::{ColorBlendAttachmentState, ColorBlendState},
+            input_assembly::InputAssemblyState,
+            multisample::MultisampleState,
+            rasterization::RasterizationState,
+            vertex_input::{Vertex, VertexDefinition},
+            viewport::ViewportState,
+            GraphicsPipelineCreateInfo,
         },
-        GraphicsPipeline,
+        layout::PipelineDescriptorSetLayoutCreateInfo,
+        DynamicState, GraphicsPipeline, PipelineLayout, PipelineShaderStageCreateInfo,
     },
 };
 use vulkano_util::{
@@ -43,7 +49,7 @@ pub fn main() {
         &context,
         &WindowDescriptor { width: 400.0, height: 400.0, ..Default::default() },
         |ci| {
-            ci.image_format = Some(vulkano::format::Format::B8G8R8A8_UNORM);
+            ci.image_format = vulkano::format::Format::B8G8R8A8_UNORM;
             ci.min_image_count = ci.min_image_count.max(2);
         },
     );
@@ -136,9 +142,13 @@ impl Scene {
     pub fn new(resources: RenderResources) -> Self {
         // Create the vertex buffer for the triangle
         let vertex_buffer = Buffer::from_iter(
-            &resources.memory_allocator,
+            resources.memory_allocator.clone(),
             BufferCreateInfo { usage: BufferUsage::VERTEX_BUFFER, ..Default::default() },
-            AllocationCreateInfo { usage: MemoryUsage::Upload, ..Default::default() },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_RANDOM_ACCESS,
+                ..Default::default()
+            },
             [
                 MyVertex { position: [-0.5, -0.25], color: [1.0, 0.0, 0.0, 1.0] },
                 MyVertex { position: [0.0, 0.5], color: [0.0, 1.0, 0.0, 1.0] },
@@ -148,21 +158,49 @@ impl Scene {
         .unwrap();
 
         // Create the graphics pipeline
-        let vs =
-            vs::load(resources.queue.device().clone()).expect("failed to create shader module");
-        let fs =
-            fs::load(resources.queue.device().clone()).expect("failed to create shader module");
-
-        let pipeline = GraphicsPipeline::start()
-            .vertex_input_state(MyVertex::per_vertex())
-            .vertex_shader(vs.entry_point("main").unwrap(), ())
-            .input_assembly_state(InputAssemblyState::new())
-            .fragment_shader(fs.entry_point("main").unwrap(), ())
-            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-            .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .render_pass(resources.subpass)
-            .build(resources.queue.device().clone())
+        let vs = vs::load(resources.queue.device().clone())
+            .expect("failed to create shader module")
+            .entry_point("main")
             .unwrap();
+        let fs = fs::load(resources.queue.device().clone())
+            .expect("failed to create shader module")
+            .entry_point("main")
+            .unwrap();
+
+        let vertex_input_state =
+            MyVertex::per_vertex().definition(&vs.info().input_interface).unwrap();
+
+        let stages =
+            [PipelineShaderStageCreateInfo::new(vs), PipelineShaderStageCreateInfo::new(fs)];
+
+        let layout = PipelineLayout::new(
+            resources.queue.device().clone(),
+            PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
+                .into_pipeline_layout_create_info(resources.queue.device().clone())
+                .unwrap(),
+        )
+        .unwrap();
+
+        let pipeline = GraphicsPipeline::new(
+            resources.queue.device().clone(),
+            None,
+            GraphicsPipelineCreateInfo {
+                stages: stages.into_iter().collect(),
+                vertex_input_state: Some(vertex_input_state),
+                input_assembly_state: Some(InputAssemblyState::default()),
+                viewport_state: Some(ViewportState::default()),
+                rasterization_state: Some(RasterizationState::default()),
+                multisample_state: Some(MultisampleState::default()),
+                color_blend_state: Some(ColorBlendState::with_attachment_states(
+                    resources.subpass.num_color_attachments(),
+                    ColorBlendAttachmentState::default(),
+                )),
+                dynamic_state: [DynamicState::Viewport].into_iter().collect(),
+                subpass: Some(resources.subpass.clone().into()),
+                ..GraphicsPipelineCreateInfo::layout(layout)
+            },
+        )
+        .unwrap();
 
         // Create scene object
         Self { pipeline, vertex_buffer }
@@ -173,7 +211,9 @@ impl Scene {
         context
             .builder
             .bind_pipeline_graphics(self.pipeline.clone())
+            .unwrap()
             .bind_vertex_buffers(0, self.vertex_buffer.clone())
+            .unwrap()
             .draw(self.vertex_buffer.len() as u32, 1, 0, 0)
             .unwrap();
     }

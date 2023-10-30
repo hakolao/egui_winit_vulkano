@@ -26,32 +26,37 @@ use vulkano::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, BlitImageInfo,
         CommandBufferInheritanceInfo, CommandBufferUsage, CopyBufferToImageInfo, ImageBlit,
         PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, RenderPassBeginInfo,
-        SecondaryAutoCommandBuffer, SubpassContents,
+        SecondaryAutoCommandBuffer, SubpassBeginInfo, SubpassContents,
     },
     descriptor_set::{
         allocator::StandardDescriptorSetAllocator, layout::DescriptorSetLayout,
         PersistentDescriptorSet, WriteDescriptorSet,
     },
     device::Queue,
-    format::{Format, NumericType},
+    format::{Format, NumericFormat},
     image::{
-        view::ImageView, ImageAccess, ImageLayout, ImageUsage, ImageViewAbstract, ImmutableImage,
-        SampleCount,
+        sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode},
+        view::ImageView,
+        Image, ImageCreateInfo, ImageLayout, ImageType, ImageUsage, SampleCount,
     },
-    memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator},
+    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
     pipeline::{
         graphics::{
-            color_blend::{AttachmentBlend, BlendFactor, ColorBlendState},
+            color_blend::{
+                AttachmentBlend, BlendFactor, ColorBlendAttachmentState, ColorBlendState,
+            },
             input_assembly::InputAssemblyState,
             multisample::MultisampleState,
-            rasterization::{CullMode as CullModeEnum, RasterizationState},
-            vertex_input::Vertex,
+            rasterization::RasterizationState,
+            vertex_input::{Vertex, VertexDefinition},
             viewport::{Scissor, Viewport, ViewportState},
+            GraphicsPipelineCreateInfo,
         },
-        GraphicsPipeline, Pipeline, PipelineBindPoint,
+        layout::PipelineDescriptorSetLayoutCreateInfo,
+        DynamicState, GraphicsPipeline, Pipeline, PipelineBindPoint, PipelineLayout,
+        PipelineShaderStageCreateInfo,
     },
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
-    sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode},
     sync::GpuFuture,
     DeviceSize,
 };
@@ -91,7 +96,7 @@ pub struct Renderer {
     subpass: Subpass,
 
     texture_desc_sets: AHashMap<egui::TextureId, Arc<PersistentDescriptorSet>>,
-    texture_images: AHashMap<egui::TextureId, Arc<dyn ImageViewAbstract + Send + Sync + 'static>>,
+    texture_images: AHashMap<egui::TextureId, Arc<ImageView>>,
     next_native_tex_id: u64,
 }
 
@@ -117,10 +122,10 @@ impl Renderer {
             vulkano::single_pass_renderpass!(gfx_queue.device().clone(),
                 attachments: {
                     final_color: {
-                        load: Load,
-                        store: Store,
                         format: final_output_format,
                         samples: samples,
+                        load_op: Load,
+                        store_op: Store,
                     }
                 },
                 pass: {
@@ -133,10 +138,10 @@ impl Renderer {
             vulkano::single_pass_renderpass!(gfx_queue.device().clone(),
                 attachments: {
                     final_color: {
-                        load: Clear,
-                        store: Store,
                         format: final_output_format,
                         samples: samples,
+                        load_op: Clear,
+                        store_op: Store,
                     }
                 },
                 pass: {
@@ -158,7 +163,8 @@ impl Renderer {
         is_overlay: bool,
     ) -> Renderer {
         let output_in_linear_colorspace =
-            final_output_format.type_color().unwrap() == NumericType::SRGB;
+            // final_output_format.type_color().unwrap() == NumericType::SRGB;
+            final_output_format.numeric_format_color().unwrap() == NumericFormat::SRGB;
         let allocators = Allocators::new_default(gfx_queue.device());
         let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
@@ -200,7 +206,8 @@ impl Renderer {
             SubbufferAllocator::new(allocator.clone(), SubbufferAllocatorCreateInfo {
                 arena_size: VERTEX_BUFFER_SIZE,
                 buffer_usage: BufferUsage::VERTEX_BUFFER,
-                memory_usage: MemoryUsage::Upload,
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             });
 
@@ -208,7 +215,8 @@ impl Renderer {
             SubbufferAllocator::new(allocator.clone(), SubbufferAllocatorCreateInfo {
                 arena_size: INDEX_BUFFER_SIZE,
                 buffer_usage: BufferUsage::INDEX_BUFFER,
-                memory_usage: MemoryUsage::Upload,
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             });
 
@@ -216,52 +224,82 @@ impl Renderer {
     }
 
     fn create_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
-        let vs = vs::load(gfx_queue.device().clone()).expect("failed to create shader module");
-        let fs = fs::load(gfx_queue.device().clone()).expect("failed to create shader module");
+        let vs = vs::load(gfx_queue.device().clone())
+            .expect("failed to create shader module")
+            .entry_point("main")
+            .unwrap();
+        let fs = fs::load(gfx_queue.device().clone())
+            .expect("failed to create shader module")
+            .entry_point("main")
+            .unwrap();
 
         let mut blend = AttachmentBlend::alpha();
-        blend.color_source = BlendFactor::One;
-        blend.alpha_source = BlendFactor::OneMinusDstAlpha;
-        blend.alpha_destination = BlendFactor::One;
-        let blend_state = ColorBlendState::new(1).blend(blend);
+        blend.src_color_blend_factor = BlendFactor::One;
+        blend.src_alpha_blend_factor = BlendFactor::OneMinusDstAlpha;
+        blend.dst_alpha_blend_factor = BlendFactor::One;
+        let blend_state = ColorBlendState {
+            attachments: vec![ColorBlendAttachmentState {
+                blend: Some(blend),
+                ..Default::default()
+            }],
+            ..ColorBlendState::default()
+        };
 
-        GraphicsPipeline::start()
-            .vertex_input_state(EguiVertex::per_vertex())
-            .vertex_shader(vs.entry_point("main").unwrap(), ())
-            .input_assembly_state(InputAssemblyState::new())
-            .fragment_shader(fs.entry_point("main").unwrap(), ())
-            .viewport_state(ViewportState::viewport_dynamic_scissor_dynamic(1))
-            .color_blend_state(blend_state)
-            .rasterization_state(RasterizationState::new().cull_mode(CullModeEnum::None))
-            .multisample_state(MultisampleState {
+        let vertex_input_state =
+            Some(EguiVertex::per_vertex().definition(&vs.info().input_interface).unwrap());
+
+        let stages =
+            [PipelineShaderStageCreateInfo::new(vs), PipelineShaderStageCreateInfo::new(fs)];
+
+        let layout = PipelineLayout::new(
+            gfx_queue.device().clone(),
+            PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
+                .into_pipeline_layout_create_info(gfx_queue.device().clone())
+                .unwrap(),
+        )
+        .unwrap();
+
+        GraphicsPipeline::new(gfx_queue.device().clone(), None, GraphicsPipelineCreateInfo {
+            stages: stages.into_iter().collect(),
+            vertex_input_state,
+            input_assembly_state: Some(InputAssemblyState::default()),
+            viewport_state: Some(ViewportState::default()),
+            rasterization_state: Some(RasterizationState::default()),
+            multisample_state: Some(MultisampleState {
                 rasterization_samples: subpass.num_samples().unwrap_or(SampleCount::Sample1),
                 ..Default::default()
-            })
-            .render_pass(subpass)
-            .build(gfx_queue.device().clone())
-            .unwrap()
+            }),
+            color_blend_state: Some(blend_state),
+            dynamic_state: [DynamicState::Viewport, DynamicState::Scissor].into_iter().collect(),
+            subpass: Some(subpass.into()),
+            ..GraphicsPipelineCreateInfo::layout(layout)
+        })
+        .unwrap()
     }
 
     /// Creates a descriptor set for images
     fn sampled_image_desc_set(
         &self,
         layout: &Arc<DescriptorSetLayout>,
-        image: Arc<dyn ImageViewAbstract + 'static>,
+        image: Arc<ImageView>,
         sampler: Arc<Sampler>,
     ) -> Arc<PersistentDescriptorSet> {
-        PersistentDescriptorSet::new(&self.allocators.descriptor_set, layout.clone(), [
-            WriteDescriptorSet::image_view_sampler(0, image, sampler),
-        ])
+        PersistentDescriptorSet::new(
+            &self.allocators.descriptor_set,
+            layout.clone(),
+            [WriteDescriptorSet::image_view_sampler(0, image, sampler)],
+            [],
+        )
         .unwrap()
     }
 
     /// Registers a user texture. User texture needs to be unregistered when it is no longer needed
     pub fn register_image(
         &mut self,
-        image: Arc<dyn ImageViewAbstract + Send + Sync>,
+        image: Arc<ImageView>,
         sampler_create_info: SamplerCreateInfo,
     ) -> egui::TextureId {
-        let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
+        let layout = self.pipeline.layout().set_layouts().first().unwrap();
         let sampler = Sampler::new(self.gfx_queue.device().clone(), sampler_create_info).unwrap();
         let desc_set = self.sampled_image_desc_set(layout, image.clone(), sampler);
         let id = egui::TextureId::User(self.next_native_tex_id);
@@ -294,29 +332,37 @@ impl Renderer {
         };
         // Create buffer to be copied to the image
         let texture_data_buffer = Buffer::from_iter(
-            &self.allocators.memory,
+            self.allocators.memory.clone(),
             BufferCreateInfo { usage: BufferUsage::TRANSFER_SRC, ..Default::default() },
-            AllocationCreateInfo { usage: MemoryUsage::Upload, ..Default::default() },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_RANDOM_ACCESS,
+                ..Default::default()
+            },
             data,
         )
         .unwrap();
         // Create image
-        let (img, init) = ImmutableImage::uninitialized(
-            &self.allocators.memory,
-            vulkano::image::ImageDimensions::Dim2d {
-                width: delta.image.width() as u32,
-                height: delta.image.height() as u32,
-                array_layers: 1,
-            },
-            Format::R8G8B8A8_SRGB,
-            vulkano::image::MipmapsCount::One,
-            ImageUsage::TRANSFER_DST | ImageUsage::TRANSFER_SRC | ImageUsage::SAMPLED,
-            Default::default(),
-            ImageLayout::ShaderReadOnlyOptimal,
-            Some(self.gfx_queue.queue_family_index()),
-        )
-        .unwrap();
-        let font_image = ImageView::new_default(img).unwrap();
+        let img = {
+            let extent = [delta.image.width() as u32, delta.image.height() as u32, 1];
+            Image::new(
+                self.allocators.memory.clone(),
+                ImageCreateInfo {
+                    image_type: ImageType::Dim2d,
+                    format: Format::R8G8B8A8_SRGB,
+                    extent,
+                    usage: ImageUsage::TRANSFER_DST
+                        | ImageUsage::TRANSFER_SRC
+                        | ImageUsage::SAMPLED,
+                    // initial_layout: ImageLayout::ShaderReadOnlyOptimal,
+                    // TODO(aedm): miez
+                    initial_layout: ImageLayout::Undefined,
+                    ..Default::default()
+                },
+                AllocationCreateInfo::default(),
+            )
+            .unwrap()
+        };
 
         // Create command buffer builder
         let mut cbb = AutoCommandBufferBuilder::primary(
@@ -327,36 +373,43 @@ impl Renderer {
         .unwrap();
 
         // Copy buffer to image
-        cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(texture_data_buffer, init))
-            .unwrap();
+        cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+            texture_data_buffer,
+            img.clone(),
+        ))
+        .unwrap();
+
+        let font_image = ImageView::new_default(img).unwrap();
 
         // Blit texture data to existing image if delta pos exists (e.g. font changed)
         if let Some(pos) = delta.pos {
             if let Some(existing_image) = self.texture_images.get(&texture_id) {
-                let src_dims = font_image.image().dimensions();
+                let src_dims = font_image.image().extent();
                 let top_left = [pos[0] as u32, pos[1] as u32, 0];
-                let bottom_right =
-                    [pos[0] as u32 + src_dims.width(), pos[1] as u32 + src_dims.height(), 1];
+                let bottom_right = [pos[0] as u32 + src_dims[0], pos[1] as u32 + src_dims[1], 1];
 
                 cbb.blit_image(BlitImageInfo {
                     src_image_layout: ImageLayout::General,
                     dst_image_layout: ImageLayout::General,
                     regions: [ImageBlit {
                         src_subresource: font_image.image().subresource_layers(),
-                        src_offsets: [[0, 0, 0], [src_dims.width(), src_dims.height(), 1]],
+                        src_offsets: [[0, 0, 0], src_dims],
                         dst_subresource: existing_image.image().subresource_layers(),
                         dst_offsets: [top_left, bottom_right],
                         ..Default::default()
                     }]
                     .into(),
                     filter: Filter::Nearest,
-                    ..BlitImageInfo::images(font_image.image().clone(), existing_image.image())
+                    ..BlitImageInfo::images(
+                        font_image.image().clone(),
+                        existing_image.image().clone(),
+                    )
                 })
                 .unwrap();
             }
             // Otherwise save the newly created image
         } else {
-            let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
+            let layout = self.pipeline.layout().set_layouts().first().unwrap();
             let font_desc_set =
                 self.sampled_image_desc_set(layout, font_image.clone(), self.font_sampler.clone());
             self.texture_desc_sets.insert(texture_id, font_desc_set);
@@ -387,8 +440,8 @@ impl Renderer {
             y: max.y.clamp(min.y, framebuffer_dimensions[1] as f32),
         };
         Scissor {
-            origin: [min.x.round() as u32, min.y.round() as u32],
-            dimensions: [(max.x.round() - min.x) as u32, (max.y.round() - min.y) as u32],
+            offset: [min.x.round() as u32, min.y.round() as u32],
+            extent: [(max.x.round() - min.x) as u32, (max.y.round() - min.y) as u32],
         }
     }
 
@@ -441,10 +494,10 @@ impl Renderer {
     // Starts the rendering pipeline and returns [`AutoCommandBufferBuilder`] for drawing
     fn start(
         &mut self,
-        final_image: Arc<dyn ImageViewAbstract + 'static>,
+        final_image: Arc<ImageView>,
     ) -> (AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>, [u32; 2]) {
         // Get dimensions
-        let img_dims = final_image.image().dimensions().width_height();
+        let img_dims = final_image.image().extent();
         // Create framebuffer (must be in same order as render pass description in `new`
         let framebuffer = Framebuffer::new(
             self.render_pass
@@ -470,10 +523,13 @@ impl Renderer {
                     clear_values: vec![if !self.is_overlay { Some([0.0; 4].into()) } else { None }],
                     ..RenderPassBeginInfo::framebuffer(framebuffer)
                 },
-                SubpassContents::SecondaryCommandBuffers,
+                SubpassBeginInfo {
+                    contents: SubpassContents::SecondaryCommandBuffers,
+                    ..SubpassBeginInfo::default()
+                },
             )
             .unwrap();
-        (command_buffer_builder, img_dims)
+        (command_buffer_builder, [img_dims[0], img_dims[1]])
     }
 
     /// Executes our draw commands on the final image and returns a `GpuFuture` to wait on
@@ -483,7 +539,7 @@ impl Renderer {
         textures_delta: &TexturesDelta,
         scale_factor: f32,
         before_future: F,
-        final_image: Arc<dyn ImageViewAbstract + 'static>,
+        final_image: Arc<ImageView>,
     ) -> Box<dyn GpuFuture>
     where
         F: GpuFuture + 'static,
@@ -514,7 +570,7 @@ impl Renderer {
         before_main_cb_future: Box<dyn GpuFuture>,
     ) -> Box<dyn GpuFuture> {
         // We end render pass
-        command_buffer_builder.end_render_pass().unwrap();
+        command_buffer_builder.end_render_pass(Default::default()).unwrap();
         // Then execute our whole command buffer
         let command_buffer = command_buffer_builder.build().unwrap();
         let after_main_cb =
@@ -531,7 +587,7 @@ impl Renderer {
         textures_delta: &TexturesDelta,
         scale_factor: f32,
         framebuffer_dimensions: [u32; 2],
-    ) -> SecondaryAutoCommandBuffer {
+    ) -> Arc<SecondaryAutoCommandBuffer> {
         for (id, image_delta) in &textures_delta.set {
             self.update_texture(*id, image_delta);
         }
@@ -570,36 +626,50 @@ impl Renderer {
                         eprintln!("This texture no longer exists {:?}", mesh.texture_id);
                         continue;
                     }
-
-                    let scissors = vec![self.get_rect_scissor(
-                        scale_factor,
-                        framebuffer_dimensions,
-                        *clip_rect,
-                    )];
-
                     let (vertices, indices) = self.create_subbuffers(mesh);
-
                     let desc_set = self.texture_desc_sets.get(&mesh.texture_id).unwrap();
+
                     builder
                         .bind_pipeline_graphics(self.pipeline.clone())
-                        .set_viewport(0, vec![Viewport {
-                            origin: [0.0, 0.0],
-                            dimensions: [
-                                framebuffer_dimensions[0] as f32,
-                                framebuffer_dimensions[1] as f32,
-                            ],
-                            depth_range: 0.0..1.0,
-                        }])
-                        .set_scissor(0, scissors)
+                        .unwrap()
+                        .set_viewport(
+                            0,
+                            [Viewport {
+                                offset: [0.0, 0.0],
+                                extent: [
+                                    framebuffer_dimensions[0] as f32,
+                                    framebuffer_dimensions[1] as f32,
+                                ],
+                                depth_range: 0.0..=1.0,
+                            }]
+                            .into_iter()
+                            .collect(),
+                        )
+                        .unwrap()
+                        .set_scissor(
+                            0,
+                            [self.get_rect_scissor(
+                                scale_factor,
+                                framebuffer_dimensions,
+                                *clip_rect,
+                            )]
+                            .into_iter()
+                            .collect(),
+                        )
+                        .unwrap()
                         .bind_descriptor_sets(
                             PipelineBindPoint::Graphics,
                             self.pipeline.layout().clone(),
                             0,
                             desc_set.clone(),
                         )
+                        .unwrap()
                         .push_constants(self.pipeline.layout().clone(), 0, push_constants)
+                        .unwrap()
                         .bind_vertex_buffers(0, vertices.clone())
+                        .unwrap()
                         .bind_index_buffer(indices.clone())
+                        .unwrap()
                         .draw_indexed(indices.len() as u32, 1, 0, 0, 0)
                         .unwrap();
                 }
@@ -615,19 +685,29 @@ impl Renderer {
                         let rect_max_x = rect_max_x.round();
                         let rect_max_y = rect_max_y.round();
 
-                        let scissors = vec![self.get_rect_scissor(
-                            scale_factor,
-                            framebuffer_dimensions,
-                            *clip_rect,
-                        )];
-
                         builder
-                            .set_viewport(0, vec![Viewport {
-                                origin: [rect_min_x, rect_min_y],
-                                dimensions: [rect_max_x - rect_min_x, rect_max_y - rect_min_y],
-                                depth_range: 0.0..1.0,
-                            }])
-                            .set_scissor(0, scissors);
+                            .set_viewport(
+                                0,
+                                [Viewport {
+                                    offset: [rect_min_x, rect_min_y],
+                                    extent: [rect_max_x - rect_min_x, rect_max_y - rect_min_y],
+                                    depth_range: 0.0..=1.0,
+                                }]
+                                .into_iter()
+                                .collect(),
+                            )
+                            .unwrap()
+                            .set_scissor(
+                                0,
+                                [self.get_rect_scissor(
+                                    scale_factor,
+                                    framebuffer_dimensions,
+                                    *clip_rect,
+                                )]
+                                .into_iter()
+                                .collect(),
+                            )
+                            .unwrap();
 
                         let info = egui::PaintCallbackInfo {
                             viewport: callback.rect,
@@ -713,6 +793,7 @@ pub type CallbackFnDef = dyn Fn(PaintCallbackInfo, &mut CallbackContext) + Sync 
 pub struct CallbackFn {
     pub(crate) f: Box<CallbackFnDef>,
 }
+
 impl CallbackFn {
     pub fn new<F: Fn(PaintCallbackInfo, &mut CallbackContext) + Sync + Send + 'static>(
         callback: F,

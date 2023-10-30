@@ -17,11 +17,12 @@ use cgmath::Matrix4;
 use vulkano::{
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
-        RenderPassBeginInfo, SecondaryCommandBufferAbstract, SubpassContents,
+        RenderPassBeginInfo, SecondaryCommandBufferAbstract, SubpassBeginInfo, SubpassContents,
     },
     device::Queue,
     format::Format,
-    image::{view::ImageView, AttachmentImage, ImageAccess, ImageViewAbstract},
+    image::{view::ImageView, Image, ImageCreateInfo, ImageType, ImageUsage},
+    memory::allocator::AllocationCreateInfo,
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
 };
@@ -32,7 +33,7 @@ use crate::renderer::Allocators;
 pub struct FrameSystem {
     gfx_queue: Arc<Queue>,
     render_pass: Arc<RenderPass>,
-    depth_buffer: Arc<ImageView<AttachmentImage>>,
+    depth_buffer: Arc<ImageView>,
     allocators: Allocators,
 }
 
@@ -45,16 +46,16 @@ impl FrameSystem {
         let render_pass = vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
             attachments: {
                 final_color: {
-                    load: Clear,
-                    store: Store,
                     format: final_output_format,
                     samples: 1,
+                    load_op: Clear,
+                    store_op: Store,
                 },
                 depth: {
-                    load: Clear,
-                    store: DontCare,
                     format: Format::D16_UNORM,
                     samples: 1,
+                    load_op: Clear,
+                    store_op: DontCare,
                 }
             },
             passes: [
@@ -66,16 +67,21 @@ impl FrameSystem {
             ]
         )
         .unwrap();
-        let depth_buffer = ImageView::new_default(
-            AttachmentImage::transient_input_attachment(
-                &allocators.memory,
-                [1, 1],
-                Format::D16_UNORM,
-            )
-            .unwrap(),
+
+        let depth_buffer = Image::new(
+            allocators.memory.clone(),
+            ImageCreateInfo {
+                image_type: ImageType::Dim2d,
+                format: Format::D16_UNORM,
+                extent: [1, 1, 1],
+                array_layers: 1,
+                usage: ImageUsage::SAMPLED | ImageUsage::DEPTH_STENCIL_ATTACHMENT,
+                ..Default::default()
+            },
+            AllocationCreateInfo::default(),
         )
         .unwrap();
-
+        let depth_buffer = ImageView::new_default(depth_buffer.clone()).unwrap();
         FrameSystem { gfx_queue, render_pass, depth_buffer, allocators }
     }
 
@@ -87,19 +93,27 @@ impl FrameSystem {
     pub fn frame<F>(
         &mut self,
         before_future: F,
-        final_image: Arc<dyn ImageViewAbstract + 'static>,
+        final_image: Arc<ImageView>,
         world_to_framebuffer: Matrix4<f32>,
     ) -> Frame
     where
         F: GpuFuture + 'static,
     {
-        let img_dims = final_image.image().dimensions().width_height();
-        if self.depth_buffer.image().dimensions().width_height() != img_dims {
+        let img_dims = final_image.image().extent();
+        if self.depth_buffer.image().extent() != img_dims {
             self.depth_buffer = ImageView::new_default(
-                AttachmentImage::transient_input_attachment(
-                    &self.allocators.memory,
-                    img_dims,
-                    Format::D16_UNORM,
+                Image::new(
+                    self.allocators.memory.clone(),
+                    ImageCreateInfo {
+                        image_type: ImageType::Dim2d,
+                        format: Format::D16_UNORM,
+                        extent: final_image.image().extent(),
+                        array_layers: 1,
+                        usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT
+                            | ImageUsage::TRANSIENT_ATTACHMENT,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo::default(),
                 )
                 .unwrap(),
             )
@@ -122,7 +136,10 @@ impl FrameSystem {
                     clear_values: vec![Some([0.0, 0.0, 0.0, 0.0].into()), Some(1.0f32.into())],
                     ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
                 },
-                SubpassContents::SecondaryCommandBuffers,
+                SubpassBeginInfo {
+                    contents: SubpassContents::SecondaryCommandBuffers,
+                    ..Default::default()
+                },
             )
             .unwrap();
 
@@ -156,7 +173,11 @@ impl<'a> Frame<'a> {
         } {
             0 => Some(Pass::Deferred(DrawPass { frame: self })),
             1 => {
-                self.command_buffer_builder.as_mut().unwrap().end_render_pass().unwrap();
+                self.command_buffer_builder
+                    .as_mut()
+                    .unwrap()
+                    .end_render_pass(Default::default())
+                    .unwrap();
                 let command_buffer = self.command_buffer_builder.take().unwrap().build().unwrap();
                 let after_main_cb = self
                     .before_main_cb_future
@@ -182,7 +203,7 @@ pub struct DrawPass<'f, 's: 'f> {
 
 impl<'f, 's: 'f> DrawPass<'f, 's> {
     #[inline]
-    pub fn execute<C>(&mut self, command_buffer: C)
+    pub fn execute<C>(&mut self, command_buffer: Arc<C>)
     where
         C: SecondaryCommandBufferAbstract + Send + Sync + 'static,
     {
