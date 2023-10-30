@@ -35,7 +35,7 @@ pub fn main() {
             ..WindowDescriptor::default()
         },
         |ci| {
-            ci.image_format = Some(vulkano::format::Format::B8G8R8A8_SRGB);
+            ci.image_format = vulkano::format::Format::B8G8R8A8_SRGB;
             ci.min_image_count = ci.min_image_count.max(2);
         },
     );
@@ -47,7 +47,7 @@ pub fn main() {
             ..WindowDescriptor::default()
         },
         |ci| {
-            ci.image_format = Some(vulkano::format::Format::B8G8R8A8_UNORM);
+            ci.image_format = vulkano::format::Format::B8G8R8A8_UNORM;
             ci.min_image_count = ci.min_image_count.max(2);
         },
     );

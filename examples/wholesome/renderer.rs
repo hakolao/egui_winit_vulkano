@@ -12,9 +12,10 @@ use std::sync::Arc;
 use cgmath::{Matrix4, SquareMatrix};
 use vulkano::{
     command_buffer::allocator::StandardCommandBufferAllocator, device::Queue,
-    image::ImageViewAbstract, memory::allocator::StandardMemoryAllocator, sync::GpuFuture,
+    memory::allocator::StandardMemoryAllocator, sync::GpuFuture,
 };
-use vulkano_util::renderer::DeviceImageView;
+use vulkano::format::Format;
+use vulkano::image::view::ImageView;
 
 use crate::{
     frame_system::{FrameSystem, Pass},
@@ -35,7 +36,7 @@ pub struct Allocators {
 impl RenderPipeline {
     pub fn new(
         queue: Arc<Queue>,
-        image_format: vulkano::format::Format,
+        image_format: Format,
         allocators: &Allocators,
     ) -> Self {
         let frame_system = FrameSystem::new(queue.clone(), image_format, allocators.clone());
@@ -49,7 +50,7 @@ impl RenderPipeline {
     pub fn render(
         &mut self,
         before_future: Box<dyn GpuFuture>,
-        image: DeviceImageView,
+        image: Arc<ImageView>,
     ) -> Box<dyn GpuFuture> {
         let mut frame = self.frame_system.frame(
             before_future,
@@ -57,13 +58,13 @@ impl RenderPipeline {
             image.clone(),
             Matrix4::identity(),
         );
-        let dims = image.dimensions().width_height();
+        let dims = image.image().extent();
         // Draw each render pass that's related to scene
         let mut after_future = None;
         while let Some(pass) = frame.next_pass() {
             match pass {
                 Pass::Deferred(mut draw_pass) => {
-                    let cb = self.draw_pipeline.draw(dims);
+                    let cb = Arc::new(self.draw_pipeline.draw([dims[0], dims[1]]));
                     draw_pass.execute(cb);
                 }
                 Pass::Finished(af) => {

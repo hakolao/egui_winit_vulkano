@@ -13,13 +13,15 @@ use egui_winit::winit::event_loop::EventLoopWindowTarget;
 use vulkano::{
     command_buffer::SecondaryAutoCommandBuffer,
     device::Queue,
-    format::{Format, NumericType},
-    image::{ImageViewAbstract, SampleCount},
+    format::{Format},
+    image::{SampleCount},
     render_pass::Subpass,
-    sampler::SamplerCreateInfo,
     swapchain::Surface,
     sync::GpuFuture,
 };
+use vulkano::format::NumericFormat;
+use vulkano::image::sampler::SamplerCreateInfo;
+use vulkano::image::view::ImageView;
 use winit::window::Window;
 
 use crate::{
@@ -55,7 +57,8 @@ impl Default for GuiConfig {
 
 impl GuiConfig {
     pub fn validate(&self, output_format: Format) {
-        if output_format.type_color().unwrap() == NumericType::SRGB {
+        // if output_format.type_color().unwrap() == NumericType::SRGB {
+        if output_format.numeric_format_color().unwrap() == NumericFormat::SRGB {
             assert!(
                 self.allow_srgb_render_target,
                 "Using an output format with sRGB requires `GuiConfig::allow_srgb_render_target` \
@@ -174,10 +177,11 @@ impl Gui {
     pub fn draw_on_image<F>(
         &mut self,
         before_future: F,
-        final_image: Arc<dyn ImageViewAbstract + 'static>,
+        // final_image: Arc<dyn ImageViewAbstract + 'static>,
+        final_image: Arc<ImageView>,
     ) -> Box<dyn GpuFuture>
-    where
-        F: GpuFuture + 'static,
+        where
+            F: GpuFuture + 'static,
     {
         if !self.renderer.has_renderpass() {
             panic!(
@@ -203,7 +207,7 @@ impl Gui {
     pub fn draw_on_subpass_image(
         &mut self,
         image_dimensions: [u32; 2],
-    ) -> SecondaryAutoCommandBuffer {
+    ) -> Arc<SecondaryAutoCommandBuffer> {
         if self.renderer.has_renderpass() {
             panic!(
                 "Gui integration has been created with its own render pass, use `draw_on_image` \
@@ -245,7 +249,8 @@ impl Gui {
     /// Registers a user image from Vulkano image view to be used by egui
     pub fn register_user_image_view(
         &mut self,
-        image: Arc<dyn ImageViewAbstract + Send + Sync>,
+        // image: Arc<dyn ImageViewAbstract + Send + Sync>,
+        image: Arc<ImageView>,
         sampler_create_info: SamplerCreateInfo,
     ) -> egui::TextureId {
         self.renderer.register_image(image, sampler_create_info)
@@ -266,7 +271,7 @@ impl Gui {
             image_file_bytes,
             format,
         )
-        .expect("Failed to create image");
+            .expect("Failed to create image");
         self.renderer.register_image(image, sampler_create_info)
     }
 
@@ -284,7 +289,7 @@ impl Gui {
             dimensions,
             format,
         )
-        .expect("Failed to create image");
+            .expect("Failed to create image");
         self.renderer.register_image(image, sampler_create_info)
     }
 

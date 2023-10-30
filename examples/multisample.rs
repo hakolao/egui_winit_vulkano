@@ -25,9 +25,9 @@ use vulkano::{
     device::{Device, Queue},
     format::Format,
     image::{
-        view::ImageView, AttachmentImage, ImageAccess, ImageUsage, ImageViewAbstract, SampleCount,
+        view::ImageView, ImageUsage, SampleCount,
     },
-    memory::allocator::{AllocationCreateInfo, MemoryUsage, StandardMemoryAllocator},
+    memory::allocator::{AllocationCreateInfo,StandardMemoryAllocator},
     pipeline::{
         graphics::{
             input_assembly::InputAssemblyState,
@@ -40,9 +40,18 @@ use vulkano::{
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
 };
+use vulkano::command_buffer::allocator::StandardCommandBufferAllocatorCreateInfo;
+use vulkano::command_buffer::SubpassBeginInfo;
+use vulkano::image::{Image, ImageCreateInfo, ImageType};
+use vulkano::memory::allocator::MemoryTypeFilter;
+use vulkano::pipeline::graphics::GraphicsPipelineCreateInfo;
+use vulkano::pipeline::graphics::vertex_input::VertexDefinition;
+use vulkano::pipeline::{DynamicState, PipelineLayout, PipelineShaderStageCreateInfo};
+use vulkano::pipeline::graphics::color_blend::{ColorBlendAttachmentState, ColorBlendState};
+use vulkano::pipeline::graphics::rasterization::RasterizationState;
+use vulkano::pipeline::layout::PipelineDescriptorSetLayoutCreateInfo;
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
-    renderer::SwapchainImageView,
     window::{VulkanoWindows, WindowDescriptor},
 };
 use winit::{
@@ -58,7 +67,7 @@ pub fn main() {
     // Vulkano windows (create one)
     let mut windows = VulkanoWindows::default();
     windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
-        ci.image_format = Some(vulkano::format::Format::B8G8R8A8_UNORM);
+        ci.image_format = vulkano::format::Format::B8G8R8A8_UNORM;
         ci.image_usage = ImageUsage::TRANSFER_DST | ci.image_usage;
         ci.min_image_count = ci.min_image_count.max(2);
     });
@@ -148,7 +157,7 @@ struct MSAAPipeline {
     render_pass: Arc<RenderPass>,
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
-    intermediary: Arc<ImageView<AttachmentImage>>,
+    intermediary: Arc<ImageView>,
     vertex_buffer: Subbuffer<[MyVertex]>,
     command_buffer_allocator: StandardCommandBufferAllocator,
 }
@@ -166,9 +175,13 @@ impl MSAAPipeline {
             Self::create_pipeline(queue.device().clone(), render_pass.clone());
 
         let vertex_buffer = Buffer::from_iter(
-            allocator,
+            allocator.clone(),
             BufferCreateInfo { usage: BufferUsage::VERTEX_BUFFER, ..Default::default() },
-            AllocationCreateInfo { usage: MemoryUsage::Upload, ..Default::default() },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_RANDOM_ACCESS,
+                ..Default::default()
+            },
             [
                 MyVertex { position: [-0.5, -0.25], color: [1.0, 0.0, 0.0, 1.0] },
                 MyVertex { position: [0.0, 0.5], color: [0.0, 1.0, 0.0, 1.0] },
@@ -179,11 +192,27 @@ impl MSAAPipeline {
 
         // Create an allocator for command-buffer data
         let command_buffer_allocator =
-            StandardCommandBufferAllocator::new(queue.device().clone(), Default::default());
+            StandardCommandBufferAllocator::new(queue.device().clone(), StandardCommandBufferAllocatorCreateInfo {
+                secondary_buffer_count: 32,
+                ..Default::default()
+            });
 
         let intermediary = ImageView::new_default(
-            AttachmentImage::transient_multisampled(allocator, [1, 1], sample_count, image_format)
-                .unwrap(),
+            // AttachmentImage::transient_multisampled(allocator, [1, 1], sample_count, image_format)
+            //     .unwrap(),
+            Image::new(
+                allocator.clone(),
+                ImageCreateInfo {
+                    image_type: ImageType::Dim2d,
+                    format: image_format,
+                    extent: [1 ,1, 1],
+                    // transient_multisampled
+                    usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::SAMPLED,
+                    samples: sample_count,
+                    ..Default::default()
+                },
+                AllocationCreateInfo::default(),
+            ).unwrap()
         )
         .unwrap();
 
@@ -209,23 +238,23 @@ impl MSAAPipeline {
             attachments: {
                 // The first framebuffer attachment is the intermediary image.
                 intermediary: {
-                    load: Clear,
-                    store: DontCare,
                     format: format,
                     samples: samples,
+                    load_op: Clear,
+                    store_op: DontCare,
                 },
                 // The second framebuffer attachment is the final image.
                 color: {
-                    load: DontCare,
-                    store: Store,
                     format: format,
                     samples: 1,
+                    load_op: DontCare,
+                    store_op: Store,
                 }
             },
             pass: {
                 color: [intermediary],
+                color_resolve: [color],
                 depth_stencil: {},
-                resolve: [color],
             }
         )
         .unwrap()
@@ -239,23 +268,63 @@ impl MSAAPipeline {
         device: Arc<Device>,
         render_pass: Arc<RenderPass>,
     ) -> (Arc<GraphicsPipeline>, Subpass) {
-        let vs = vs::load(device.clone()).expect("failed to create shader module");
-        let fs = fs::load(device.clone()).expect("failed to create shader module");
+        let vs = vs::load(device.clone()).expect("failed to create shader module").entry_point("main").unwrap();
+        let fs = fs::load(device.clone()).expect("failed to create shader module").entry_point("main").unwrap();
+
+        let vertex_input_state = MyVertex::per_vertex()
+            .definition(&vs.info().input_interface)
+            .unwrap();
+
+        let stages = [
+            PipelineShaderStageCreateInfo::new(vs),
+            PipelineShaderStageCreateInfo::new(fs),
+        ];
+
+        let layout = PipelineLayout::new(
+            device.clone(),
+            PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
+                .into_pipeline_layout_create_info(device.clone())
+                .unwrap(),
+        )
+            .unwrap();
 
         let subpass = Subpass::from(render_pass, 0).unwrap();
         (
-            GraphicsPipeline::start()
-                .vertex_input_state(MyVertex::per_vertex())
-                .vertex_shader(vs.entry_point("main").unwrap(), ())
-                .input_assembly_state(InputAssemblyState::new())
-                .fragment_shader(fs.entry_point("main").unwrap(), ())
-                .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-                .render_pass(subpass.clone())
-                .multisample_state(MultisampleState {
-                    rasterization_samples: subpass.num_samples().unwrap(),
-                    ..Default::default()
-                })
-                .build(device)
+            // GraphicsPipeline::start()
+            //     .vertex_input_state(MyVertex::per_vertex())
+            //     .vertex_shader(vs.entry_point("main").unwrap(), ())
+            //     .input_assembly_state(InputAssemblyState::new())
+            //     .fragment_shader(fs.entry_point("main").unwrap(), ())
+            //     .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+            //     .render_pass(subpass.clone())
+            //     .multisample_state(MultisampleState {
+            //         rasterization_samples: subpass.num_samples().unwrap(),
+            //         ..Default::default()
+            //     })
+            //     .build(device)
+            //     .unwrap(),
+            GraphicsPipeline::new(
+                device.clone(),
+                None,
+                GraphicsPipelineCreateInfo {
+                    stages: stages.into_iter().collect(),
+                    vertex_input_state: Some(vertex_input_state),
+                    input_assembly_state: Some(InputAssemblyState::default()),
+                    viewport_state: Some(ViewportState::default()),
+                    rasterization_state: Some(RasterizationState::default()),
+                    multisample_state: Some(MultisampleState {
+                        rasterization_samples: subpass.num_samples().unwrap(),
+                        ..MultisampleState::default()
+                    }),
+                    color_blend_state: Some(ColorBlendState::with_attachment_states(
+                        subpass.num_color_attachments(),
+                        ColorBlendAttachmentState::default()
+                    )),
+                    dynamic_state: [DynamicState::Viewport].into_iter().collect(),
+                    subpass: Some(subpass.clone().into()),
+                    ..GraphicsPipelineCreateInfo::layout(layout)
+                },
+            )
                 .unwrap(),
             subpass,
         )
@@ -264,7 +333,7 @@ impl MSAAPipeline {
     pub fn render(
         &mut self,
         before_future: Box<dyn GpuFuture>,
-        image: SwapchainImageView,
+        image: Arc<ImageView>,
         gui: &mut Gui,
     ) -> Box<dyn GpuFuture> {
         let mut builder = AutoCommandBufferBuilder::primary(
@@ -274,17 +343,32 @@ impl MSAAPipeline {
         )
         .unwrap();
 
-        let dimensions = image.image().dimensions().width_height();
+        let dimensions = image.image().extent();
         // Resize intermediary image
-        if dimensions != self.intermediary.dimensions().width_height() {
+        if dimensions != self.intermediary.image().extent() {
             self.intermediary = ImageView::new_default(
-                AttachmentImage::transient_multisampled(
-                    &self.allocator,
-                    dimensions,
-                    self.subpass.num_samples().unwrap(),
-                    image.image().format(),
-                )
-                .unwrap(),
+                // AttachmentImage::transient_multisampled(
+                //     &self.allocator,
+                //     dimensions,
+                //     self.subpass.num_samples().unwrap(),
+                //     image.image().format(),
+                // )
+                // .unwrap(),
+
+                Image::new(
+                    self.allocator.clone(),
+                    ImageCreateInfo {
+                        image_type: ImageType::Dim2d,
+                        format: image.image().format(),
+                        extent: image.image().extent(),
+                        // transient_multisampled
+                        usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::SAMPLED,
+                        samples: self.subpass.num_samples().unwrap(),
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo::default(),
+                ).unwrap()
+
             )
             .unwrap();
         }
@@ -301,12 +385,15 @@ impl MSAAPipeline {
                 RenderPassBeginInfo {
                     clear_values: vec![
                         Some([0.0, 0.0, 0.0, 1.0].into()),
-                        Some([0.0, 0.0, 0.0, 1.0].into()),
+                        // Some([0.0, 0.0, 0.0, 1.0].into()),
+                        None
                     ],
                     ..RenderPassBeginInfo::framebuffer(framebuffer)
                 },
-                SubpassContents::SecondaryCommandBuffers,
-            )
+                SubpassBeginInfo {
+                    contents: SubpassContents::SecondaryCommandBuffers,
+                    ..Default::default()
+                },            )
             .unwrap();
 
         // Render first draw pass
@@ -322,23 +409,26 @@ impl MSAAPipeline {
         .unwrap();
         secondary_builder
             .bind_pipeline_graphics(self.pipeline.clone())
-            .set_viewport(0, vec![Viewport {
-                origin: [0.0, 0.0],
-                dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-                depth_range: 0.0..1.0,
-            }])
+            .unwrap()
+            .set_viewport(0, [Viewport {
+                offset: [0.0, 0.0],
+                extent: [dimensions[0] as f32, dimensions[1] as f32],
+                depth_range: 0.0..=1.0,
+            }].into_iter().collect())
+            .unwrap()
             .bind_vertex_buffers(0, self.vertex_buffer.clone())
+            .unwrap()
             .draw(self.vertex_buffer.len() as u32, 1, 0, 0)
             .unwrap();
         let cb = secondary_builder.build().unwrap();
         builder.execute_commands(cb).unwrap();
 
         // Draw gui on subpass
-        let cb = gui.draw_on_subpass_image(dimensions);
+        let cb = gui.draw_on_subpass_image([dimensions[0], dimensions[1]]);
         builder.execute_commands(cb).unwrap();
 
         // Last end render pass
-        builder.end_render_pass().unwrap();
+        builder.end_render_pass(Default::default()).unwrap();
         let command_buffer = builder.build().unwrap();
         let after_future = before_future.then_execute(self.queue.clone(), command_buffer).unwrap();
 
