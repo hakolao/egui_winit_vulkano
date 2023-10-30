@@ -26,10 +26,10 @@ use vulkano::{
 
 #[derive(Debug)]
 pub enum ImageCreationError {
-    VulkanError(Validated<VulkanError>),
-    AllocateImageError(Validated<AllocateImageError>),
-    AllocateBufferError(Validated<AllocateBufferError>),
-    ValidationError(Box<ValidationError>),
+    Vulkan(Validated<VulkanError>),
+    AllocateImage(Validated<AllocateImageError>),
+    AllocateBuffer(Validated<AllocateBufferError>),
+    Validation(Box<ValidationError>),
 }
 
 pub fn immutable_texture_from_bytes(
@@ -44,7 +44,7 @@ pub fn immutable_texture_from_bytes(
         queue.queue_family_index(),
         CommandBufferUsage::OneTimeSubmit,
     )
-    .map_err(ImageCreationError::VulkanError)?;
+    .map_err(ImageCreationError::Vulkan)?;
 
     let texture_data_buffer = Buffer::from_iter(
         allocators.memory.clone(),
@@ -56,7 +56,7 @@ pub fn immutable_texture_from_bytes(
         },
         byte_data.iter().cloned(),
     )
-    .map_err(ImageCreationError::AllocateBufferError)?;
+    .map_err(ImageCreationError::AllocateBuffer)?;
 
     let texture = Image::new(
         allocators.memory.clone(),
@@ -69,13 +69,13 @@ pub fn immutable_texture_from_bytes(
         },
         AllocationCreateInfo::default(),
     )
-    .map_err(ImageCreationError::AllocateImageError)?;
+    .map_err(ImageCreationError::AllocateImage)?;
 
     cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
         texture_data_buffer,
         texture.clone(),
     ))
-    .map_err(ImageCreationError::ValidationError)?;
+    .map_err(ImageCreationError::Validation)?;
 
     let _fut = cbb.build().unwrap().execute(queue).unwrap();
 

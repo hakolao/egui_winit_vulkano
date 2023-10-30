@@ -299,7 +299,7 @@ impl Renderer {
         image: Arc<ImageView>,
         sampler_create_info: SamplerCreateInfo,
     ) -> egui::TextureId {
-        let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
+        let layout = self.pipeline.layout().set_layouts().first().unwrap();
         let sampler = Sampler::new(self.gfx_queue.device().clone(), sampler_create_info).unwrap();
         let desc_set = self.sampled_image_desc_set(layout, image.clone(), sampler);
         let id = egui::TextureId::User(self.next_native_tex_id);
@@ -409,7 +409,7 @@ impl Renderer {
             }
             // Otherwise save the newly created image
         } else {
-            let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
+            let layout = self.pipeline.layout().set_layouts().first().unwrap();
             let font_desc_set =
                 self.sampled_image_desc_set(layout, font_image.clone(), self.font_sampler.clone());
             self.texture_desc_sets.insert(texture_id, font_desc_set);
