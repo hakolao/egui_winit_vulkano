@@ -14,20 +14,20 @@
 use std::{convert::TryFrom, sync::Arc};
 
 use cgmath::Matrix4;
+use vulkano::command_buffer::SubpassBeginInfo;
+use vulkano::format::Format;
+use vulkano::image::{Image, ImageCreateInfo, ImageType, ImageUsage};
+use vulkano::memory::allocator::AllocationCreateInfo;
 use vulkano::{
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
         RenderPassBeginInfo, SecondaryCommandBufferAbstract, SubpassContents,
     },
     device::Queue,
-    image::{view::ImageView},
+    image::view::ImageView,
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
 };
-use vulkano::command_buffer::SubpassBeginInfo;
-use vulkano::format::Format;
-use vulkano::image::{Image, ImageCreateInfo, ImageType, ImageUsage};
-use vulkano::memory::allocator::AllocationCreateInfo;
 
 use crate::renderer::Allocators;
 
@@ -81,19 +81,9 @@ impl FrameSystem {
                 ..Default::default()
             },
             AllocationCreateInfo::default(),
-        ).unwrap();
+        )
+        .unwrap();
         let depth_buffer = ImageView::new_default(depth_buffer.clone()).unwrap();
-
-        // let depth_buffer = ImageView::new_default(
-        //     AttachmentImage::transient_input_attachment(
-        //         &allocators.memory,
-        //         [1, 1],
-        //         Format::D16_UNORM,
-        //     )
-        //     .unwrap(),
-        // )
-        // .unwrap();
-
         FrameSystem { gfx_queue, render_pass, depth_buffer, allocators }
     }
 
@@ -105,7 +95,6 @@ impl FrameSystem {
     pub fn frame<F>(
         &mut self,
         before_future: F,
-        // final_image: Arc<dyn ImageViewAbstract + 'static>,
         final_image: Arc<ImageView>,
         world_to_framebuffer: Matrix4<f32>,
     ) -> Frame
@@ -115,33 +104,30 @@ impl FrameSystem {
         let img_dims = final_image.image().extent();
         if self.depth_buffer.image().extent() != img_dims {
             self.depth_buffer = ImageView::new_default(
-                // AttachmentImage::transient_input_attachment(
-                //     &self.allocators.memory,
-                //     img_dims,
-                //     Format::D16_UNORM,
-                // )
-                // .unwrap(),
-
-            Image::new(
-                self.allocators.memory.clone(),
-                ImageCreateInfo {
-                    image_type: ImageType::Dim2d,
-                    format: Format::D16_UNORM,
-                    extent: final_image.image().extent(),
-                    array_layers: 1,
-                    usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT | ImageUsage::TRANSIENT_ATTACHMENT,
-                    ..Default::default()
-                },
-                AllocationCreateInfo::default(),
-            ).unwrap()
-
+                Image::new(
+                    self.allocators.memory.clone(),
+                    ImageCreateInfo {
+                        image_type: ImageType::Dim2d,
+                        format: Format::D16_UNORM,
+                        extent: final_image.image().extent(),
+                        array_layers: 1,
+                        usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT
+                            | ImageUsage::TRANSIENT_ATTACHMENT,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo::default(),
+                )
+                .unwrap(),
             )
             .unwrap();
         }
-        let framebuffer = Framebuffer::new(self.render_pass.clone(), FramebufferCreateInfo {
-            attachments: vec![final_image, self.depth_buffer.clone()],
-            ..Default::default()
-        })
+        let framebuffer = Framebuffer::new(
+            self.render_pass.clone(),
+            FramebufferCreateInfo {
+                attachments: vec![final_image, self.depth_buffer.clone()],
+                ..Default::default()
+            },
+        )
         .unwrap();
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.allocators.command_buffers.as_ref(),
@@ -192,7 +178,11 @@ impl<'a> Frame<'a> {
         } {
             0 => Some(Pass::Deferred(DrawPass { frame: self })),
             1 => {
-                self.command_buffer_builder.as_mut().unwrap().end_render_pass(Default::default()).unwrap();
+                self.command_buffer_builder
+                    .as_mut()
+                    .unwrap()
+                    .end_render_pass(Default::default())
+                    .unwrap();
                 let command_buffer = self.command_buffer_builder.take().unwrap().build().unwrap();
                 let after_main_cb = self
                     .before_main_cb_future

@@ -13,6 +13,14 @@
 
 use std::{convert::TryInto, sync::Arc};
 
+use vulkano::memory::allocator::MemoryTypeFilter;
+use vulkano::pipeline::graphics::color_blend::{ColorBlendAttachmentState, ColorBlendState};
+use vulkano::pipeline::graphics::multisample::MultisampleState;
+use vulkano::pipeline::graphics::rasterization::RasterizationState;
+use vulkano::pipeline::graphics::vertex_input::VertexDefinition;
+use vulkano::pipeline::graphics::GraphicsPipelineCreateInfo;
+use vulkano::pipeline::layout::PipelineDescriptorSetLayoutCreateInfo;
+use vulkano::pipeline::{DynamicState, PipelineLayout, PipelineShaderStageCreateInfo};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
@@ -20,7 +28,7 @@ use vulkano::{
         CommandBufferInheritanceInfo, CommandBufferUsage, SecondaryAutoCommandBuffer,
     },
     device::Queue,
-    memory::allocator::{AllocationCreateInfo},
+    memory::allocator::AllocationCreateInfo,
     pipeline::{
         graphics::{
             depth_stencil::DepthStencilState,
@@ -32,14 +40,6 @@ use vulkano::{
     },
     render_pass::Subpass,
 };
-use vulkano::memory::allocator::MemoryTypeFilter;
-use vulkano::pipeline::{DynamicState, PipelineLayout, PipelineShaderStageCreateInfo};
-use vulkano::pipeline::graphics::color_blend::{ColorBlendAttachmentState, ColorBlendState};
-use vulkano::pipeline::graphics::GraphicsPipelineCreateInfo;
-use vulkano::pipeline::graphics::multisample::MultisampleState;
-use vulkano::pipeline::graphics::rasterization::RasterizationState;
-use vulkano::pipeline::graphics::vertex_input::VertexDefinition;
-use vulkano::pipeline::layout::PipelineDescriptorSetLayoutCreateInfo;
 
 use crate::renderer::Allocators;
 
@@ -74,28 +74,20 @@ impl TriangleDrawSystem {
         .unwrap();
 
         let pipeline = {
-            let vs = vs::load(gfx_queue.device().clone()).expect("failed to create shader module").entry_point("main").unwrap();
-            let fs = fs::load(gfx_queue.device().clone()).expect("failed to create shader module").entry_point("main").unwrap();
-
-            // GraphicsPipeline::start()
-            //     .vertex_input_state(MyVertex::per_vertex())
-            //     .vertex_shader(vs.entry_point("main").unwrap(), ())
-            //     .input_assembly_state(InputAssemblyState::new())
-            //     .fragment_shader(fs.entry_point("main").unwrap(), ())
-            //     .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-            //     .depth_stencil_state(DepthStencilState::simple_depth_test())
-            //     .render_pass(subpass.clone())
-            //     .build(gfx_queue.device().clone())
-            //     .unwrap()
-
-            let vertex_input_state = MyVertex::per_vertex()
-                .definition(&vs.info().input_interface)
+            let vs = vs::load(gfx_queue.device().clone())
+                .expect("failed to create shader module")
+                .entry_point("main")
+                .unwrap();
+            let fs = fs::load(gfx_queue.device().clone())
+                .expect("failed to create shader module")
+                .entry_point("main")
                 .unwrap();
 
-            let stages = [
-                PipelineShaderStageCreateInfo::new(vs),
-                PipelineShaderStageCreateInfo::new(fs),
-            ];
+            let vertex_input_state =
+                MyVertex::per_vertex().definition(&vs.info().input_interface).unwrap();
+
+            let stages =
+                [PipelineShaderStageCreateInfo::new(vs), PipelineShaderStageCreateInfo::new(fs)];
 
             let layout = PipelineLayout::new(
                 gfx_queue.device().clone(),
@@ -103,8 +95,7 @@ impl TriangleDrawSystem {
                     .into_pipeline_layout_create_info(gfx_queue.device().clone())
                     .unwrap(),
             )
-                .unwrap();
-
+            .unwrap();
 
             GraphicsPipeline::new(
                 gfx_queue.device().clone(),
@@ -115,12 +106,10 @@ impl TriangleDrawSystem {
                     input_assembly_state: Some(InputAssemblyState::default()),
                     viewport_state: Some(ViewportState::default()),
                     rasterization_state: Some(RasterizationState::default()),
-                    multisample_state: Some(
-                        MultisampleState::default()
-                    ),
+                    multisample_state: Some(MultisampleState::default()),
                     color_blend_state: Some(ColorBlendState::with_attachment_states(
                         subpass.num_color_attachments(),
-                        ColorBlendAttachmentState::default()
+                        ColorBlendAttachmentState::default(),
                     )),
                     depth_stencil_state: Some(DepthStencilState::default()),
                     dynamic_state: [DynamicState::Viewport].into_iter().collect(),
@@ -128,7 +117,7 @@ impl TriangleDrawSystem {
                     ..GraphicsPipelineCreateInfo::layout(layout)
                 },
             )
-                .unwrap()
+            .unwrap()
         };
 
         TriangleDrawSystem {
@@ -140,7 +129,10 @@ impl TriangleDrawSystem {
         }
     }
 
-    pub fn draw(&self, viewport_dimensions: [u32; 2]) -> Arc<SecondaryAutoCommandBuffer<Arc<StandardCommandBufferAllocator>>> {
+    pub fn draw(
+        &self,
+        viewport_dimensions: [u32; 2],
+    ) -> Arc<SecondaryAutoCommandBuffer<Arc<StandardCommandBufferAllocator>>> {
         let mut builder = AutoCommandBufferBuilder::secondary(
             &self.command_buffer_allocator,
             self.gfx_queue.queue_family_index(),
@@ -154,11 +146,16 @@ impl TriangleDrawSystem {
         builder
             .bind_pipeline_graphics(self.pipeline.clone())
             .unwrap()
-            .set_viewport(0, [Viewport {
-                offset: [0.0, 0.0],
-                extent: [viewport_dimensions[0] as f32, viewport_dimensions[1] as f32],
-                depth_range: 0.0..=1.0,
-            }].into_iter().collect())
+            .set_viewport(
+                0,
+                [Viewport {
+                    offset: [0.0, 0.0],
+                    extent: [viewport_dimensions[0] as f32, viewport_dimensions[1] as f32],
+                    depth_range: 0.0..=1.0,
+                }]
+                .into_iter()
+                .collect(),
+            )
             .unwrap()
             .bind_vertex_buffers(0, self.vertex_buffer.clone())
             .unwrap()

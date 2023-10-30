@@ -16,6 +16,16 @@ use std::{
 
 use egui::{epaint::Shadow, style::Margin, vec2, Align, Align2, Color32, Frame, Rounding, Window};
 use egui_winit_vulkano::{Gui, GuiConfig};
+use vulkano::command_buffer::allocator::StandardCommandBufferAllocatorCreateInfo;
+use vulkano::command_buffer::SubpassBeginInfo;
+use vulkano::image::view::ImageView;
+use vulkano::memory::allocator::MemoryTypeFilter;
+use vulkano::pipeline::graphics::color_blend::{ColorBlendAttachmentState, ColorBlendState};
+use vulkano::pipeline::graphics::rasterization::RasterizationState;
+use vulkano::pipeline::graphics::vertex_input::VertexDefinition;
+use vulkano::pipeline::graphics::GraphicsPipelineCreateInfo;
+use vulkano::pipeline::layout::PipelineDescriptorSetLayoutCreateInfo;
+use vulkano::pipeline::{DynamicState, PipelineLayout, PipelineShaderStageCreateInfo};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
@@ -24,7 +34,7 @@ use vulkano::{
     },
     device::{Device, Queue},
     format::Format,
-    image::{SampleCount},
+    image::SampleCount,
     memory::allocator::{AllocationCreateInfo, StandardMemoryAllocator},
     pipeline::{
         graphics::{
@@ -38,16 +48,6 @@ use vulkano::{
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
 };
-use vulkano::command_buffer::allocator::StandardCommandBufferAllocatorCreateInfo;
-use vulkano::command_buffer::SubpassBeginInfo;
-use vulkano::image::view::ImageView;
-use vulkano::memory::allocator::MemoryTypeFilter;
-use vulkano::pipeline::graphics::color_blend::{ColorBlendAttachmentState, ColorBlendState};
-use vulkano::pipeline::graphics::GraphicsPipelineCreateInfo;
-use vulkano::pipeline::graphics::rasterization::RasterizationState;
-use vulkano::pipeline::graphics::vertex_input::VertexDefinition;
-use vulkano::pipeline::{DynamicState, PipelineLayout, PipelineShaderStageCreateInfo};
-use vulkano::pipeline::layout::PipelineDescriptorSetLayoutCreateInfo;
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
     window::{VulkanoWindows, WindowDescriptor},
@@ -182,11 +182,13 @@ impl SimpleGuiPipeline {
         .unwrap();
 
         // Create an allocator for command-buffer data
-        let command_buffer_allocator =
-            StandardCommandBufferAllocator::new(queue.device().clone(), StandardCommandBufferAllocatorCreateInfo {
+        let command_buffer_allocator = StandardCommandBufferAllocator::new(
+            queue.device().clone(),
+            StandardCommandBufferAllocatorCreateInfo {
                 secondary_buffer_count: 32,
                 ..Default::default()
-            });
+            },
+        );
 
         Self { queue, render_pass, pipeline, subpass, vertex_buffer, command_buffer_allocator }
     }
@@ -218,17 +220,20 @@ impl SimpleGuiPipeline {
         device: Arc<Device>,
         render_pass: Arc<RenderPass>,
     ) -> (Arc<GraphicsPipeline>, Subpass) {
-        let vs = vs::load(device.clone()).expect("failed to create shader module").entry_point("main").unwrap();
-        let fs = fs::load(device.clone()).expect("failed to create shader module").entry_point("main").unwrap();
-
-        let vertex_input_state = MyVertex::per_vertex()
-            .definition(&vs.info().input_interface)
+        let vs = vs::load(device.clone())
+            .expect("failed to create shader module")
+            .entry_point("main")
+            .unwrap();
+        let fs = fs::load(device.clone())
+            .expect("failed to create shader module")
+            .entry_point("main")
             .unwrap();
 
-        let stages = [
-            PipelineShaderStageCreateInfo::new(vs),
-            PipelineShaderStageCreateInfo::new(fs),
-        ];
+        let vertex_input_state =
+            MyVertex::per_vertex().definition(&vs.info().input_interface).unwrap();
+
+        let stages =
+            [PipelineShaderStageCreateInfo::new(vs), PipelineShaderStageCreateInfo::new(fs)];
 
         let layout = PipelineLayout::new(
             device.clone(),
@@ -236,46 +241,29 @@ impl SimpleGuiPipeline {
                 .into_pipeline_layout_create_info(device.clone())
                 .unwrap(),
         )
-            .unwrap();
-
+        .unwrap();
 
         let subpass = Subpass::from(render_pass, 0).unwrap();
         (
-            // GraphicsPipeline::start()
-            //     .vertex_input_state(MyVertex::per_vertex())
-            //     .vertex_shader(vs.entry_point("main").unwrap(), ())
-            //     .input_assembly_state(InputAssemblyState::new())
-            //     .fragment_shader(fs.entry_point("main").unwrap(), ())
-            //     .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-            //     .render_pass(subpass.clone())
-            //     .multisample_state(MultisampleState {
-            //         rasterization_samples: SampleCount::Sample1,
-            //         ..Default::default()
-            //     })
-            //     .build(device)
-            //     .unwrap(),
-
-        GraphicsPipeline::new(
-            device,
-            None,
-            GraphicsPipelineCreateInfo {
-                stages: stages.into_iter().collect(),
-                vertex_input_state: Some(vertex_input_state),
-                input_assembly_state: Some(InputAssemblyState::default()),
-                viewport_state: Some(ViewportState::default()),
-                rasterization_state: Some(RasterizationState::default()),
-                multisample_state: Some(
-                    MultisampleState::default()
-                ),
-                color_blend_state: Some(ColorBlendState::with_attachment_states(
-                    subpass.num_color_attachments(),
-                    ColorBlendAttachmentState::default()
-                )),
-                dynamic_state: [DynamicState::Viewport].into_iter().collect(),
-                subpass: Some(subpass.clone().into()),
-                ..GraphicsPipelineCreateInfo::layout(layout)
-            },
-        )
+            GraphicsPipeline::new(
+                device,
+                None,
+                GraphicsPipelineCreateInfo {
+                    stages: stages.into_iter().collect(),
+                    vertex_input_state: Some(vertex_input_state),
+                    input_assembly_state: Some(InputAssemblyState::default()),
+                    viewport_state: Some(ViewportState::default()),
+                    rasterization_state: Some(RasterizationState::default()),
+                    multisample_state: Some(MultisampleState::default()),
+                    color_blend_state: Some(ColorBlendState::with_attachment_states(
+                        subpass.num_color_attachments(),
+                        ColorBlendAttachmentState::default(),
+                    )),
+                    dynamic_state: [DynamicState::Viewport].into_iter().collect(),
+                    subpass: Some(subpass.clone().into()),
+                    ..GraphicsPipelineCreateInfo::layout(layout)
+                },
+            )
             .unwrap(),
             subpass,
         )
@@ -295,10 +283,10 @@ impl SimpleGuiPipeline {
         .unwrap();
 
         let dimensions = image.image().extent();
-        let framebuffer = Framebuffer::new(self.render_pass.clone(), FramebufferCreateInfo {
-            attachments: vec![image],
-            ..Default::default()
-        })
+        let framebuffer = Framebuffer::new(
+            self.render_pass.clone(),
+            FramebufferCreateInfo { attachments: vec![image], ..Default::default() },
+        )
         .unwrap();
 
         // Begin render pipeline commands
@@ -311,7 +299,8 @@ impl SimpleGuiPipeline {
                 SubpassBeginInfo {
                     contents: SubpassContents::SecondaryCommandBuffers,
                     ..Default::default()
-                },            )
+                },
+            )
             .unwrap();
 
         // Render first draw pass
@@ -328,11 +317,16 @@ impl SimpleGuiPipeline {
         secondary_builder
             .bind_pipeline_graphics(self.pipeline.clone())
             .unwrap()
-            .set_viewport(0, [Viewport {
-                offset: [0.0, 0.0],
-                extent: [dimensions[0] as f32, dimensions[1] as f32],
-                depth_range: 0.0..=1.0,
-            }].into_iter().collect())
+            .set_viewport(
+                0,
+                [Viewport {
+                    offset: [0.0, 0.0],
+                    extent: [dimensions[0] as f32, dimensions[1] as f32],
+                    depth_range: 0.0..=1.0,
+                }]
+                .into_iter()
+                .collect(),
+            )
             .unwrap()
             .bind_vertex_buffers(0, self.vertex_buffer.clone())
             .unwrap()
@@ -343,13 +337,15 @@ impl SimpleGuiPipeline {
 
         // Move on to next subpass for gui
         // builder.next_subpass(SubpassContents::SecondaryCommandBuffers).unwrap();
-        builder                    .next_subpass(
-            Default::default(),
-            SubpassBeginInfo {
-                contents: SubpassContents::SecondaryCommandBuffers,
-                ..Default::default()
-            },
-        ).unwrap();
+        builder
+            .next_subpass(
+                Default::default(),
+                SubpassBeginInfo {
+                    contents: SubpassContents::SecondaryCommandBuffers,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         // Draw gui on subpass
         let cb = gui.draw_on_subpass_image([dimensions[0], dimensions[1]]);
         builder.execute_commands(cb).unwrap();

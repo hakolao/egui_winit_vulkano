@@ -13,18 +13,15 @@ use std::sync::Arc;
 
 use egui::{Context, Visuals};
 use egui_winit_vulkano::{Gui, GuiConfig};
-use vulkano::{
-    command_buffer::allocator::StandardCommandBufferAllocator,
-    image::{ImageUsage},
-};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocatorCreateInfo;
 use vulkano::format::Format;
-use vulkano::image::{Image, ImageCreateInfo, ImageType};
 use vulkano::image::view::ImageView;
+use vulkano::image::{Image, ImageCreateInfo, ImageType};
 use vulkano::memory::allocator::AllocationCreateInfo;
+use vulkano::{command_buffer::allocator::StandardCommandBufferAllocator, image::ImageUsage};
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
-    renderer::{DEFAULT_IMAGE_FORMAT},
+    renderer::DEFAULT_IMAGE_FORMAT,
     window::{VulkanoWindows, WindowDescriptor},
 };
 use winit::{
@@ -150,15 +147,7 @@ pub fn main() {
         )
     };
     // Create a simple image to which we'll draw the triangle scene
-    // let scene_image = StorageImage::general_purpose_image_view(
-    //     context.memory_allocator(),
-    //     context.graphics_queue().clone(),
-    //     scene_view_size,
-    //     DEFAULT_IMAGE_FORMAT,
-    //     ImageUsage::SAMPLED | ImageUsage::COLOR_ATTACHMENT,
-    // )
-    // .unwrap();
-    let scene_image = Image::new(
+    let scene_image = ImageView::new_default(Image::new(
         context.memory_allocator().clone(),
         ImageCreateInfo {
             image_type: ImageType::Dim2d,
@@ -169,8 +158,8 @@ pub fn main() {
             ..Default::default()
         },
         AllocationCreateInfo::default(),
-    ).unwrap();
-    let scene_image = ImageView::new_default(scene_image.clone()).unwrap();
+    )
+    .unwrap()).unwrap();
 
     // Create our render pipeline
     let mut scene_render_pipeline = RenderPipeline::new(

@@ -22,10 +22,8 @@ egui = "0.22"
 egui-winit = "0.22"
 image = "0.24.5"
 winit = "0.28.2"
-#vulkano = "0.34"
-vulkano = { version = "0.34", features = ["serde"] }
+vulkano = "0.34"
 vulkano-shaders = "0.34"
-smallvec = "*"
 
 [dev-dependencies]
 cgmath = "0.18.0"

@@ -10,12 +10,12 @@
 use std::sync::Arc;
 
 use cgmath::{Matrix4, SquareMatrix};
+use vulkano::format::Format;
+use vulkano::image::view::ImageView;
 use vulkano::{
     command_buffer::allocator::StandardCommandBufferAllocator, device::Queue,
     memory::allocator::StandardMemoryAllocator, sync::GpuFuture,
 };
-use vulkano::format::Format;
-use vulkano::image::view::ImageView;
 
 use crate::{
     frame_system::{FrameSystem, Pass},
@@ -34,11 +34,7 @@ pub struct Allocators {
 }
 
 impl RenderPipeline {
-    pub fn new(
-        queue: Arc<Queue>,
-        image_format: Format,
-        allocators: &Allocators,
-    ) -> Self {
+    pub fn new(queue: Arc<Queue>, image_format: Format, allocators: &Allocators) -> Self {
         let frame_system = FrameSystem::new(queue.clone(), image_format, allocators.clone());
         let draw_pipeline =
             TriangleDrawSystem::new(queue, frame_system.deferred_subpass(), allocators);
