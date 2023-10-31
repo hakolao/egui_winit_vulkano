@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use egui::{Context, Visuals, ImageSource, load::SizedTexture};
+use egui::{load::SizedTexture, Context, ImageSource, Visuals};
 use egui_winit_vulkano::{Gui, GuiConfig};
 use vulkano::{
     command_buffer::allocator::{
