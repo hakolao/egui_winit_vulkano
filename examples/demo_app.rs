@@ -8,6 +8,7 @@
 // according to those terms.
 
 use egui_winit_vulkano::{Gui, GuiConfig};
+use vulkano::sync::{self, GpuFuture};
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
     window::{VulkanoWindows, WindowDescriptor},
@@ -118,7 +119,14 @@ pub fn main() {
 
                     // Render UI
                     // Acquire swapchain future
-                    let before_future = renderer.acquire().unwrap();
+                    let before_future = match renderer.acquire() {
+                        Ok(future) => future,
+                        Err(vulkano::VulkanError::OutOfDate) => {
+                            renderer.resize();
+                            sync::now(context.device().clone()).boxed()
+                        }
+                        Err(e) => panic!("Failed to acquire swapchain future: {}", e),
+                    };
                     // Render gui
                     let after_future =
                         gui.draw_on_image(before_future, renderer.swapchain_image_view());
