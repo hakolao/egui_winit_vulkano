@@ -121,17 +121,26 @@ impl Gui {
         let max_texture_side =
             renderer.queue().device().physical_device().properties().max_image_array_layers
                 as usize;
-        let mut egui_winit = egui_winit::State::new(event_loop);
-        egui_winit.set_max_texture_side(max_texture_side);
-        egui_winit.set_pixels_per_point(surface_window(&surface).scale_factor() as f32);
+        let egui_ctx: egui::Context = Default::default();
+        let egui_winit = egui_winit::State::new(
+            egui_ctx.viewport_id(),
+            event_loop,
+            Some(surface_window(&surface).scale_factor() as f32),
+            Some(max_texture_side),
+        );
         Gui {
-            egui_ctx: Default::default(),
+            egui_ctx,
             egui_winit,
             renderer,
             surface,
             shapes: vec![],
             textures_delta: Default::default(),
         }
+    }
+
+    /// Returns the pixels per point of the window of this gui.
+    fn pixels_per_point(&self) -> f32 {
+        egui_winit::pixels_per_point(&self.egui_ctx, surface_window(&self.surface))
     }
 
     /// Returns a set of resources used to construct the render pipeline. These can be reused
@@ -148,7 +157,7 @@ impl Gui {
     ///
     /// Note that egui uses `tab` to move focus between elements, so this will always return `true` for tabs.
     pub fn update(&mut self, winit_event: &winit::event::WindowEvent<'_>) -> bool {
-        self.egui_winit.on_event(&self.egui_ctx, winit_event).consumed
+        self.egui_winit.on_window_event(&self.egui_ctx, winit_event).consumed
     }
 
     /// Begins Egui frame & determines what will be drawn later. This must be called before draw, and after `update` (winit event).
@@ -190,7 +199,7 @@ impl Gui {
         self.renderer.draw_on_image(
             &clipped_meshes,
             &textures_delta,
-            self.egui_winit.pixels_per_point(),
+            self.pixels_per_point(),
             before_future,
             final_image,
         )
@@ -215,7 +224,7 @@ impl Gui {
         self.renderer.draw_on_subpass_image(
             &clipped_meshes,
             &textures_delta,
-            self.egui_winit.pixels_per_point(),
+            self.pixels_per_point(),
             image_dimensions,
         )
     }
@@ -224,13 +233,18 @@ impl Gui {
         self.end_frame();
         let shapes = std::mem::take(&mut self.shapes);
         let textures_delta = std::mem::take(&mut self.textures_delta);
-        let clipped_meshes = self.egui_ctx.tessellate(shapes);
+        let clipped_meshes = self.egui_ctx.tessellate(shapes, self.pixels_per_point());
         (clipped_meshes, textures_delta)
     }
 
     fn end_frame(&mut self) {
-        let egui::FullOutput { platform_output, repaint_after: _r, textures_delta, shapes } =
-            self.egui_ctx.end_frame();
+        let egui::FullOutput {
+            platform_output,
+            textures_delta,
+            shapes,
+            pixels_per_point: _,
+            viewport_output: _,
+        } = self.egui_ctx.end_frame();
 
         self.egui_winit.handle_platform_output(
             surface_window(&self.surface),
