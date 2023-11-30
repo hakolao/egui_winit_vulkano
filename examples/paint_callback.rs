@@ -10,7 +10,7 @@
 use std::{convert::TryInto, sync::Arc};
 
 use egui::{mutex::Mutex, vec2, PaintCallback, PaintCallbackInfo, Rgba, Sense};
-use egui_winit_vulkano::{CallbackContext, CallbackFn, Gui, GuiConfig, RenderResources};
+use egui_winit_vulkano::{egui, CallbackContext, CallbackFn, Gui, GuiConfig, RenderResources};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter},

@@ -18,8 +18,8 @@ clipboard = ["egui-winit/clipboard"]
 
 [dependencies]
 ahash = "0.8.3"
-egui = "0.23"
-egui-winit = "0.23"
+egui-winit = "0.24"
+egui = "0.24"
 image = "0.24.5"
 winit = "0.28.2"
 vulkano = "0.34"
@@ -27,5 +27,5 @@ vulkano-shaders = "0.34"
 
 [dev-dependencies]
 cgmath = "0.18.0"
-egui_demo_lib = "0.23"
+egui_demo_lib = "0.24"
 vulkano-util = "0.34"

@@ -7,7 +7,7 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use egui_winit_vulkano::{Gui, GuiConfig};
+use egui_winit_vulkano::{egui, Gui, GuiConfig};
 use vulkano::sync::{self, GpuFuture};
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
