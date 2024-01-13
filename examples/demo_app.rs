@@ -22,7 +22,7 @@ use winit::{
 
 pub fn main() {
     // Winit event loop
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     // Vulkano context
     let context = VulkanoContext::new(VulkanoConfig::default());
     // Vulkano windows (create one)

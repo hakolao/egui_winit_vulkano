@@ -123,6 +123,7 @@ impl Gui {
                 as usize;
         let egui_ctx: egui::Context = Default::default();
         let egui_winit = egui_winit::State::new(
+            egui_ctx.clone(),
             egui_ctx.viewport_id(),
             event_loop,
             Some(surface_window(&surface).scale_factor() as f32),
@@ -156,8 +157,8 @@ impl Gui {
     /// and only when this returns `false` pass on the events to your game.
     ///
     /// Note that egui uses `tab` to move focus between elements, so this will always return `true` for tabs.
-    pub fn update(&mut self, winit_event: &winit::event::WindowEvent<'_>) -> bool {
-        self.egui_winit.on_window_event(&self.egui_ctx, winit_event).consumed
+    pub fn update(&mut self, winit_event: &winit::event::WindowEvent) -> bool {
+        self.egui_winit.on_window_event(surface_window(&self.surface), winit_event).consumed
     }
 
     /// Begins Egui frame & determines what will be drawn later. This must be called before draw, and after `update` (winit event).
@@ -246,11 +247,7 @@ impl Gui {
             viewport_output: _,
         } = self.egui_ctx.end_frame();
 
-        self.egui_winit.handle_platform_output(
-            surface_window(&self.surface),
-            &self.egui_ctx,
-            platform_output,
-        );
+        self.egui_winit.handle_platform_output(surface_window(&self.surface), platform_output);
         self.shapes = shapes;
         self.textures_delta = textures_delta;
     }
