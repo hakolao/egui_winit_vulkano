@@ -35,8 +35,11 @@ use vulkano::{
     device::Queue,
     format::{Format, NumericFormat},
     image::{
-        sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode},
-        view::ImageView,
+        sampler::{
+            ComponentMapping, ComponentSwizzle, Filter, Sampler, SamplerAddressMode,
+            SamplerCreateInfo, SamplerMipmapMode,
+        },
+        view::{ImageView, ImageViewCreateInfo},
         Image, ImageCreateInfo, ImageLayout, ImageType, ImageUsage, SampleCount,
     },
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
@@ -88,6 +91,8 @@ pub struct Renderer {
     #[allow(unused)]
     format: vulkano::format::Format,
     font_sampler: Arc<Sampler>,
+    // May be R/RGBA sRGB/UNORM
+    font_format: Format,
 
     allocators: Allocators,
     vertex_buffer_pool: SubbufferAllocator,
@@ -176,6 +181,7 @@ impl Renderer {
             ..Default::default()
         })
         .unwrap();
+        let font_format = Self::choose_font_format(gfx_queue.device());
         Renderer {
             gfx_queue,
             format: final_output_format,
@@ -190,6 +196,7 @@ impl Renderer {
             is_overlay,
             output_in_linear_colorspace,
             font_sampler,
+            font_format,
             allocators,
         }
     }
@@ -314,21 +321,77 @@ impl Renderer {
         self.texture_desc_sets.remove(&texture_id);
         self.texture_images.remove(&texture_id);
     }
+    /// Choose a font format, attempt to minimize memory footprint and CPU unpacking time
+    /// by choosing a swizzled linear format.
+    fn choose_font_format(device: &vulkano::device::Device) -> Format {
+        let is_supported = |device: &vulkano::device::Device, format: Format| {
+            device
+                .physical_device()
+                .image_format_properties(vulkano::image::ImageFormatInfo {
+                    format,
+                    usage: ImageUsage::SAMPLED
+                        | ImageUsage::TRANSFER_DST
+                        | ImageUsage::TRANSFER_SRC,
+                    ..Default::default()
+                })
+                // Ok(Some(..)) is supported format for this usage.
+                .is_ok_and(|properties| properties.is_some())
+        };
+        // Some portability subset devices are unable to swizzle views.
+        if !device.physical_device().supported_extensions().khr_portability_subset
+            || device.physical_device().supported_features().image_view_format_swizzle
+        {
+            // We can save mem by swizzling in hardware!
+            for format in [Format::R8_UNORM, Format::R8_SRGB] {
+                if is_supported(device, format) {
+                    return format;
+                }
+            }
+        }
+        // Swizzled formats failed, need full RGBA.
+        for format in [Format::R8G8B8A8_UNORM, Format::R8G8B8A8_SRGB] {
+            if is_supported(device, format) {
+                return format;
+            }
+        }
+        // Rest of implementation assumes R8G8B8A8_SRGB anyway!
+        panic!("No supported font image formats")
+    }
+
+    /// Based on self.font_format, extract into bytes.
+    fn pack_font_data(&self, data: &egui::FontImage) -> Vec<u8> {
+        // Prepare common (and lazy) iters
+        // Font data is linear by default, skips expensive sqrt per pixel.
+        let linear = data.pixels.iter().map(|f| (f.clamp(0.0, 1.0 - f32::EPSILON) * 256.0) as u8);
+        let srgb = data.srgba_pixels(None);
+
+        match self.font_format {
+            // Linear formats, no srgb conversion needed!
+            Format::R8_UNORM => linear.collect(),
+            Format::R8G8B8A8_UNORM => linear.flat_map(|coverage| [coverage; 4]).collect(),
+            // Have to convert to linear on the CPU.
+            Format::R8_SRGB => srgb.map(|color| color.r()).collect(),
+            Format::R8G8B8A8_SRGB => srgb.flat_map(|color| color.to_array()).collect(),
+            // This is the exhaustive list of choosable font formats.
+            _ => unreachable!(),
+        }
+    }
 
     fn update_texture(&mut self, texture_id: egui::TextureId, delta: &egui::epaint::ImageDelta) {
         // Extract pixel data from egui
-        let data: Vec<u8> = match &delta.image {
+        let (data, format): (Vec<u8>, _) = match &delta.image {
             egui::ImageData::Color(image) => {
                 assert_eq!(
                     image.width() * image.height(),
                     image.pixels.len(),
                     "Mismatch between texture size and texel count"
                 );
-                image.pixels.iter().flat_map(|color| color.to_array()).collect()
+                (
+                    image.pixels.iter().flat_map(|color| color.to_array()).collect(),
+                    Format::R8G8B8A8_SRGB,
+                )
             }
-            egui::ImageData::Font(image) => {
-                image.srgba_pixels(None).flat_map(|color| color.to_array()).collect()
-            }
+            egui::ImageData::Font(image) => (self.pack_font_data(image), self.font_format),
         };
         // Create buffer to be copied to the image
         let texture_data_buffer = Buffer::from_iter(
@@ -349,7 +412,7 @@ impl Renderer {
                 self.allocators.memory.clone(),
                 ImageCreateInfo {
                     image_type: ImageType::Dim2d,
-                    format: Format::R8G8B8A8_SRGB,
+                    format,
                     extent,
                     usage: ImageUsage::TRANSFER_DST
                         | ImageUsage::TRANSFER_SRC
@@ -379,7 +442,22 @@ impl Renderer {
         ))
         .unwrap();
 
-        let font_image = ImageView::new_default(img).unwrap();
+        let font_image = ImageView::new(img.clone(), ImageViewCreateInfo {
+            component_mapping: match format {
+                // Red channel is coverage of white, premul:
+                // RGBA textures are pre-made in this form, no swizzle needed.
+                Format::R8_SRGB | Format::R8_UNORM => ComponentMapping {
+                    r: ComponentSwizzle::Red,
+                    g: ComponentSwizzle::Red,
+                    b: ComponentSwizzle::Red,
+                    a: ComponentSwizzle::Red,
+                },
+                _ => ComponentMapping::identity(),
+            },
+            format,
+            ..ImageViewCreateInfo::from_image(&img)
+        })
+        .unwrap();
 
         // Blit texture data to existing image if delta pos exists (e.g. font changed)
         if let Some(pos) = delta.pos {
