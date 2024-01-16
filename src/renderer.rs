@@ -324,7 +324,6 @@ impl Renderer {
     /// Choose a font format, attempt to minimize memory footprint and CPU unpacking time
     /// by choosing a swizzled linear format.
     fn choose_font_format(device: &vulkano::device::Device) -> Format {
-        return Format::R8G8B8A8_SRGB;
         // Some portability subset devices are unable to swizzle views.
         let supports_swizzle =
             !device.physical_device().supported_extensions().khr_portability_subset
@@ -345,10 +344,11 @@ impl Renderer {
         };
         if supports_swizzle && is_supported(device, Format::R8G8_UNORM) {
             // We can save mem by swizzling in hardware!
-            return Format::R8G8_UNORM;
+            Format::R8G8_UNORM
+        } else {
+            // Rest of implementation assumes R8G8B8A8_SRGB anyway!
+            Format::R8G8B8A8_SRGB
         }
-        // Rest of implementation assumes R8G8B8A8_SRGB anyway!
-        Format::R8G8B8A8_SRGB
     }
 
     /// Based on self.font_format, extract into bytes.
