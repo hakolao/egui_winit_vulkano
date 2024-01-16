@@ -13,10 +13,7 @@ use std::{
 };
 
 use ahash::AHashMap;
-use egui::{
-    epaint::{Mesh, Primitive},
-    ClippedPrimitive, PaintCallbackInfo, Rect, TexturesDelta,
-};
+use egui::{epaint::Primitive, ClippedPrimitive, PaintCallbackInfo, Rect, TexturesDelta};
 use vulkano::{
     buffer::{
         allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
@@ -47,7 +44,7 @@ use vulkano::{
         allocator::{
             AllocationCreateInfo, DeviceLayout, MemoryTypeFilter, StandardMemoryAllocator,
         },
-        DeviceAlignment, MemoryPropertyFlags,
+        DeviceAlignment,
     },
     pipeline::{
         graphics::{
