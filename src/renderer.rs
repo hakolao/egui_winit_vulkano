@@ -40,7 +40,12 @@ use vulkano::{
         Image, ImageAspects, ImageCreateInfo, ImageLayout, ImageSubresourceLayers, ImageType,
         ImageUsage, SampleCount,
     },
-    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
+    memory::{
+        allocator::{
+            AllocationCreateInfo, DeviceLayout, MemoryTypeFilter, StandardMemoryAllocator,
+        },
+        DeviceAlignment, MemoryPropertyFlags,
+    },
     pipeline::{
         graphics::{
             color_blend::{
@@ -59,7 +64,7 @@ use vulkano::{
     },
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
-    DeviceSize,
+    DeviceSize, NonZeroDeviceSize,
 };
 
 use crate::utils::Allocators;
@@ -91,8 +96,7 @@ pub struct Renderer {
     font_sampler: Arc<Sampler>,
 
     allocators: Allocators,
-    vertex_buffer_pool: SubbufferAllocator,
-    index_buffer_pool: SubbufferAllocator,
+    vertex_index_buffer_pool: SubbufferAllocator,
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
 
@@ -167,7 +171,14 @@ impl Renderer {
             // final_output_format.type_color().unwrap() == NumericType::SRGB;
             final_output_format.numeric_format_color().unwrap() == NumericFormat::SRGB;
         let allocators = Allocators::new_default(gfx_queue.device());
-        let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
+        let vertex_index_buffer_pool =
+            SubbufferAllocator::new(allocators.memory.clone(), SubbufferAllocatorCreateInfo {
+                arena_size: INDEX_BUFFER_SIZE + VERTEX_BUFFER_SIZE,
+                buffer_usage: BufferUsage::INDEX_BUFFER | BufferUsage::VERTEX_BUFFER,
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            });
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
         let font_sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
             mag_filter: Filter::Linear,
@@ -181,8 +192,7 @@ impl Renderer {
             gfx_queue,
             format: final_output_format,
             render_pass,
-            vertex_buffer_pool,
-            index_buffer_pool,
+            vertex_index_buffer_pool,
             pipeline,
             subpass,
             texture_desc_sets: AHashMap::default(),
@@ -197,31 +207,6 @@ impl Renderer {
 
     pub fn has_renderpass(&self) -> bool {
         self.render_pass.is_some()
-    }
-
-    fn create_buffers(
-        allocator: &Arc<StandardMemoryAllocator>,
-    ) -> (SubbufferAllocator, SubbufferAllocator) {
-        // Create vertex and index buffers
-        let vertex_buffer_pool =
-            SubbufferAllocator::new(allocator.clone(), SubbufferAllocatorCreateInfo {
-                arena_size: VERTEX_BUFFER_SIZE,
-                buffer_usage: BufferUsage::VERTEX_BUFFER,
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            });
-
-        let index_buffer_pool =
-            SubbufferAllocator::new(allocator.clone(), SubbufferAllocatorCreateInfo {
-                arena_size: INDEX_BUFFER_SIZE,
-                buffer_usage: BufferUsage::INDEX_BUFFER,
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            });
-
-        (vertex_buffer_pool, index_buffer_pool)
     }
 
     fn create_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
@@ -417,11 +402,7 @@ impl Renderer {
                 ..Default::default()
             },
             // Bytes, align of one, infallible.
-            vulkano::memory::allocator::DeviceLayout::new(
-                total_size_bytes,
-                vulkano::memory::DeviceAlignment::MIN,
-            )
-            .unwrap(),
+            DeviceLayout::new(total_size_bytes, DeviceAlignment::MIN).unwrap(),
         )
         .unwrap();
         let buffer = Subbuffer::new(buffer);
@@ -492,37 +473,6 @@ impl Renderer {
             offset: [min.x.round() as u32, min.y.round() as u32],
             extent: [(max.x.round() - min.x) as u32, (max.y.round() - min.y) as u32],
         }
-    }
-
-    fn create_subbuffers(&self, mesh: &Mesh) -> (Subbuffer<[EguiVertex]>, Subbuffer<[u32]>) {
-        // Copy vertices to buffer
-        let v_slice = &mesh.vertices;
-
-        let vertex_chunk =
-            self.vertex_buffer_pool.allocate_slice::<EguiVertex>(v_slice.len() as u64).unwrap();
-        {
-            let mut vertex_write = vertex_chunk.write().unwrap();
-            for (i, v) in v_slice.iter().enumerate() {
-                vertex_write[i] = EguiVertex {
-                    position: [v.pos.x, v.pos.y],
-                    tex_coords: [v.uv.x, v.uv.y],
-                    color: v.color.to_array(),
-                };
-            }
-        }
-
-        // Copy indices to buffer
-        let i_slice = &mesh.indices;
-        let index_chunk =
-            self.index_buffer_pool.allocate_slice::<u32>(i_slice.len() as u64).unwrap();
-        {
-            let mut index_write = index_chunk.write().unwrap();
-            for (i, v) in i_slice.iter().enumerate() {
-                index_write[i] = *v;
-            }
-        }
-
-        (vertex_chunk, index_chunk)
     }
 
     fn create_secondary_command_buffer_builder(
@@ -644,6 +594,80 @@ impl Renderer {
         }
         buffer
     }
+    /// Uploads all meshes in bulk. They will be available in the same order, packed.
+    /// None if no vertices or no indices.
+    fn upload_meshes(
+        &mut self,
+        clipped_meshes: &[ClippedPrimitive],
+    ) -> Option<(Subbuffer<[egui::epaint::Vertex]>, Subbuffer<[u32]>)> {
+        use egui::epaint::Vertex;
+        type Index = u32;
+        const VERTEX_ALIGN: DeviceAlignment = DeviceAlignment::of::<Vertex>();
+        const INDEX_ALIGN: DeviceAlignment = DeviceAlignment::of::<Index>();
+
+        // Iterator over only the meshes, no user callbacks.
+        let meshes = clipped_meshes.iter().filter_map(|mesh| match &mesh.primitive {
+            Primitive::Mesh(m) => Some(m),
+            _ => None,
+        });
+
+        // Calculate counts of each mesh, and total bytes for combined data
+        let (total_vertices, total_size_bytes) = {
+            let mut total_vertices = 0;
+            let mut total_indices = 0;
+
+            for mesh in meshes.clone() {
+                total_vertices += mesh.vertices.len();
+                total_indices += mesh.indices.len();
+            }
+            if total_indices == 0 || total_vertices == 0 {
+                return None;
+            }
+
+            let total_size_bytes = total_vertices * std::mem::size_of::<Vertex>()
+                + total_indices * std::mem::size_of::<Index>();
+            (
+                total_vertices,
+                // Infallible! Checked above.
+                NonZeroDeviceSize::new(u64::try_from(total_size_bytes).unwrap()).unwrap(),
+            )
+        };
+
+        // Allocate a buffer which can hold both packed arrays:
+        let layout = DeviceLayout::new(total_size_bytes, VERTEX_ALIGN.max(INDEX_ALIGN)).unwrap();
+        let buffer = self.vertex_index_buffer_pool.allocate(layout).unwrap();
+
+        // We must put the items with stricter align *first* in the packed buffer.
+        // Correct at time of writing, but assert in case that changes.
+        assert!(VERTEX_ALIGN >= INDEX_ALIGN);
+        let (vertices, indices) = {
+            let partition_bytes = total_vertices as u64 * std::mem::size_of::<Vertex>() as u64;
+            (
+                // Slice the start as vertices
+                buffer.clone().slice(..partition_bytes).reinterpret::<[Vertex]>(),
+                // Take the rest, reinterpret as indices.
+                buffer.slice(partition_bytes..).reinterpret::<[Index]>(),
+            )
+        };
+
+        // We have to upload in two mapping steps to avoid trivial but ugly unsafe.
+        {
+            let mut vertex_write = vertices.write().unwrap();
+            vertex_write
+                .iter_mut()
+                .zip(meshes.clone().flat_map(|m| &m.vertices).copied())
+                .for_each(|(into, from)| *into = from);
+        }
+        {
+            let mut index_write = indices.write().unwrap();
+            index_write
+                .iter_mut()
+                .zip(meshes.flat_map(|m| &m.indices).copied())
+                .for_each(|(into, from)| *into = from);
+        }
+
+        Some((vertices, indices))
+    }
 
     fn draw_egui(
         &mut self,
@@ -660,6 +684,11 @@ impl Renderer {
             output_in_linear_colorspace: self.output_in_linear_colorspace.into(),
         };
 
+        let mesh_buffers = self.upload_meshes(clipped_meshes);
+
+        let mut vertex_cursor = 0;
+        let mut index_cursor = 0;
+
         for ClippedPrimitive { clip_rect, primitive } in clipped_meshes {
             match primitive {
                 Primitive::Mesh(mesh) => {
@@ -671,10 +700,19 @@ impl Renderer {
                         eprintln!("This texture no longer exists {:?}", mesh.texture_id);
                         continue;
                     }
-                    let (vertices, indices) = self.create_subbuffers(mesh);
                     let desc_set = self.texture_desc_sets.get(&mesh.texture_id).unwrap();
 
+                    // Bind combined meshes.
+                    let Some((vertices, indices)) = mesh_buffers.clone() else {
+                        // Only None if there are no mesh calls, but here we are in a mesh call!
+                        unreachable!()
+                    };
+
                     builder
+                        .bind_index_buffer(indices)
+                        .unwrap()
+                        .bind_vertex_buffers(0, [vertices])
+                        .unwrap()
                         .bind_pipeline_graphics(self.pipeline.clone())
                         .unwrap()
                         .set_viewport(
@@ -711,12 +749,16 @@ impl Renderer {
                         .unwrap()
                         .push_constants(self.pipeline.layout().clone(), 0, push_constants)
                         .unwrap()
-                        .bind_vertex_buffers(0, vertices.clone())
-                        .unwrap()
-                        .bind_index_buffer(indices.clone())
-                        .unwrap()
-                        .draw_indexed(indices.len() as u32, 1, 0, 0, 0)
+                        .draw_indexed(
+                            mesh.indices.len() as u32,
+                            1,
+                            index_cursor,
+                            vertex_cursor as i32,
+                            0,
+                        )
                         .unwrap();
+                    index_cursor += mesh.indices.len() as u32;
+                    vertex_cursor += mesh.vertices.len() as u32;
                 }
                 Primitive::Callback(callback) => {
                     if callback.rect.is_positive() {
