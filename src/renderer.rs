@@ -23,8 +23,8 @@ use vulkano::{
         Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer,
     },
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, BlitImageInfo,
-        CommandBufferInheritanceInfo, CommandBufferUsage, CopyBufferToImageInfo, ImageBlit,
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, BufferImageCopy,
+        CommandBufferInheritanceInfo, CommandBufferUsage, CopyBufferToImageInfo,
         PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, RenderPassBeginInfo,
         SecondaryAutoCommandBuffer, SubpassBeginInfo, SubpassContents,
     },
@@ -37,7 +37,8 @@ use vulkano::{
     image::{
         sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode},
         view::ImageView,
-        Image, ImageCreateInfo, ImageLayout, ImageType, ImageUsage, SampleCount,
+        Image, ImageAspects, ImageCreateInfo, ImageLayout, ImageSubresourceLayers, ImageType,
+        ImageUsage, SampleCount,
     },
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
     pipeline::{
@@ -314,57 +315,118 @@ impl Renderer {
         self.texture_desc_sets.remove(&texture_id);
         self.texture_images.remove(&texture_id);
     }
-
-    fn update_texture(&mut self, texture_id: egui::TextureId, delta: &egui::epaint::ImageDelta) {
-        // Extract pixel data from egui
-        let data: Vec<u8> = match &delta.image {
+    /// Write a single texture delta using the provided staging region and commandbuffer
+    fn update_texture_within(
+        &mut self,
+        id: egui::TextureId,
+        delta: &egui::epaint::ImageDelta,
+        stage: Subbuffer<[u8]>,
+        mapped_stage: &mut [u8],
+        cbb: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+    ) {
+        // Extract pixel data from egui, writing into our region of the stage buffer.
+        match &delta.image {
             egui::ImageData::Color(image) => {
                 assert_eq!(
                     image.width() * image.height(),
                     image.pixels.len(),
                     "Mismatch between texture size and texel count"
                 );
-                image.pixels.iter().flat_map(|color| color.to_array()).collect()
+                let bytes = image.pixels.iter().flat_map(|color| color.to_array());
+                mapped_stage.iter_mut().zip(bytes).for_each(|(into, from)| *into = from);
             }
             egui::ImageData::Font(image) => {
-                image.srgba_pixels(None).flat_map(|color| color.to_array()).collect()
+                let bytes = image.srgba_pixels(None).flat_map(|color| color.to_array());
+                mapped_stage.iter_mut().zip(bytes).for_each(|(into, from)| *into = from);
             }
         };
-        // Create buffer to be copied to the image
-        let texture_data_buffer = Buffer::from_iter(
+
+        // Copy texture data to existing image if delta pos exists (e.g. font changed)
+        if let Some(pos) = delta.pos {
+            let Some(existing_image) = self.texture_images.get(&id) else {
+                // Egui wants us to update this texture but we don't have it to begin with!
+                panic!("attempt to write into non-existing image");
+            };
+
+            // Defer upload of data
+            cbb.copy_buffer_to_image(CopyBufferToImageInfo {
+                regions: [BufferImageCopy {
+                    // Buffer offsets are derived
+                    image_offset: [pos[0] as u32, pos[1] as u32, 0],
+                    image_extent: [delta.image.width() as u32, delta.image.height() as u32, 1],
+                    // Always use the whole image (no arrays or mips are performed)
+                    image_subresource: ImageSubresourceLayers {
+                        aspects: ImageAspects::COLOR,
+                        mip_level: 0,
+                        array_layers: 0..1,
+                    },
+                    ..Default::default()
+                }]
+                .into(),
+                ..CopyBufferToImageInfo::buffer_image(stage, existing_image.image().clone())
+            })
+            .unwrap();
+        } else {
+            // Otherwise save the newly created image
+            let img = {
+                let extent = [delta.image.width() as u32, delta.image.height() as u32, 1];
+                Image::new(
+                    self.allocators.memory.clone(),
+                    ImageCreateInfo {
+                        image_type: ImageType::Dim2d,
+                        format: Format::R8G8B8A8_SRGB,
+                        extent,
+                        usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
+                        initial_layout: ImageLayout::Undefined,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo::default(),
+                )
+                .unwrap()
+            };
+            // Defer upload of data
+            cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(stage, img.clone()))
+                .unwrap();
+            // Create a descriptor for it
+            let view = ImageView::new_default(img).unwrap();
+            let layout = self.pipeline.layout().set_layouts().first().unwrap();
+            let desc_set =
+                self.sampled_image_desc_set(layout, view.clone(), self.font_sampler.clone());
+            // Save!
+            self.texture_desc_sets.insert(id, desc_set);
+            self.texture_images.insert(id, view);
+        };
+    }
+    /// Write the entire texture delta for this frame.
+    fn update_textures(&mut self, sets: &[(egui::TextureId, egui::epaint::ImageDelta)]) {
+        // Allocate enough memory to upload every delta at once.
+        let total_size_bytes =
+            sets.iter().map(|(_, set)| set.image.width() * set.image.height()).sum::<usize>() * 4;
+        // Infallible - unless we're on a 128 bit machine? :P
+        let total_size_bytes = u64::try_from(total_size_bytes).unwrap();
+        let Ok(total_size_bytes) = vulkano::NonZeroDeviceSize::try_from(total_size_bytes) else {
+            // Nothing to upload!
+            return;
+        };
+        let buffer = Buffer::new(
             self.allocators.memory.clone(),
             BufferCreateInfo { usage: BufferUsage::TRANSFER_SRC, ..Default::default() },
             AllocationCreateInfo {
                 memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                    | MemoryTypeFilter::HOST_RANDOM_ACCESS,
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
-            data,
+            // Bytes, align of one, infallible.
+            vulkano::memory::allocator::DeviceLayout::new(
+                total_size_bytes,
+                vulkano::memory::DeviceAlignment::MIN,
+            )
+            .unwrap(),
         )
         .unwrap();
-        // Create image
-        let img = {
-            let extent = [delta.image.width() as u32, delta.image.height() as u32, 1];
-            Image::new(
-                self.allocators.memory.clone(),
-                ImageCreateInfo {
-                    image_type: ImageType::Dim2d,
-                    format: Format::R8G8B8A8_SRGB,
-                    extent,
-                    usage: ImageUsage::TRANSFER_DST
-                        | ImageUsage::TRANSFER_SRC
-                        | ImageUsage::SAMPLED,
-                    // initial_layout: ImageLayout::ShaderReadOnlyOptimal,
-                    // TODO(aedm): miez
-                    initial_layout: ImageLayout::Undefined,
-                    ..Default::default()
-                },
-                AllocationCreateInfo::default(),
-            )
-            .unwrap()
-        };
+        let buffer = Subbuffer::new(buffer);
 
-        // Create command buffer builder
+        // Shared command buffer for every upload in this batch.
         let mut cbb = AutoCommandBufferBuilder::primary(
             &self.allocators.command_buffer,
             self.gfx_queue.queue_family_index(),
@@ -372,53 +434,40 @@ impl Renderer {
         )
         .unwrap();
 
-        // Copy buffer to image
-        cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
-            texture_data_buffer,
-            img.clone(),
-        ))
-        .unwrap();
+        {
+            // Scoped to keep writer lock bounded
+            // Should be infallible - Just made the buffer so it's exclusive, and we have host access to it.
+            let mut writer = buffer.write().unwrap();
 
-        let font_image = ImageView::new_default(img).unwrap();
+            // Keep track of where to write the next image to into the staging buffer.
+            let mut past_buffer_end = 0usize;
 
-        // Blit texture data to existing image if delta pos exists (e.g. font changed)
-        if let Some(pos) = delta.pos {
-            if let Some(existing_image) = self.texture_images.get(&texture_id) {
-                let src_dims = font_image.image().extent();
-                let top_left = [pos[0] as u32, pos[1] as u32, 0];
-                let bottom_right = [pos[0] as u32 + src_dims[0], pos[1] as u32 + src_dims[1], 1];
+            for (id, delta) in sets {
+                let image_size_bytes = delta.image.width() * delta.image.height() * 4;
+                let range = past_buffer_end..(image_size_bytes + past_buffer_end);
 
-                cbb.blit_image(BlitImageInfo {
-                    src_image_layout: ImageLayout::General,
-                    dst_image_layout: ImageLayout::General,
-                    regions: [ImageBlit {
-                        src_subresource: font_image.image().subresource_layers(),
-                        src_offsets: [[0, 0, 0], src_dims],
-                        dst_subresource: existing_image.image().subresource_layers(),
-                        dst_offsets: [top_left, bottom_right],
-                        ..Default::default()
-                    }]
-                    .into(),
-                    filter: Filter::Nearest,
-                    ..BlitImageInfo::images(
-                        font_image.image().clone(),
-                        existing_image.image().clone(),
-                    )
-                })
-                .unwrap();
+                // Bump for next loop
+                past_buffer_end += image_size_bytes;
+
+                // Represents the same memory in two ways. Writable memmap, and gpu-side description.
+                let stage = buffer.clone().slice(range.start as u64..range.end as u64);
+                let mapped_stage = &mut writer[range];
+
+                self.update_texture_within(*id, delta, stage, mapped_stage, &mut cbb);
             }
-            // Otherwise save the newly created image
-        } else {
-            let layout = self.pipeline.layout().set_layouts().first().unwrap();
-            let font_desc_set =
-                self.sampled_image_desc_set(layout, font_image.clone(), self.font_sampler.clone());
-            self.texture_desc_sets.insert(texture_id, font_desc_set);
-            self.texture_images.insert(texture_id, font_image);
         }
-        // Execute command buffer
+
+        // Execute every upload at once and await:
         let command_buffer = cbb.build().unwrap();
-        let finished = command_buffer.execute(self.gfx_queue.clone()).unwrap();
-        let _fut = finished.then_signal_fence_and_flush().unwrap();
+        // Executing on the graphics queue not only since it's what we have, but
+        // we must guarantee a transfer granularity of [1,1,x] which graphics queue is required to have.
+        command_buffer
+            .execute(self.gfx_queue.clone())
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None)
+            .unwrap();
     }
 
     fn get_rect_scissor(
@@ -544,9 +593,7 @@ impl Renderer {
     where
         F: GpuFuture + 'static,
     {
-        for (id, image_delta) in &textures_delta.set {
-            self.update_texture(*id, image_delta);
-        }
+        self.update_textures(&textures_delta.set);
 
         let (mut command_buffer_builder, framebuffer_dimensions) = self.start(final_image);
         let mut builder = self.create_secondary_command_buffer_builder();
@@ -588,9 +635,7 @@ impl Renderer {
         scale_factor: f32,
         framebuffer_dimensions: [u32; 2],
     ) -> Arc<SecondaryAutoCommandBuffer> {
-        for (id, image_delta) in &textures_delta.set {
-            self.update_texture(*id, image_delta);
-        }
+        self.update_textures(&textures_delta.set);
         let mut builder = self.create_secondary_command_buffer_builder();
         self.draw_egui(scale_factor, clipped_meshes, framebuffer_dimensions, &mut builder);
         let buffer = builder.build().unwrap();
