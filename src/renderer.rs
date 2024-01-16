@@ -100,7 +100,7 @@ pub struct Renderer {
     #[allow(unused)]
     format: vulkano::format::Format,
     font_sampler: Arc<Sampler>,
-    // May be R/RGBA sRGB/UNORM
+    // May be R8G8_UNORM or R8G8B8A8_SRGB
     font_format: Format,
 
     allocators: Allocators,
@@ -340,7 +340,7 @@ impl Renderer {
         }
     }
     /// Based on self.font_format, extract into bytes.
-    fn pack_font_data(&self, data: &egui::FontImage) -> Vec<u8> {
+    fn pack_font_data_into(&self, data: &egui::FontImage, into: &mut [u8]) {
         match self.font_format {
             Format::R8G8_UNORM => {
                 // Egui expects RGB to be linear in shader, but alpha to be *nonlinear.*
@@ -348,17 +348,37 @@ impl Renderer {
                 // Then gets swizzled up to RRRG to match expected values.
                 let linear =
                     data.pixels.iter().map(|f| (f.clamp(0.0, 1.0 - f32::EPSILON) * 256.0) as u8);
-                linear
+                let bytes = linear
                     .zip(data.srgba_pixels(None))
-                    .flat_map(|(linear, srgb)| [linear, srgb.a()])
-                    .collect()
+                    .flat_map(|(linear, srgb)| [linear, srgb.a()]);
+
+                into.iter_mut().zip(bytes).for_each(|(into, from)| *into = from);
             }
             Format::R8G8B8A8_SRGB => {
                 // No special tricks, pack them directly.
-                data.srgba_pixels(None).flat_map(|color| color.to_array()).collect()
+                let bytes = data.srgba_pixels(None).flat_map(|color| color.to_array());
+                into.iter_mut().zip(bytes).for_each(|(into, from)| *into = from);
             }
             // This is the exhaustive list of choosable font formats.
             _ => unreachable!(),
+        }
+    }
+    fn image_size_bytes(&self, delta: &egui::epaint::ImageDelta) -> usize {
+        match &delta.image {
+            egui::ImageData::Color(c) => {
+                // Always four bytes per pixel for sRGBA
+                c.width() * c.height() * 4
+            }
+            egui::ImageData::Font(f) => {
+                f.width()
+                    * f.height()
+                    * match self.font_format {
+                        Format::R8G8_UNORM => 2,
+                        Format::R8G8B8A8_SRGB => 4,
+                        // Exhaustive list of valid font formats
+                        _ => unreachable!(),
+                    }
+            }
         }
     }
     /// Write a single texture delta using the provided staging region and commandbuffer
@@ -371,7 +391,7 @@ impl Renderer {
         cbb: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     ) {
         // Extract pixel data from egui, writing into our region of the stage buffer.
-        match &delta.image {
+        let format = match &delta.image {
             egui::ImageData::Color(image) => {
                 assert_eq!(
                     image.width() * image.height(),
@@ -380,10 +400,12 @@ impl Renderer {
                 );
                 let bytes = image.pixels.iter().flat_map(|color| color.to_array());
                 mapped_stage.iter_mut().zip(bytes).for_each(|(into, from)| *into = from);
+                Format::R8G8B8A8_SRGB
             }
             egui::ImageData::Font(image) => {
-                let bytes = image.srgba_pixels(None).flat_map(|color| color.to_array());
-                mapped_stage.iter_mut().zip(bytes).for_each(|(into, from)| *into = from);
+                // Dynamically pack based on chosen format
+                self.pack_font_data_into(image, mapped_stage);
+                self.font_format
             }
         };
 
@@ -393,6 +415,8 @@ impl Renderer {
                 // Egui wants us to update this texture but we don't have it to begin with!
                 panic!("attempt to write into non-existing image");
             };
+            // Make sure delta image type and destination image type match.
+            assert_eq!(existing_image.format(), format);
 
             // Defer upload of data
             cbb.copy_buffer_to_image(CopyBufferToImageInfo {
@@ -420,7 +444,7 @@ impl Renderer {
                     self.allocators.memory.clone(),
                     ImageCreateInfo {
                         image_type: ImageType::Dim2d,
-                        format: Format::R8G8B8A8_SRGB,
+                        format,
                         extent,
                         usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
                         initial_layout: ImageLayout::Undefined,
@@ -433,8 +457,22 @@ impl Renderer {
             // Defer upload of data
             cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(stage, img.clone()))
                 .unwrap();
+            // Swizzle packed font images up to a full premul white.
+            let component_mapping = match format {
+                Format::R8G8_UNORM => ComponentMapping {
+                    r: ComponentSwizzle::Red,
+                    g: ComponentSwizzle::Red,
+                    b: ComponentSwizzle::Red,
+                    a: ComponentSwizzle::Green,
+                },
+                _ => ComponentMapping::identity(),
+            };
+            let view = ImageView::new(img.clone(), ImageViewCreateInfo {
+                component_mapping,
+                ..ImageViewCreateInfo::from_image(&img)
+            })
+            .unwrap();
             // Create a descriptor for it
-            let view = ImageView::new_default(img).unwrap();
             let layout = self.pipeline.layout().set_layouts().first().unwrap();
             let desc_set =
                 self.sampled_image_desc_set(layout, view.clone(), self.font_sampler.clone());
@@ -447,7 +485,7 @@ impl Renderer {
     fn update_textures(&mut self, sets: &[(egui::TextureId, egui::epaint::ImageDelta)]) {
         // Allocate enough memory to upload every delta at once.
         let total_size_bytes =
-            sets.iter().map(|(_, set)| set.image.width() * set.image.height()).sum::<usize>() * 4;
+            sets.iter().map(|(_, set)| self.image_size_bytes(set)).sum::<usize>() * 4;
         // Infallible - unless we're on a 128 bit machine? :P
         let total_size_bytes = u64::try_from(total_size_bytes).unwrap();
         let Ok(total_size_bytes) = vulkano::NonZeroDeviceSize::try_from(total_size_bytes) else {
@@ -485,7 +523,7 @@ impl Renderer {
             let mut past_buffer_end = 0usize;
 
             for (id, delta) in sets {
-                let image_size_bytes = delta.image.width() * delta.image.height() * 4;
+                let image_size_bytes = self.image_size_bytes(delta);
                 let range = past_buffer_end..(image_size_bytes + past_buffer_end);
 
                 // Bump for next loop
