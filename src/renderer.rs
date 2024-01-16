@@ -35,8 +35,11 @@ use vulkano::{
     device::Queue,
     format::{Format, NumericFormat},
     image::{
-        sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode},
-        view::ImageView,
+        sampler::{
+            ComponentMapping, ComponentSwizzle, Filter, Sampler, SamplerAddressMode,
+            SamplerCreateInfo, SamplerMipmapMode,
+        },
+        view::{ImageView, ImageViewCreateInfo},
         Image, ImageAspects, ImageCreateInfo, ImageLayout, ImageSubresourceLayers, ImageType,
         ImageUsage, SampleCount,
     },
@@ -97,6 +100,8 @@ pub struct Renderer {
     #[allow(unused)]
     format: vulkano::format::Format,
     font_sampler: Arc<Sampler>,
+    // May be R/RGBA sRGB/UNORM
+    font_format: Format,
 
     allocators: Allocators,
     vertex_index_buffer_pool: SubbufferAllocator,
@@ -191,6 +196,7 @@ impl Renderer {
             ..Default::default()
         })
         .unwrap();
+        let font_format = Self::choose_font_format(gfx_queue.device());
         Renderer {
             gfx_queue,
             format: final_output_format,
@@ -204,6 +210,7 @@ impl Renderer {
             is_overlay,
             output_in_linear_colorspace,
             font_sampler,
+            font_format,
             allocators,
         }
     }
@@ -302,6 +309,57 @@ impl Renderer {
     pub fn unregister_image(&mut self, texture_id: egui::TextureId) {
         self.texture_desc_sets.remove(&texture_id);
         self.texture_images.remove(&texture_id);
+    }
+    /// Choose a font format, attempt to minimize memory footprint and CPU unpacking time
+    /// by choosing a swizzled linear format.
+    fn choose_font_format(device: &vulkano::device::Device) -> Format {
+        // Some portability subset devices are unable to swizzle views.
+        let supports_swizzle =
+            !device.physical_device().supported_extensions().khr_portability_subset
+                || device.physical_device().supported_features().image_view_format_swizzle;
+        // Check that this format is supported for all our uses:
+        let is_supported = |device: &vulkano::device::Device, format: Format| {
+            device
+                .physical_device()
+                .image_format_properties(vulkano::image::ImageFormatInfo {
+                    format,
+                    usage: ImageUsage::SAMPLED
+                        | ImageUsage::TRANSFER_DST
+                        | ImageUsage::TRANSFER_SRC,
+                    ..Default::default()
+                })
+                // Ok(Some(..)) is supported format for this usage.
+                .is_ok_and(|properties| properties.is_some())
+        };
+        if supports_swizzle && is_supported(device, Format::R8G8_UNORM) {
+            // We can save mem by swizzling in hardware!
+            Format::R8G8_UNORM
+        } else {
+            // Rest of implementation assumes R8G8B8A8_SRGB anyway!
+            Format::R8G8B8A8_SRGB
+        }
+    }
+    /// Based on self.font_format, extract into bytes.
+    fn pack_font_data(&self, data: &egui::FontImage) -> Vec<u8> {
+        match self.font_format {
+            Format::R8G8_UNORM => {
+                // Egui expects RGB to be linear in shader, but alpha to be *nonlinear.*
+                // Thus, we use R channel for linear coverage, G for the same coverage converted to nonlinear.
+                // Then gets swizzled up to RRRG to match expected values.
+                let linear =
+                    data.pixels.iter().map(|f| (f.clamp(0.0, 1.0 - f32::EPSILON) * 256.0) as u8);
+                linear
+                    .zip(data.srgba_pixels(None))
+                    .flat_map(|(linear, srgb)| [linear, srgb.a()])
+                    .collect()
+            }
+            Format::R8G8B8A8_SRGB => {
+                // No special tricks, pack them directly.
+                data.srgba_pixels(None).flat_map(|color| color.to_array()).collect()
+            }
+            // This is the exhaustive list of choosable font formats.
+            _ => unreachable!(),
+        }
     }
     /// Write a single texture delta using the provided staging region and commandbuffer
     fn update_texture_within(

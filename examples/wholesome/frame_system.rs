@@ -166,11 +166,12 @@ pub struct Frame<'a> {
 
 impl<'a> Frame<'a> {
     pub fn next_pass<'f>(&'f mut self) -> Option<Pass<'f, 'a>> {
-        match {
+        let res = {
             let current_pass = self.num_pass;
             self.num_pass += 1;
             current_pass
-        } {
+        };
+        match res {
             0 => Some(Pass::Deferred(DrawPass { frame: self })),
             1 => {
                 self.command_buffer_builder
