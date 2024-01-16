@@ -324,6 +324,12 @@ impl Renderer {
     /// Choose a font format, attempt to minimize memory footprint and CPU unpacking time
     /// by choosing a swizzled linear format.
     fn choose_font_format(device: &vulkano::device::Device) -> Format {
+        return Format::R8G8B8A8_SRGB;
+        // Some portability subset devices are unable to swizzle views.
+        let supports_swizzle =
+            !device.physical_device().supported_extensions().khr_portability_subset
+                || device.physical_device().supported_features().image_view_format_swizzle;
+        // Check that this format is supported for all our uses:
         let is_supported = |device: &vulkano::device::Device, format: Format| {
             device
                 .physical_device()
@@ -337,41 +343,32 @@ impl Renderer {
                 // Ok(Some(..)) is supported format for this usage.
                 .is_ok_and(|properties| properties.is_some())
         };
-        // Some portability subset devices are unable to swizzle views.
-        if !device.physical_device().supported_extensions().khr_portability_subset
-            || device.physical_device().supported_features().image_view_format_swizzle
-        {
+        if supports_swizzle && is_supported(device, Format::R8G8_UNORM) {
             // We can save mem by swizzling in hardware!
-            for format in [Format::R8_UNORM, Format::R8_SRGB] {
-                if is_supported(device, format) {
-                    return format;
-                }
-            }
-        }
-        // Swizzled formats failed, need full RGBA.
-        for format in [Format::R8G8B8A8_UNORM, Format::R8G8B8A8_SRGB] {
-            if is_supported(device, format) {
-                return format;
-            }
+            return Format::R8G8_UNORM;
         }
         // Rest of implementation assumes R8G8B8A8_SRGB anyway!
-        panic!("No supported font image formats")
+        Format::R8G8B8A8_SRGB
     }
 
     /// Based on self.font_format, extract into bytes.
     fn pack_font_data(&self, data: &egui::FontImage) -> Vec<u8> {
-        // Prepare common (and lazy) iters
-        // Font data is linear by default, skips expensive sqrt per pixel.
-        let linear = data.pixels.iter().map(|f| (f.clamp(0.0, 1.0 - f32::EPSILON) * 256.0) as u8);
-        let srgb = data.srgba_pixels(None);
-
         match self.font_format {
-            // Linear formats, no srgb conversion needed!
-            Format::R8_UNORM => linear.collect(),
-            Format::R8G8B8A8_UNORM => linear.flat_map(|coverage| [coverage; 4]).collect(),
-            // Have to convert to linear on the CPU.
-            Format::R8_SRGB => srgb.map(|color| color.r()).collect(),
-            Format::R8G8B8A8_SRGB => srgb.flat_map(|color| color.to_array()).collect(),
+            Format::R8G8_UNORM => {
+                // Egui expects RGB to be linear in shader, but alpha to be *nonlinear.*
+                // Thus, we use R channel for linear coverage, G for the same coverage converted to nonlinear.
+                // Then gets swizzled up to RRRG to match expected values.
+                let linear =
+                    data.pixels.iter().map(|f| (f.clamp(0.0, 1.0 - f32::EPSILON) * 256.0) as u8);
+                linear
+                    .zip(data.srgba_pixels(None))
+                    .flat_map(|(linear, srgb)| [linear, srgb.a()])
+                    .collect()
+            }
+            Format::R8G8B8A8_SRGB => {
+                // No special tricks, pack them directly.
+                data.srgba_pixels(None).flat_map(|color| color.to_array()).collect()
+            }
             // This is the exhaustive list of choosable font formats.
             _ => unreachable!(),
         }
@@ -444,14 +441,15 @@ impl Renderer {
 
         let font_image = ImageView::new(img.clone(), ImageViewCreateInfo {
             component_mapping: match format {
-                // Red channel is coverage of white, premul:
-                // RGBA textures are pre-made in this form, no swizzle needed.
-                Format::R8_SRGB | Format::R8_UNORM => ComponentMapping {
+                // Red channel is coverage of white, premul. Green is the same coverage but nonlinear sRGB.
+                // This is the layout expected by egui:
+                Format::R8G8_UNORM => ComponentMapping {
                     r: ComponentSwizzle::Red,
                     g: ComponentSwizzle::Red,
                     b: ComponentSwizzle::Red,
-                    a: ComponentSwizzle::Red,
+                    a: ComponentSwizzle::Green,
                 },
+                // RGBA textures are pre-made in this form, no swizzle needed.
                 _ => ComponentMapping::identity(),
             },
             format,
