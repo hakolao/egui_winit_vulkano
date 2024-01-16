@@ -73,6 +73,9 @@ const VERTICES_PER_QUAD: DeviceSize = 4;
 const VERTEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * VERTICES_PER_QUAD;
 const INDEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * 2;
 
+type VertexBuffer = Subbuffer<[egui::epaint::Vertex]>;
+type IndexBuffer = Subbuffer<[u32]>;
+
 /// Should match vertex definition of egui
 #[repr(C)]
 #[derive(BufferContents, Vertex)]
@@ -599,7 +602,7 @@ impl Renderer {
     fn upload_meshes(
         &mut self,
         clipped_meshes: &[ClippedPrimitive],
-    ) -> Option<(Subbuffer<[egui::epaint::Vertex]>, Subbuffer<[u32]>)> {
+    ) -> Option<(VertexBuffer, IndexBuffer)> {
         use egui::epaint::Vertex;
         type Index = u32;
         const VERTEX_ALIGN: DeviceAlignment = DeviceAlignment::of::<Vertex>();
