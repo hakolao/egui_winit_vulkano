@@ -13,18 +13,15 @@ use std::{
 };
 
 use ahash::AHashMap;
-use egui::{
-    epaint::{Mesh, Primitive},
-    ClippedPrimitive, PaintCallbackInfo, Rect, TexturesDelta,
-};
+use egui::{epaint::Primitive, ClippedPrimitive, PaintCallbackInfo, Rect, TexturesDelta};
 use vulkano::{
     buffer::{
         allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
         Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer,
     },
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, BlitImageInfo,
-        CommandBufferInheritanceInfo, CommandBufferUsage, CopyBufferToImageInfo, ImageBlit,
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, BufferImageCopy,
+        CommandBufferInheritanceInfo, CommandBufferUsage, CopyBufferToImageInfo,
         PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, RenderPassBeginInfo,
         SecondaryAutoCommandBuffer, SubpassBeginInfo, SubpassContents,
     },
@@ -40,9 +37,15 @@ use vulkano::{
             SamplerCreateInfo, SamplerMipmapMode,
         },
         view::{ImageView, ImageViewCreateInfo},
-        Image, ImageCreateInfo, ImageLayout, ImageType, ImageUsage, SampleCount,
+        Image, ImageAspects, ImageCreateInfo, ImageLayout, ImageSubresourceLayers, ImageType,
+        ImageUsage, SampleCount,
     },
-    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
+    memory::{
+        allocator::{
+            AllocationCreateInfo, DeviceLayout, MemoryTypeFilter, StandardMemoryAllocator,
+        },
+        DeviceAlignment,
+    },
     pipeline::{
         graphics::{
             color_blend::{
@@ -61,7 +64,7 @@ use vulkano::{
     },
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
-    DeviceSize,
+    DeviceSize, NonZeroDeviceSize,
 };
 
 use crate::utils::Allocators;
@@ -69,6 +72,9 @@ use crate::utils::Allocators;
 const VERTICES_PER_QUAD: DeviceSize = 4;
 const VERTEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * VERTICES_PER_QUAD;
 const INDEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * 2;
+
+type VertexBuffer = Subbuffer<[egui::epaint::Vertex]>;
+type IndexBuffer = Subbuffer<[u32]>;
 
 /// Should match vertex definition of egui
 #[repr(C)]
@@ -91,12 +97,11 @@ pub struct Renderer {
     #[allow(unused)]
     format: vulkano::format::Format,
     font_sampler: Arc<Sampler>,
-    // May be R/RGBA sRGB/UNORM
+    // May be R8G8_UNORM or R8G8B8A8_SRGB
     font_format: Format,
 
     allocators: Allocators,
-    vertex_buffer_pool: SubbufferAllocator,
-    index_buffer_pool: SubbufferAllocator,
+    vertex_index_buffer_pool: SubbufferAllocator,
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
 
@@ -171,7 +176,14 @@ impl Renderer {
             // final_output_format.type_color().unwrap() == NumericType::SRGB;
             final_output_format.numeric_format_color().unwrap() == NumericFormat::SRGB;
         let allocators = Allocators::new_default(gfx_queue.device());
-        let (vertex_buffer_pool, index_buffer_pool) = Self::create_buffers(&allocators.memory);
+        let vertex_index_buffer_pool =
+            SubbufferAllocator::new(allocators.memory.clone(), SubbufferAllocatorCreateInfo {
+                arena_size: INDEX_BUFFER_SIZE + VERTEX_BUFFER_SIZE,
+                buffer_usage: BufferUsage::INDEX_BUFFER | BufferUsage::VERTEX_BUFFER,
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            });
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
         let font_sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
             mag_filter: Filter::Linear,
@@ -186,8 +198,7 @@ impl Renderer {
             gfx_queue,
             format: final_output_format,
             render_pass,
-            vertex_buffer_pool,
-            index_buffer_pool,
+            vertex_index_buffer_pool,
             pipeline,
             subpass,
             texture_desc_sets: AHashMap::default(),
@@ -203,31 +214,6 @@ impl Renderer {
 
     pub fn has_renderpass(&self) -> bool {
         self.render_pass.is_some()
-    }
-
-    fn create_buffers(
-        allocator: &Arc<StandardMemoryAllocator>,
-    ) -> (SubbufferAllocator, SubbufferAllocator) {
-        // Create vertex and index buffers
-        let vertex_buffer_pool =
-            SubbufferAllocator::new(allocator.clone(), SubbufferAllocatorCreateInfo {
-                arena_size: VERTEX_BUFFER_SIZE,
-                buffer_usage: BufferUsage::VERTEX_BUFFER,
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            });
-
-        let index_buffer_pool =
-            SubbufferAllocator::new(allocator.clone(), SubbufferAllocatorCreateInfo {
-                arena_size: INDEX_BUFFER_SIZE,
-                buffer_usage: BufferUsage::INDEX_BUFFER,
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            });
-
-        (vertex_buffer_pool, index_buffer_pool)
     }
 
     fn create_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
@@ -350,9 +336,8 @@ impl Renderer {
             Format::R8G8B8A8_SRGB
         }
     }
-
     /// Based on self.font_format, extract into bytes.
-    fn pack_font_data(&self, data: &egui::FontImage) -> Vec<u8> {
+    fn pack_font_data_into(&self, data: &egui::FontImage, into: &mut [u8]) {
         match self.font_format {
             Format::R8G8_UNORM => {
                 // Egui expects RGB to be linear in shader, but alpha to be *nonlinear.*
@@ -360,71 +345,165 @@ impl Renderer {
                 // Then gets swizzled up to RRRG to match expected values.
                 let linear =
                     data.pixels.iter().map(|f| (f.clamp(0.0, 1.0 - f32::EPSILON) * 256.0) as u8);
-                linear
+                let bytes = linear
                     .zip(data.srgba_pixels(None))
-                    .flat_map(|(linear, srgb)| [linear, srgb.a()])
-                    .collect()
+                    .flat_map(|(linear, srgb)| [linear, srgb.a()]);
+
+                into.iter_mut().zip(bytes).for_each(|(into, from)| *into = from);
             }
             Format::R8G8B8A8_SRGB => {
                 // No special tricks, pack them directly.
-                data.srgba_pixels(None).flat_map(|color| color.to_array()).collect()
+                let bytes = data.srgba_pixels(None).flat_map(|color| color.to_array());
+                into.iter_mut().zip(bytes).for_each(|(into, from)| *into = from);
             }
             // This is the exhaustive list of choosable font formats.
             _ => unreachable!(),
         }
     }
-
-    fn update_texture(&mut self, texture_id: egui::TextureId, delta: &egui::epaint::ImageDelta) {
-        // Extract pixel data from egui
-        let (data, format): (Vec<u8>, _) = match &delta.image {
+    fn image_size_bytes(&self, delta: &egui::epaint::ImageDelta) -> usize {
+        match &delta.image {
+            egui::ImageData::Color(c) => {
+                // Always four bytes per pixel for sRGBA
+                c.width() * c.height() * 4
+            }
+            egui::ImageData::Font(f) => {
+                f.width()
+                    * f.height()
+                    * match self.font_format {
+                        Format::R8G8_UNORM => 2,
+                        Format::R8G8B8A8_SRGB => 4,
+                        // Exhaustive list of valid font formats
+                        _ => unreachable!(),
+                    }
+            }
+        }
+    }
+    /// Write a single texture delta using the provided staging region and commandbuffer
+    fn update_texture_within(
+        &mut self,
+        id: egui::TextureId,
+        delta: &egui::epaint::ImageDelta,
+        stage: Subbuffer<[u8]>,
+        mapped_stage: &mut [u8],
+        cbb: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+    ) {
+        // Extract pixel data from egui, writing into our region of the stage buffer.
+        let format = match &delta.image {
             egui::ImageData::Color(image) => {
                 assert_eq!(
                     image.width() * image.height(),
                     image.pixels.len(),
                     "Mismatch between texture size and texel count"
                 );
-                (
-                    image.pixels.iter().flat_map(|color| color.to_array()).collect(),
-                    Format::R8G8B8A8_SRGB,
-                )
+                let bytes = image.pixels.iter().flat_map(|color| color.to_array());
+                mapped_stage.iter_mut().zip(bytes).for_each(|(into, from)| *into = from);
+                Format::R8G8B8A8_SRGB
             }
-            egui::ImageData::Font(image) => (self.pack_font_data(image), self.font_format),
+            egui::ImageData::Font(image) => {
+                // Dynamically pack based on chosen format
+                self.pack_font_data_into(image, mapped_stage);
+                self.font_format
+            }
         };
-        // Create buffer to be copied to the image
-        let texture_data_buffer = Buffer::from_iter(
+
+        // Copy texture data to existing image if delta pos exists (e.g. font changed)
+        if let Some(pos) = delta.pos {
+            let Some(existing_image) = self.texture_images.get(&id) else {
+                // Egui wants us to update this texture but we don't have it to begin with!
+                panic!("attempt to write into non-existing image");
+            };
+            // Make sure delta image type and destination image type match.
+            assert_eq!(existing_image.format(), format);
+
+            // Defer upload of data
+            cbb.copy_buffer_to_image(CopyBufferToImageInfo {
+                regions: [BufferImageCopy {
+                    // Buffer offsets are derived
+                    image_offset: [pos[0] as u32, pos[1] as u32, 0],
+                    image_extent: [delta.image.width() as u32, delta.image.height() as u32, 1],
+                    // Always use the whole image (no arrays or mips are performed)
+                    image_subresource: ImageSubresourceLayers {
+                        aspects: ImageAspects::COLOR,
+                        mip_level: 0,
+                        array_layers: 0..1,
+                    },
+                    ..Default::default()
+                }]
+                .into(),
+                ..CopyBufferToImageInfo::buffer_image(stage, existing_image.image().clone())
+            })
+            .unwrap();
+        } else {
+            // Otherwise save the newly created image
+            let img = {
+                let extent = [delta.image.width() as u32, delta.image.height() as u32, 1];
+                Image::new(
+                    self.allocators.memory.clone(),
+                    ImageCreateInfo {
+                        image_type: ImageType::Dim2d,
+                        format,
+                        extent,
+                        usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
+                        initial_layout: ImageLayout::Undefined,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo::default(),
+                )
+                .unwrap()
+            };
+            // Defer upload of data
+            cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(stage, img.clone()))
+                .unwrap();
+            // Swizzle packed font images up to a full premul white.
+            let component_mapping = match format {
+                Format::R8G8_UNORM => ComponentMapping {
+                    r: ComponentSwizzle::Red,
+                    g: ComponentSwizzle::Red,
+                    b: ComponentSwizzle::Red,
+                    a: ComponentSwizzle::Green,
+                },
+                _ => ComponentMapping::identity(),
+            };
+            let view = ImageView::new(img.clone(), ImageViewCreateInfo {
+                component_mapping,
+                ..ImageViewCreateInfo::from_image(&img)
+            })
+            .unwrap();
+            // Create a descriptor for it
+            let layout = self.pipeline.layout().set_layouts().first().unwrap();
+            let desc_set =
+                self.sampled_image_desc_set(layout, view.clone(), self.font_sampler.clone());
+            // Save!
+            self.texture_desc_sets.insert(id, desc_set);
+            self.texture_images.insert(id, view);
+        };
+    }
+    /// Write the entire texture delta for this frame.
+    fn update_textures(&mut self, sets: &[(egui::TextureId, egui::epaint::ImageDelta)]) {
+        // Allocate enough memory to upload every delta at once.
+        let total_size_bytes =
+            sets.iter().map(|(_, set)| self.image_size_bytes(set)).sum::<usize>() * 4;
+        // Infallible - unless we're on a 128 bit machine? :P
+        let total_size_bytes = u64::try_from(total_size_bytes).unwrap();
+        let Ok(total_size_bytes) = vulkano::NonZeroDeviceSize::try_from(total_size_bytes) else {
+            // Nothing to upload!
+            return;
+        };
+        let buffer = Buffer::new(
             self.allocators.memory.clone(),
             BufferCreateInfo { usage: BufferUsage::TRANSFER_SRC, ..Default::default() },
             AllocationCreateInfo {
                 memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                    | MemoryTypeFilter::HOST_RANDOM_ACCESS,
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
-            data,
+            // Bytes, align of one, infallible.
+            DeviceLayout::new(total_size_bytes, DeviceAlignment::MIN).unwrap(),
         )
         .unwrap();
-        // Create image
-        let img = {
-            let extent = [delta.image.width() as u32, delta.image.height() as u32, 1];
-            Image::new(
-                self.allocators.memory.clone(),
-                ImageCreateInfo {
-                    image_type: ImageType::Dim2d,
-                    format,
-                    extent,
-                    usage: ImageUsage::TRANSFER_DST
-                        | ImageUsage::TRANSFER_SRC
-                        | ImageUsage::SAMPLED,
-                    // initial_layout: ImageLayout::ShaderReadOnlyOptimal,
-                    // TODO(aedm): miez
-                    initial_layout: ImageLayout::Undefined,
-                    ..Default::default()
-                },
-                AllocationCreateInfo::default(),
-            )
-            .unwrap()
-        };
+        let buffer = Subbuffer::new(buffer);
 
-        // Create command buffer builder
+        // Shared command buffer for every upload in this batch.
         let mut cbb = AutoCommandBufferBuilder::primary(
             &self.allocators.command_buffer,
             self.gfx_queue.queue_family_index(),
@@ -432,69 +511,40 @@ impl Renderer {
         )
         .unwrap();
 
-        // Copy buffer to image
-        cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
-            texture_data_buffer,
-            img.clone(),
-        ))
-        .unwrap();
+        {
+            // Scoped to keep writer lock bounded
+            // Should be infallible - Just made the buffer so it's exclusive, and we have host access to it.
+            let mut writer = buffer.write().unwrap();
 
-        let font_image = ImageView::new(img.clone(), ImageViewCreateInfo {
-            component_mapping: match format {
-                // Red channel is coverage of white, premul. Green is the same coverage but nonlinear sRGB.
-                // This is the layout expected by egui:
-                Format::R8G8_UNORM => ComponentMapping {
-                    r: ComponentSwizzle::Red,
-                    g: ComponentSwizzle::Red,
-                    b: ComponentSwizzle::Red,
-                    a: ComponentSwizzle::Green,
-                },
-                // RGBA textures are pre-made in this form, no swizzle needed.
-                _ => ComponentMapping::identity(),
-            },
-            format,
-            ..ImageViewCreateInfo::from_image(&img)
-        })
-        .unwrap();
+            // Keep track of where to write the next image to into the staging buffer.
+            let mut past_buffer_end = 0usize;
 
-        // Blit texture data to existing image if delta pos exists (e.g. font changed)
-        if let Some(pos) = delta.pos {
-            if let Some(existing_image) = self.texture_images.get(&texture_id) {
-                let src_dims = font_image.image().extent();
-                let top_left = [pos[0] as u32, pos[1] as u32, 0];
-                let bottom_right = [pos[0] as u32 + src_dims[0], pos[1] as u32 + src_dims[1], 1];
+            for (id, delta) in sets {
+                let image_size_bytes = self.image_size_bytes(delta);
+                let range = past_buffer_end..(image_size_bytes + past_buffer_end);
 
-                cbb.blit_image(BlitImageInfo {
-                    src_image_layout: ImageLayout::General,
-                    dst_image_layout: ImageLayout::General,
-                    regions: [ImageBlit {
-                        src_subresource: font_image.image().subresource_layers(),
-                        src_offsets: [[0, 0, 0], src_dims],
-                        dst_subresource: existing_image.image().subresource_layers(),
-                        dst_offsets: [top_left, bottom_right],
-                        ..Default::default()
-                    }]
-                    .into(),
-                    filter: Filter::Nearest,
-                    ..BlitImageInfo::images(
-                        font_image.image().clone(),
-                        existing_image.image().clone(),
-                    )
-                })
-                .unwrap();
+                // Bump for next loop
+                past_buffer_end += image_size_bytes;
+
+                // Represents the same memory in two ways. Writable memmap, and gpu-side description.
+                let stage = buffer.clone().slice(range.start as u64..range.end as u64);
+                let mapped_stage = &mut writer[range];
+
+                self.update_texture_within(*id, delta, stage, mapped_stage, &mut cbb);
             }
-            // Otherwise save the newly created image
-        } else {
-            let layout = self.pipeline.layout().set_layouts().first().unwrap();
-            let font_desc_set =
-                self.sampled_image_desc_set(layout, font_image.clone(), self.font_sampler.clone());
-            self.texture_desc_sets.insert(texture_id, font_desc_set);
-            self.texture_images.insert(texture_id, font_image);
         }
-        // Execute command buffer
+
+        // Execute every upload at once and await:
         let command_buffer = cbb.build().unwrap();
-        let finished = command_buffer.execute(self.gfx_queue.clone()).unwrap();
-        let _fut = finished.then_signal_fence_and_flush().unwrap();
+        // Executing on the graphics queue not only since it's what we have, but
+        // we must guarantee a transfer granularity of [1,1,x] which graphics queue is required to have.
+        command_buffer
+            .execute(self.gfx_queue.clone())
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None)
+            .unwrap();
     }
 
     fn get_rect_scissor(
@@ -519,37 +569,6 @@ impl Renderer {
             offset: [min.x.round() as u32, min.y.round() as u32],
             extent: [(max.x.round() - min.x) as u32, (max.y.round() - min.y) as u32],
         }
-    }
-
-    fn create_subbuffers(&self, mesh: &Mesh) -> (Subbuffer<[EguiVertex]>, Subbuffer<[u32]>) {
-        // Copy vertices to buffer
-        let v_slice = &mesh.vertices;
-
-        let vertex_chunk =
-            self.vertex_buffer_pool.allocate_slice::<EguiVertex>(v_slice.len() as u64).unwrap();
-        {
-            let mut vertex_write = vertex_chunk.write().unwrap();
-            for (i, v) in v_slice.iter().enumerate() {
-                vertex_write[i] = EguiVertex {
-                    position: [v.pos.x, v.pos.y],
-                    tex_coords: [v.uv.x, v.uv.y],
-                    color: v.color.to_array(),
-                };
-            }
-        }
-
-        // Copy indices to buffer
-        let i_slice = &mesh.indices;
-        let index_chunk =
-            self.index_buffer_pool.allocate_slice::<u32>(i_slice.len() as u64).unwrap();
-        {
-            let mut index_write = index_chunk.write().unwrap();
-            for (i, v) in i_slice.iter().enumerate() {
-                index_write[i] = *v;
-            }
-        }
-
-        (vertex_chunk, index_chunk)
     }
 
     fn create_secondary_command_buffer_builder(
@@ -620,9 +639,7 @@ impl Renderer {
     where
         F: GpuFuture + 'static,
     {
-        for (id, image_delta) in &textures_delta.set {
-            self.update_texture(*id, image_delta);
-        }
+        self.update_textures(&textures_delta.set);
 
         let (mut command_buffer_builder, framebuffer_dimensions) = self.start(final_image);
         let mut builder = self.create_secondary_command_buffer_builder();
@@ -664,9 +681,7 @@ impl Renderer {
         scale_factor: f32,
         framebuffer_dimensions: [u32; 2],
     ) -> Arc<SecondaryAutoCommandBuffer> {
-        for (id, image_delta) in &textures_delta.set {
-            self.update_texture(*id, image_delta);
-        }
+        self.update_textures(&textures_delta.set);
         let mut builder = self.create_secondary_command_buffer_builder();
         self.draw_egui(scale_factor, clipped_meshes, framebuffer_dimensions, &mut builder);
         let buffer = builder.build().unwrap();
@@ -674,6 +689,80 @@ impl Renderer {
             self.unregister_image(id);
         }
         buffer
+    }
+    /// Uploads all meshes in bulk. They will be available in the same order, packed.
+    /// None if no vertices or no indices.
+    fn upload_meshes(
+        &mut self,
+        clipped_meshes: &[ClippedPrimitive],
+    ) -> Option<(VertexBuffer, IndexBuffer)> {
+        use egui::epaint::Vertex;
+        type Index = u32;
+        const VERTEX_ALIGN: DeviceAlignment = DeviceAlignment::of::<Vertex>();
+        const INDEX_ALIGN: DeviceAlignment = DeviceAlignment::of::<Index>();
+
+        // Iterator over only the meshes, no user callbacks.
+        let meshes = clipped_meshes.iter().filter_map(|mesh| match &mesh.primitive {
+            Primitive::Mesh(m) => Some(m),
+            _ => None,
+        });
+
+        // Calculate counts of each mesh, and total bytes for combined data
+        let (total_vertices, total_size_bytes) = {
+            let mut total_vertices = 0;
+            let mut total_indices = 0;
+
+            for mesh in meshes.clone() {
+                total_vertices += mesh.vertices.len();
+                total_indices += mesh.indices.len();
+            }
+            if total_indices == 0 || total_vertices == 0 {
+                return None;
+            }
+
+            let total_size_bytes = total_vertices * std::mem::size_of::<Vertex>()
+                + total_indices * std::mem::size_of::<Index>();
+            (
+                total_vertices,
+                // Infallible! Checked above.
+                NonZeroDeviceSize::new(u64::try_from(total_size_bytes).unwrap()).unwrap(),
+            )
+        };
+
+        // Allocate a buffer which can hold both packed arrays:
+        let layout = DeviceLayout::new(total_size_bytes, VERTEX_ALIGN.max(INDEX_ALIGN)).unwrap();
+        let buffer = self.vertex_index_buffer_pool.allocate(layout).unwrap();
+
+        // We must put the items with stricter align *first* in the packed buffer.
+        // Correct at time of writing, but assert in case that changes.
+        assert!(VERTEX_ALIGN >= INDEX_ALIGN);
+        let (vertices, indices) = {
+            let partition_bytes = total_vertices as u64 * std::mem::size_of::<Vertex>() as u64;
+            (
+                // Slice the start as vertices
+                buffer.clone().slice(..partition_bytes).reinterpret::<[Vertex]>(),
+                // Take the rest, reinterpret as indices.
+                buffer.slice(partition_bytes..).reinterpret::<[Index]>(),
+            )
+        };
+
+        // We have to upload in two mapping steps to avoid trivial but ugly unsafe.
+        {
+            let mut vertex_write = vertices.write().unwrap();
+            vertex_write
+                .iter_mut()
+                .zip(meshes.clone().flat_map(|m| &m.vertices).copied())
+                .for_each(|(into, from)| *into = from);
+        }
+        {
+            let mut index_write = indices.write().unwrap();
+            index_write
+                .iter_mut()
+                .zip(meshes.flat_map(|m| &m.indices).copied())
+                .for_each(|(into, from)| *into = from);
+        }
+
+        Some((vertices, indices))
     }
 
     fn draw_egui(
@@ -691,6 +780,11 @@ impl Renderer {
             output_in_linear_colorspace: self.output_in_linear_colorspace.into(),
         };
 
+        let mesh_buffers = self.upload_meshes(clipped_meshes);
+
+        let mut vertex_cursor = 0;
+        let mut index_cursor = 0;
+
         for ClippedPrimitive { clip_rect, primitive } in clipped_meshes {
             match primitive {
                 Primitive::Mesh(mesh) => {
@@ -702,10 +796,19 @@ impl Renderer {
                         eprintln!("This texture no longer exists {:?}", mesh.texture_id);
                         continue;
                     }
-                    let (vertices, indices) = self.create_subbuffers(mesh);
                     let desc_set = self.texture_desc_sets.get(&mesh.texture_id).unwrap();
 
+                    // Bind combined meshes.
+                    let Some((vertices, indices)) = mesh_buffers.clone() else {
+                        // Only None if there are no mesh calls, but here we are in a mesh call!
+                        unreachable!()
+                    };
+
                     builder
+                        .bind_index_buffer(indices)
+                        .unwrap()
+                        .bind_vertex_buffers(0, [vertices])
+                        .unwrap()
                         .bind_pipeline_graphics(self.pipeline.clone())
                         .unwrap()
                         .set_viewport(
@@ -742,12 +845,16 @@ impl Renderer {
                         .unwrap()
                         .push_constants(self.pipeline.layout().clone(), 0, push_constants)
                         .unwrap()
-                        .bind_vertex_buffers(0, vertices.clone())
-                        .unwrap()
-                        .bind_index_buffer(indices.clone())
-                        .unwrap()
-                        .draw_indexed(indices.len() as u32, 1, 0, 0, 0)
+                        .draw_indexed(
+                            mesh.indices.len() as u32,
+                            1,
+                            index_cursor,
+                            vertex_cursor as i32,
+                            0,
+                        )
                         .unwrap();
+                    index_cursor += mesh.indices.len() as u32;
+                    vertex_cursor += mesh.vertices.len() as u32;
                 }
                 Primitive::Callback(callback) => {
                     if callback.rect.is_positive() {
