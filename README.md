@@ -72,11 +72,57 @@ sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
 ```
 
 # The correct color space
-The key takeaway is that egui assumes any math in the shaders as well as alpha blending is done linearly, but using colors in sRGB color space. This is great for platforms which only have linear textures, like webgl, webgpu etc. This means for vulkan you must also use UNORM rendertargets, into which the shader will write color values in sRGB color space. This is highly inconvenient to work with, and there are several approaches around this issue:
+The key takeaway is that egui assumes any math in the shaders as well as [alpha blending is done using colors in sRGB color space](https://github.com/emilk/egui/pull/2071). Meanwhile, Vulkan assumes that one always works with colors in linear space, and will automatically convert sRGB textures to linear colors when using them in shaders. This is what we need to work around.
+<details>
+  <summary>Longer explainer </summary>
+  
+### What usually happens
 
-1. The simplest approach would be to create the swapchain using a UNORM image format, as is done in most examples. However, the swapchain image will be displayed in sRGB color space, so any normal rendering operations should write to an sRGB image, otherwise the color you emit in your fragment shader will not match the color displayed. This makes this approach only viable if you only want to draw things using Egui.
-2. You render into a UNORM image you allocated, and then copy that image onto your swapchain image using compute shaders or a fullscreen triangle. Your shader needs to read the UNORM image, which if you remember contains values in sRGB color space, convert it from sRGB to linear color space, and then write it to your sRGB swapchain image. This conversion is also why you cannot just blit the image, but need to use a shader in between.
-3. You again render into an image you allocated, but this time with `VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT` flag (the format may be UNORM or SRGB). This flag allows you to create image views with [compatible but differing formats](https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#formats-compatibility-classes). Create two image views, one viewing your data as UNORM and one as sRGB (e.g. `VK_FORMAT_R8G8B8A8_UNORM` and `VK_FORMAT_R8G8B8A8_SRGB`) by modifying `ImageViewCreateInfo::format` parameter from the default value. Render your Egui into the UNORM image view, then you may blit it from the sRGB image view onto your framebuffer.
+The GPU converts all colors to linear values. sRGB textures are mainly an implementation detail that the GPU can use to store colors for human vision with fewer bits.
+
+```mermaid
+flowchart LR
+    A[Shader A] -->|output linear colors| BB(UNORM Image)
+    BB -->|reads linear colors| B[Shader B]
+
+    C[Shader A] -->|GPU converts to sRGB| DD(sRGB Image)
+    DD -->|GPU converts to linear colors| D[Shader B]
+```
+
+Meanwhile, Egui expects that the input and output colors are in sRGB color space. Very unusual, but happens to make sense for them.
+
+So with Egui, we can use a we tricks.
+
+We can always (ab)use a UNORM texture to store values without any conversions.
+```mermaid
+flowchart LR
+    A[EGui] -->|output sRGB colors \n no conversion| BB(UNORM Image)
+    BB -->|directly reads colors \n no conversion| B[Your shader gets sRGB values]
+```
+Your shader can then take the sRGB values and manually convert them to linear values.
+
+The alternative, and better trick is using an image with multiple views.
+```mermaid
+flowchart LR
+    I(Image)
+    I1(UNORM Image View)
+    I2(sRGB Image View)
+
+    A[EGui] -->|output sRGB colors \n no conversion| I1
+
+    I2 -->|converts sRGB to linear| B[Your shader gets linear values]
+
+    I --- I1
+    I --- I2
+```
+
+The same two techniques can also be applied to swapchains.
+
+</details>
+
+1. The simplest approach is to create the swapchain using a UNORM image format, as is done in most examples. The display engine will [read the swapchain image, and interpret it as sRGB colors](https://stackoverflow.com/a/66401423/3492994). This happens regardless of the swapchain format. When using this approach, Egui works as expected. However, all of your shaders that draw to the swapchain will need to manually convert pixels to the sRGB format.
+2. You render into a UNORM image you allocated, and then copy that image onto your swapchain image using compute shaders or a fullscreen triangle. Your shader needs to read the UNORM image, which if you remember contains values in sRGB color space, manually convert it from sRGB to linear color space, and then write it to your sRGB swapchain image. This conversion is also why you cannot just blit the image, but need to use a shader in between.
+3. You again render into an image you allocated with the `VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT` flag (the format may be UNORM or SRGB). This flag allows you to create image views with [compatible but differing formats](https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#formats-compatibility-classes). Create two image views, one viewing your data as UNORM and one as sRGB (e.g. `VK_FORMAT_R8G8B8A8_UNORM` and `VK_FORMAT_R8G8B8A8_SRGB`) by modifying `ImageViewCreateInfo::format` parameter from the default value. Render your Egui into the UNORM image view, then you may blit it from the sRGB image view onto your framebuffer.
 4. If your device supports [`VK_KHR_swapchain_mutable_format`](https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_KHR_swapchain_mutable_format.html), which AMD, Nvidia and Intel do on both Windows and Linux, you may get around having to allocate an extra image and blit it completely. Enabling this extension and passing the `VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR` flag when creating your swapchain, which should be in sRGB format, allows you to create image views of your swapchain with differing formats. So just like in 2, you may now create two image views, one as sRGB to use in your 3D rendering, and one as UNORM to use in a following Egui pass. But as you are rendering directly into your swapchain, there is no need for copying or blitting.
 
 For desktop platforms, we would recommend approach 4 as it's supported by all major platforms and vendors, the most convenient to use, and saves both memory and memory bandwidth. If you intend to go for maximum compatibility, we recommend implementing approach 3 as it does not require any extra features or extensions, while still supporting approach 4 as it should be trivial to implement. Approach 2 is only interesting if you can combine the in-shader copy with some other post-processing shaders you would have to run anyway.
