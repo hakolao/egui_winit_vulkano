@@ -782,69 +782,94 @@ impl Renderer {
 
         let mesh_buffers = self.upload_meshes(clipped_meshes);
 
+        // Current position of renderbuffers, advances as meshes are consumed.
         let mut vertex_cursor = 0;
         let mut index_cursor = 0;
+        // Some of our state is immutable and only changes
+        // if a user callback thrashes it, rebind all when this is set:
+        let mut needs_full_rebind = true;
+        // Track resources that change from call-to-call.
+        // egui already makes the optimization that draws with identical resources are merged into one,
+        // so every mesh changes usually one or possibly both of these.
+        let mut current_rect = None;
+        let mut current_texture = None;
 
         for ClippedPrimitive { clip_rect, primitive } in clipped_meshes {
             match primitive {
                 Primitive::Mesh(mesh) => {
                     // Nothing to draw if we don't have vertices & indices
                     if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+                        // Consume the mesh and skip it.
+                        index_cursor += mesh.indices.len() as u32;
+                        vertex_cursor += mesh.vertices.len() as u32;
                         continue;
                     }
-                    if self.texture_desc_sets.get(&mesh.texture_id).is_none() {
-                        eprintln!("This texture no longer exists {:?}", mesh.texture_id);
-                        continue;
-                    }
-                    let desc_set = self.texture_desc_sets.get(&mesh.texture_id).unwrap();
+                    // Reset overall state, if needed.
+                    // Only happens on first mesh, and after a user callback which does unknowable
+                    // things to the command buffer's state.
+                    if needs_full_rebind {
+                        needs_full_rebind = false;
 
-                    // Bind combined meshes.
-                    let Some((vertices, indices)) = mesh_buffers.clone() else {
-                        // Only None if there are no mesh calls, but here we are in a mesh call!
-                        unreachable!()
+                        // Bind combined meshes.
+                        let Some((vertices, indices)) = mesh_buffers.clone() else {
+                            // Only None if there are no mesh calls, but here we are in a mesh call!
+                            unreachable!()
+                        };
+
+                        builder
+                            .bind_pipeline_graphics(self.pipeline.clone())
+                            .unwrap()
+                            .bind_index_buffer(indices)
+                            .unwrap()
+                            .bind_vertex_buffers(0, [vertices])
+                            .unwrap()
+                            .set_viewport(
+                                0,
+                                [Viewport {
+                                    offset: [0.0, 0.0],
+                                    extent: [
+                                        framebuffer_dimensions[0] as f32,
+                                        framebuffer_dimensions[1] as f32,
+                                    ],
+                                    depth_range: 0.0..=1.0,
+                                }]
+                                .into_iter()
+                                .collect(),
+                            )
+                            .unwrap()
+                            .push_constants(self.pipeline.layout().clone(), 0, push_constants)
+                            .unwrap();
+                    }
+                    // Find and bind image, if different.
+                    if current_texture != Some(mesh.texture_id) {
+                        if self.texture_desc_sets.get(&mesh.texture_id).is_none() {
+                            eprintln!("This texture no longer exists {:?}", mesh.texture_id);
+                            continue;
+                        }
+                        current_texture = Some(mesh.texture_id);
+
+                        let desc_set = self.texture_desc_sets.get(&mesh.texture_id).unwrap();
+
+                        builder
+                            .bind_descriptor_sets(
+                                PipelineBindPoint::Graphics,
+                                self.pipeline.layout().clone(),
+                                0,
+                                desc_set.clone(),
+                            )
+                            .unwrap();
                     };
+                    // Calculate and set scissor, if different
+                    if current_rect != Some(*clip_rect) {
+                        current_rect = Some(*clip_rect);
+                        let new_scissor =
+                            self.get_rect_scissor(scale_factor, framebuffer_dimensions, *clip_rect);
 
+                        builder.set_scissor(0, [new_scissor].into_iter().collect()).unwrap();
+                    }
+
+                    // All set up to draw!
                     builder
-                        .bind_index_buffer(indices)
-                        .unwrap()
-                        .bind_vertex_buffers(0, [vertices])
-                        .unwrap()
-                        .bind_pipeline_graphics(self.pipeline.clone())
-                        .unwrap()
-                        .set_viewport(
-                            0,
-                            [Viewport {
-                                offset: [0.0, 0.0],
-                                extent: [
-                                    framebuffer_dimensions[0] as f32,
-                                    framebuffer_dimensions[1] as f32,
-                                ],
-                                depth_range: 0.0..=1.0,
-                            }]
-                            .into_iter()
-                            .collect(),
-                        )
-                        .unwrap()
-                        .set_scissor(
-                            0,
-                            [self.get_rect_scissor(
-                                scale_factor,
-                                framebuffer_dimensions,
-                                *clip_rect,
-                            )]
-                            .into_iter()
-                            .collect(),
-                        )
-                        .unwrap()
-                        .bind_descriptor_sets(
-                            PipelineBindPoint::Graphics,
-                            self.pipeline.layout().clone(),
-                            0,
-                            desc_set.clone(),
-                        )
-                        .unwrap()
-                        .push_constants(self.pipeline.layout().clone(), 0, push_constants)
-                        .unwrap()
                         .draw_indexed(
                             mesh.indices.len() as u32,
                             1,
@@ -853,11 +878,22 @@ impl Renderer {
                             0,
                         )
                         .unwrap();
+
+                    // Consume this mesh for next iteration
                     index_cursor += mesh.indices.len() as u32;
                     vertex_cursor += mesh.vertices.len() as u32;
                 }
                 Primitive::Callback(callback) => {
                     if callback.rect.is_positive() {
+                        let Some(callback_fn) = callback.callback.downcast_ref::<CallbackFn>()
+                        else {
+                            println!(
+                                "Warning: Unsupported render callback. Expected \
+                                 egui_winit_vulkano::CallbackFn"
+                            );
+                            continue;
+                        };
+
                         let rect_min_x = scale_factor * callback.rect.min.x;
                         let rect_min_y = scale_factor * callback.rect.min.y;
                         let rect_max_x = scale_factor * callback.rect.max.x;
@@ -898,18 +934,16 @@ impl Renderer {
                             pixels_per_point: scale_factor,
                             screen_size_px: framebuffer_dimensions,
                         };
+                        (callback_fn.f)(info, &mut CallbackContext {
+                            builder,
+                            resources: self.render_resources(),
+                        });
 
-                        if let Some(callback) = callback.callback.downcast_ref::<CallbackFn>() {
-                            (callback.f)(info, &mut CallbackContext {
-                                builder,
-                                resources: self.render_resources(),
-                            });
-                        } else {
-                            println!(
-                                "Warning: Unsupported render callback. Expected \
-                                 egui_winit_vulkano::CallbackFn"
-                            );
-                        }
+                        // The user could have done much here - rebind pipes, set views, bind things, etc.
+                        // Mark all state as lost so that next mesh rebinds everything to a known state.
+                        needs_full_rebind = true;
+                        current_rect = None;
+                        current_texture = None;
                     }
                 }
             }
