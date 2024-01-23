@@ -11,65 +11,66 @@ use std::sync::Arc;
 
 use image::RgbaImage;
 use vulkano::{
-    buffer::{AllocateBufferError, Buffer, BufferCreateInfo, BufferUsage},
     command_buffer::{
-        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
-        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferToImageInfo,
-        PrimaryCommandBufferAbstract,
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
+        CopyBufferToImageInfo, PrimaryCommandBufferAbstract,
     },
-    descriptor_set::allocator::StandardDescriptorSetAllocator,
-    device::{Device, Queue},
-    image::{view::ImageView, AllocateImageError, Image, ImageCreateInfo, ImageType, ImageUsage},
-    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
-    Validated, ValidationError, VulkanError,
+    device::Queue,
+    image::{view::ImageView, ImageCreateInfo, ImageType, ImageUsage},
+    NonZeroDeviceSize, Validated, ValidationError, VulkanError,
 };
 
+use crate::allocator::Allocators;
+
 #[derive(Debug)]
-pub enum ImageCreationError {
+pub enum ImageCreationError<AllocErr: std::fmt::Debug> {
     Vulkan(Validated<VulkanError>),
-    AllocateImage(Validated<AllocateImageError>),
-    AllocateBuffer(Validated<AllocateBufferError>),
+    AllocateImage(AllocErr),
+    AllocateBuffer(AllocErr),
     Validation(Box<ValidationError>),
+    BadSize,
 }
 
-pub fn immutable_texture_from_bytes(
-    allocators: &Allocators,
+pub fn immutable_texture_from_bytes<Alloc>(
     queue: Arc<Queue>,
+    allocators: Alloc,
     byte_data: &[u8],
     dimensions: [u32; 2],
     format: vulkano::format::Format,
-) -> Result<Arc<ImageView>, ImageCreationError> {
-    let mut cbb = AutoCommandBufferBuilder::primary(
-        &allocators.command_buffer,
+) -> Result<Arc<ImageView>, ImageCreationError<Alloc::Error>>
+where
+    Alloc: Allocators,
+{
+    let mut cbb: AutoCommandBufferBuilder<
+        vulkano::command_buffer::PrimaryAutoCommandBuffer<_>,
+        StandardCommandBufferAllocator,
+    > = AutoCommandBufferBuilder::primary(
+        todo!(),
         queue.queue_family_index(),
         CommandBufferUsage::OneTimeSubmit,
     )
     .map_err(ImageCreationError::Vulkan)?;
 
-    let texture_data_buffer = Buffer::from_iter(
-        allocators.memory.clone(),
-        BufferCreateInfo { usage: BufferUsage::TRANSFER_SRC, ..Default::default() },
-        AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::PREFER_HOST
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        byte_data.iter().cloned(),
-    )
-    .map_err(ImageCreationError::AllocateBuffer)?;
+    let Some(size) = NonZeroDeviceSize::new(byte_data.len().try_into().unwrap()) else {
+        return Err(ImageCreationError::BadSize);
+    };
 
-    let texture = Image::new(
-        allocators.memory.clone(),
-        ImageCreateInfo {
+    let texture_data_buffer =
+        allocators.make_image_stage_buffer(size).map_err(ImageCreationError::AllocateBuffer)?;
+    {
+        let mut write = texture_data_buffer.write().unwrap();
+        write.iter_mut().zip(byte_data.iter()).for_each(|(into, &from)| *into = from);
+    }
+
+    let texture = allocators
+        .make_image(ImageCreateInfo {
             image_type: ImageType::Dim2d,
             format,
             extent: [dimensions[0], dimensions[1], 1],
             usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
             ..Default::default()
-        },
-        AllocationCreateInfo::default(),
-    )
-    .map_err(ImageCreationError::AllocateImage)?;
+        })
+        .map_err(ImageCreationError::AllocateImage)?;
 
     cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
         texture_data_buffer,
@@ -82,12 +83,15 @@ pub fn immutable_texture_from_bytes(
     Ok(ImageView::new_default(texture).unwrap())
 }
 
-pub fn immutable_texture_from_file(
-    allocators: &Allocators,
+pub fn immutable_texture_from_file<Alloc>(
     queue: Arc<Queue>,
+    allocators: Alloc,
     file_bytes: &[u8],
     format: vulkano::format::Format,
-) -> Result<Arc<ImageView>, ImageCreationError> {
+) -> Result<Arc<ImageView>, ImageCreationError<Alloc::Error>>
+where
+    Alloc: Allocators,
+{
     use image::GenericImageView;
 
     let img = image::load_from_memory(file_bytes).expect("Failed to load image from bytes");
@@ -107,27 +111,5 @@ pub fn immutable_texture_from_file(
         new_rgba.to_vec()
     };
     let dimensions = img.dimensions();
-    immutable_texture_from_bytes(allocators, queue, &rgba, [dimensions.0, dimensions.1], format)
-}
-
-pub struct Allocators {
-    pub memory: Arc<StandardMemoryAllocator>,
-    pub descriptor_set: StandardDescriptorSetAllocator,
-    pub command_buffer: StandardCommandBufferAllocator,
-}
-
-impl Allocators {
-    pub fn new_default(device: &Arc<Device>) -> Self {
-        Self {
-            memory: Arc::new(StandardMemoryAllocator::new_default(device.clone())),
-            descriptor_set: StandardDescriptorSetAllocator::new(device.clone(), Default::default()),
-            command_buffer: StandardCommandBufferAllocator::new(
-                device.clone(),
-                StandardCommandBufferAllocatorCreateInfo {
-                    secondary_buffer_count: 32,
-                    ..Default::default()
-                },
-            ),
-        }
-    }
+    immutable_texture_from_bytes(queue, allocators, &rgba, [dimensions.0, dimensions.1], format)
 }

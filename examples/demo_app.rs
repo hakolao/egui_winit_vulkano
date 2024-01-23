@@ -7,7 +7,7 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use egui_winit_vulkano::{egui, Gui, GuiConfig};
+use egui_winit_vulkano::{allocator::DefaultAllocators, egui, Gui, GuiConfig};
 use vulkano::sync::{self, GpuFuture};
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
@@ -52,6 +52,8 @@ pub fn main() {
             ci.min_image_count = ci.min_image_count.max(2);
         },
     );
+    // Allocators can be shared between renderers to increase re-use
+    let allocator = DefaultAllocators::new_default(context.device().clone());
     // Create gui as main render pass (no overlay means it clears the image each frame)
     let mut gui1 = {
         let renderer = windows.get_renderer_mut(window1).unwrap();
@@ -60,7 +62,7 @@ pub fn main() {
             renderer.surface(),
             renderer.graphics_queue(),
             renderer.swapchain_format(),
-            GuiConfig { allow_srgb_render_target: true, ..GuiConfig::default() },
+            GuiConfig { allow_srgb_render_target: true, ..GuiConfig::new_alloc(allocator.share()) },
         )
     };
     let mut gui2 = {
@@ -70,7 +72,7 @@ pub fn main() {
             renderer.surface(),
             renderer.graphics_queue(),
             renderer.swapchain_format(),
-            GuiConfig::default(),
+            GuiConfig::new_alloc(allocator),
         )
     };
     // Display the demo application that ships with egui.

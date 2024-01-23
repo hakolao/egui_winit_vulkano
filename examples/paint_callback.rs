@@ -63,7 +63,7 @@ pub fn main() {
             renderer.surface(),
             renderer.graphics_queue(),
             renderer.swapchain_format(),
-            GuiConfig::default(),
+            GuiConfig::new_default(context.device().clone()),
         );
 
         let scene = Arc::new(Mutex::new(Scene::new(gui.render_resources())));

@@ -44,7 +44,7 @@ pub fn main() {
             renderer.surface(),
             renderer.graphics_queue(),
             renderer.swapchain_format(),
-            GuiConfig::default(),
+            GuiConfig::new_default(context.device().clone()),
         )
     };
     // Create gui state (pass anything your state requires)

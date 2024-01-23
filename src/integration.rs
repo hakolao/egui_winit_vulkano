@@ -12,7 +12,7 @@ use egui::{ClippedPrimitive, TexturesDelta};
 use egui_winit::winit::event_loop::EventLoopWindowTarget;
 use vulkano::{
     command_buffer::SecondaryAutoCommandBuffer,
-    device::Queue,
+    device::{Device, Queue},
     format::{Format, NumericFormat},
     image::{sampler::SamplerCreateInfo, view::ImageView, SampleCount},
     render_pass::Subpass,
@@ -22,11 +22,12 @@ use vulkano::{
 use winit::window::Window;
 
 use crate::{
+    allocator::{Allocators, DefaultAllocators},
     renderer::{RenderResources, Renderer},
     utils::{immutable_texture_from_bytes, immutable_texture_from_file},
 };
 
-pub struct GuiConfig {
+pub struct GuiConfig<Alloc> {
     /// Allows supplying sRGB ImageViews as render targets instead of just UNORM ImageViews, defaults to false.
     /// **Using sRGB will cause minor discoloration of UI elements** due to blending in linear color space and not
     /// sRGB as Egui expects.
@@ -40,19 +41,28 @@ pub struct GuiConfig {
     /// Multisample count. Defaults to 1. If you use more than 1, you'll have to ensure your
     /// pipeline and target image matches that.
     pub samples: SampleCount,
+    /// Allocators to give to the implementation. All vulkan memory will be acquired through this interface,
+    /// you may share these allocators with the rest of your app and/or tune them to your usecase.
+    pub allocators: Alloc,
 }
 
-impl Default for GuiConfig {
-    fn default() -> Self {
+impl GuiConfig<DefaultAllocators> {
+    pub fn new_default(device: Arc<Device>) -> Self {
+        Self::new_alloc(DefaultAllocators::new_default(device))
+    }
+}
+impl<Alloc: Allocators> GuiConfig<Alloc> {
+    pub fn new_alloc(allocators: Alloc) -> Self {
         GuiConfig {
             allow_srgb_render_target: false,
             is_overlay: false,
             samples: SampleCount::Sample1,
+            allocators,
         }
     }
 }
 
-impl GuiConfig {
+impl<Alloc> GuiConfig<Alloc> {
     pub fn validate(&self, output_format: Format) {
         if output_format.numeric_format_color().unwrap() == NumericFormat::SRGB {
             assert!(
@@ -66,17 +76,17 @@ impl GuiConfig {
     }
 }
 
-pub struct Gui {
+pub struct Gui<Alloc> {
     pub egui_ctx: egui::Context,
     pub egui_winit: egui_winit::State,
-    renderer: Renderer,
+    renderer: Renderer<Alloc>,
     surface: Arc<Surface>,
 
     shapes: Vec<egui::epaint::ClippedShape>,
     textures_delta: egui::TexturesDelta,
 }
 
-impl Gui {
+impl<Alloc: Allocators> Gui<Alloc> {
     /// Creates new Egui to Vulkano integration by setting the necessary parameters
     /// This is to be called once we have access to vulkano_win's winit window surface
     /// and gfx queue. Created with this, the renderer will own a render pass which is useful to e.g. place your render pass' images
@@ -86,14 +96,15 @@ impl Gui {
         surface: Arc<Surface>,
         gfx_queue: Arc<Queue>,
         output_format: Format,
-        config: GuiConfig,
-    ) -> Gui {
+        config: GuiConfig<Alloc>,
+    ) -> Gui<Alloc> {
         config.validate(output_format);
         let renderer = Renderer::new_with_render_pass(
             gfx_queue,
             output_format,
             config.is_overlay,
             config.samples,
+            config.allocators,
         );
         Self::new_internal(event_loop, surface, renderer)
     }
@@ -105,19 +116,19 @@ impl Gui {
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
         output_format: Format,
-        config: GuiConfig,
-    ) -> Gui {
+        config: GuiConfig<Alloc>,
+    ) -> Gui<Alloc> {
         config.validate(output_format);
-        let renderer = Renderer::new_with_subpass(gfx_queue, output_format, subpass);
+        let renderer =
+            Renderer::new_with_subpass(gfx_queue, output_format, subpass, config.allocators);
         Self::new_internal(event_loop, surface, renderer)
     }
 
-    /// Same as `new` but instead of integration owning a render pass, egui renders on your subpass
     fn new_internal<T>(
         event_loop: &EventLoopWindowTarget<T>,
         surface: Arc<Surface>,
-        renderer: Renderer,
-    ) -> Gui {
+        renderer: Renderer<Alloc>,
+    ) -> Gui<Alloc> {
         let max_texture_side =
             renderer.queue().device().physical_device().properties().max_image_array_layers
                 as usize;
@@ -274,8 +285,8 @@ impl Gui {
         sampler_create_info: SamplerCreateInfo,
     ) -> egui::TextureId {
         let image = immutable_texture_from_file(
-            self.renderer.allocators(),
             self.renderer.queue(),
+            self.renderer.allocators(),
             image_file_bytes,
             format,
         )
@@ -291,8 +302,8 @@ impl Gui {
         sampler_create_info: SamplerCreateInfo,
     ) -> egui::TextureId {
         let image = immutable_texture_from_bytes(
-            self.renderer.allocators(),
             self.renderer.queue(),
+            self.renderer.allocators(),
             image_byte_data,
             dimensions,
             format,

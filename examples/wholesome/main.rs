@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use egui::{load::SizedTexture, Context, ImageSource, Visuals};
-use egui_winit_vulkano::{egui, Gui, GuiConfig};
+use egui_winit_vulkano::{allocator::Allocators, egui, Gui, GuiConfig};
 use vulkano::{
     command_buffer::allocator::{
         StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo,
@@ -51,7 +51,11 @@ pub struct GuiState {
 }
 
 impl GuiState {
-    pub fn new(gui: &mut Gui, scene_image: Arc<ImageView>, scene_view_size: [u32; 2]) -> GuiState {
+    pub fn new<Alloc: Allocators>(
+        gui: &mut Gui<Alloc>,
+        scene_image: Arc<ImageView>,
+        scene_view_size: [u32; 2],
+    ) -> GuiState {
         // tree.png asset is from https://github.com/sotrh/learn-wgpu/tree/master/docs/beginner/tutorial5-textures
         let image_texture_id1 = gui.register_user_image(
             include_bytes!("./assets/tree.png"),
@@ -153,7 +157,7 @@ pub fn main() {
             renderer.surface(),
             renderer.graphics_queue(),
             renderer.swapchain_format(),
-            GuiConfig::default(),
+            GuiConfig::new_default(context.device().clone()),
         )
     };
     // Create a simple image to which we'll draw the triangle scene

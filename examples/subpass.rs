@@ -15,7 +15,7 @@ use std::{
 };
 
 use egui::{epaint::Shadow, style::Margin, vec2, Align, Align2, Color32, Frame, Rounding, Window};
-use egui_winit_vulkano::{egui, Gui, GuiConfig};
+use egui_winit_vulkano::{allocator::Allocators, egui, Gui, GuiConfig};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
@@ -77,7 +77,7 @@ pub fn main() {
         windows.get_primary_renderer_mut().unwrap().graphics_queue(),
         gui_pipeline.gui_pass(),
         windows.get_primary_renderer_mut().unwrap().swapchain_format(),
-        GuiConfig::default(),
+        GuiConfig::new_default(context.device().clone()),
     );
 
     // Create gui state (pass anything your state requires)
@@ -267,11 +267,11 @@ impl SimpleGuiPipeline {
         )
     }
 
-    pub fn render(
+    pub fn render<Alloc: Allocators>(
         &mut self,
         before_future: Box<dyn GpuFuture>,
         image: Arc<ImageView>,
-        gui: &mut Gui,
+        gui: &mut Gui<Alloc>,
     ) -> Box<dyn GpuFuture> {
         let mut builder = AutoCommandBufferBuilder::primary(
             &self.command_buffer_allocator,
