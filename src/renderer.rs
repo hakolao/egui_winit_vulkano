@@ -15,18 +15,17 @@ use std::{
 use ahash::AHashMap;
 use egui::{epaint::Primitive, ClippedPrimitive, PaintCallbackInfo, Rect, TexturesDelta};
 use vulkano::{
-    buffer::{
-        allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
-        Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer,
-    },
+    buffer::{BufferContents, Subbuffer},
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, BufferImageCopy,
-        CommandBufferInheritanceInfo, CommandBufferUsage, CopyBufferToImageInfo,
-        PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, RenderPassBeginInfo,
-        SecondaryAutoCommandBuffer, SubpassBeginInfo, SubpassContents,
+        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
+        AutoCommandBufferBuilder, BufferImageCopy, CommandBufferInheritanceInfo,
+        CommandBufferUsage, CopyBufferToImageInfo, PrimaryAutoCommandBuffer,
+        PrimaryCommandBufferAbstract, RenderPassBeginInfo, SecondaryAutoCommandBuffer,
+        SubpassBeginInfo, SubpassContents,
     },
     descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, layout::DescriptorSetLayout,
+        allocator::{StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo},
+        layout::DescriptorSetLayout,
         PersistentDescriptorSet, WriteDescriptorSet,
     },
     device::Queue,
@@ -37,13 +36,11 @@ use vulkano::{
             SamplerCreateInfo, SamplerMipmapMode,
         },
         view::{ImageView, ImageViewCreateInfo},
-        Image, ImageAspects, ImageCreateInfo, ImageLayout, ImageSubresourceLayers, ImageType,
-        ImageUsage, SampleCount,
+        ImageAspects, ImageCreateInfo, ImageLayout, ImageSubresourceLayers, ImageType, ImageUsage,
+        SampleCount,
     },
     memory::{
-        allocator::{
-            AllocationCreateInfo, DeviceLayout, MemoryTypeFilter, StandardMemoryAllocator,
-        },
+        allocator::{DeviceLayout, StandardMemoryAllocator},
         DeviceAlignment,
     },
     pipeline::{
@@ -64,14 +61,10 @@ use vulkano::{
     },
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
-    DeviceSize, NonZeroDeviceSize,
+    NonZeroDeviceSize,
 };
 
-use crate::utils::Allocators;
-
-const VERTICES_PER_QUAD: DeviceSize = 4;
-const VERTEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * VERTICES_PER_QUAD;
-const INDEX_BUFFER_SIZE: DeviceSize = 1024 * 1024 * 2;
+use crate::allocator::Allocators;
 
 type VertexBuffer = Subbuffer<[egui::epaint::Vertex]>;
 type IndexBuffer = Subbuffer<[u32]>;
@@ -88,7 +81,7 @@ pub struct EguiVertex {
     pub color: [u8; 4],
 }
 
-pub struct Renderer {
+pub struct Renderer<Alloc> {
     gfx_queue: Arc<Queue>,
     render_pass: Option<Arc<RenderPass>>,
     is_overlay: bool,
@@ -100,8 +93,9 @@ pub struct Renderer {
     // May be R8G8_UNORM or R8G8B8A8_SRGB
     font_format: Format,
 
-    allocators: Allocators,
-    vertex_index_buffer_pool: SubbufferAllocator,
+    allocators: Alloc,
+    descriptor_allocator: StandardDescriptorSetAllocator,
+    cb_allocator: StandardCommandBufferAllocator,
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
 
@@ -110,13 +104,14 @@ pub struct Renderer {
     next_native_tex_id: u64,
 }
 
-impl Renderer {
+impl<Alloc: Allocators> Renderer<Alloc> {
     pub fn new_with_subpass(
         gfx_queue: Arc<Queue>,
         final_output_format: Format,
         subpass: Subpass,
-    ) -> Renderer {
-        Self::new_internal(gfx_queue, final_output_format, subpass, None, false)
+        allocators: Alloc,
+    ) -> Renderer<Alloc> {
+        Self::new_internal(gfx_queue, final_output_format, subpass, None, false, allocators)
     }
 
     /// Creates a new [Renderer] which is responsible for rendering egui with its own renderpass
@@ -126,7 +121,8 @@ impl Renderer {
         final_output_format: Format,
         is_overlay: bool,
         samples: SampleCount,
-    ) -> Renderer {
+        allocators: Alloc,
+    ) -> Renderer<Alloc> {
         // Create Gui render pass with just depth and final color
         let render_pass = if is_overlay {
             vulkano::single_pass_renderpass!(gfx_queue.device().clone(),
@@ -162,7 +158,14 @@ impl Renderer {
             .unwrap()
         };
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
-        Self::new_internal(gfx_queue, final_output_format, subpass, Some(render_pass), is_overlay)
+        Self::new_internal(
+            gfx_queue,
+            final_output_format,
+            subpass,
+            Some(render_pass),
+            is_overlay,
+            allocators,
+        )
     }
 
     fn new_internal(
@@ -171,19 +174,11 @@ impl Renderer {
         subpass: Subpass,
         render_pass: Option<Arc<RenderPass>>,
         is_overlay: bool,
-    ) -> Renderer {
+        allocators: Alloc,
+    ) -> Renderer<Alloc> {
         let output_in_linear_colorspace =
             // final_output_format.type_color().unwrap() == NumericType::SRGB;
             final_output_format.numeric_format_color().unwrap() == NumericFormat::SRGB;
-        let allocators = Allocators::new_default(gfx_queue.device());
-        let vertex_index_buffer_pool =
-            SubbufferAllocator::new(allocators.memory.clone(), SubbufferAllocatorCreateInfo {
-                arena_size: INDEX_BUFFER_SIZE + VERTEX_BUFFER_SIZE,
-                buffer_usage: BufferUsage::INDEX_BUFFER | BufferUsage::VERTEX_BUFFER,
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            });
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
         let font_sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
             mag_filter: Filter::Linear,
@@ -194,11 +189,21 @@ impl Renderer {
         })
         .unwrap();
         let font_format = Self::choose_font_format(gfx_queue.device());
+        let cb_allocator = StandardCommandBufferAllocator::new(
+            gfx_queue.device().clone(),
+            StandardCommandBufferAllocatorCreateInfo {
+                secondary_buffer_count: 32,
+                ..Default::default()
+            },
+        );
+        let descriptor_allocator = StandardDescriptorSetAllocator::new(
+            gfx_queue.device().clone(),
+            StandardDescriptorSetAllocatorCreateInfo::default(),
+        );
         Renderer {
             gfx_queue,
             format: final_output_format,
             render_pass,
-            vertex_index_buffer_pool,
             pipeline,
             subpass,
             texture_desc_sets: AHashMap::default(),
@@ -209,6 +214,8 @@ impl Renderer {
             font_sampler,
             font_format,
             allocators,
+            cb_allocator,
+            descriptor_allocator,
         }
     }
 
@@ -278,7 +285,7 @@ impl Renderer {
         sampler: Arc<Sampler>,
     ) -> Arc<PersistentDescriptorSet> {
         PersistentDescriptorSet::new(
-            &self.allocators.descriptor_set,
+            &self.descriptor_allocator,
             layout.clone(),
             [WriteDescriptorSet::image_view_sampler(0, image, sampler)],
             [],
@@ -437,19 +444,16 @@ impl Renderer {
             // Otherwise save the newly created image
             let img = {
                 let extent = [delta.image.width() as u32, delta.image.height() as u32, 1];
-                Image::new(
-                    self.allocators.memory.clone(),
-                    ImageCreateInfo {
+                self.allocators
+                    .make_image(ImageCreateInfo {
                         image_type: ImageType::Dim2d,
                         format,
                         extent,
                         usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
                         initial_layout: ImageLayout::Undefined,
                         ..Default::default()
-                    },
-                    AllocationCreateInfo::default(),
-                )
-                .unwrap()
+                    })
+                    .unwrap()
             };
             // Defer upload of data
             cbb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(stage, img.clone()))
@@ -489,23 +493,11 @@ impl Renderer {
             // Nothing to upload!
             return;
         };
-        let buffer = Buffer::new(
-            self.allocators.memory.clone(),
-            BufferCreateInfo { usage: BufferUsage::TRANSFER_SRC, ..Default::default() },
-            AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                ..Default::default()
-            },
-            // Bytes, align of one, infallible.
-            DeviceLayout::new(total_size_bytes, DeviceAlignment::MIN).unwrap(),
-        )
-        .unwrap();
-        let buffer = Subbuffer::new(buffer);
+        let buffer = self.allocators.make_image_stage_buffer(total_size_bytes).unwrap();
 
         // Shared command buffer for every upload in this batch.
         let mut cbb = AutoCommandBufferBuilder::primary(
-            &self.allocators.command_buffer,
+            &self.cb_allocator,
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
@@ -575,7 +567,7 @@ impl Renderer {
         &self,
     ) -> AutoCommandBufferBuilder<SecondaryAutoCommandBuffer> {
         AutoCommandBufferBuilder::secondary(
-            &self.allocators.command_buffer,
+            &self.cb_allocator,
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
@@ -606,7 +598,7 @@ impl Renderer {
         )
         .unwrap();
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-            &self.allocators.command_buffer,
+            &self.cb_allocator,
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
@@ -731,7 +723,7 @@ impl Renderer {
 
         // Allocate a buffer which can hold both packed arrays:
         let layout = DeviceLayout::new(total_size_bytes, VERTEX_ALIGN.max(INDEX_ALIGN)).unwrap();
-        let buffer = self.vertex_index_buffer_pool.allocate(layout).unwrap();
+        let buffer = self.allocators.make_vertex_index_buffer(layout).unwrap();
 
         // We must put the items with stricter align *first* in the packed buffer.
         // Correct at time of writing, but assert in case that changes.
@@ -954,9 +946,9 @@ impl Renderer {
         RenderResources {
             queue: self.queue(),
             subpass: self.subpass.clone(),
-            memory_allocator: self.allocators.memory.clone(),
-            descriptor_set_allocator: &self.allocators.descriptor_set,
-            command_buffer_allocator: &self.allocators.command_buffer,
+            memory_allocator: todo!(), // self.allocators.memory.clone(),
+            descriptor_set_allocator: &self.descriptor_allocator,
+            command_buffer_allocator: &self.cb_allocator,
         }
     }
 
@@ -964,8 +956,8 @@ impl Renderer {
         self.gfx_queue.clone()
     }
 
-    pub fn allocators(&self) -> &Allocators {
-        &self.allocators
+    pub fn allocators(&mut self) -> &mut Alloc {
+        &mut self.allocators
     }
 }
 

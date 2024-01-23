@@ -15,7 +15,7 @@ use std::{
 };
 
 use egui::{epaint::Shadow, style::Margin, vec2, Align, Align2, Color32, Frame, Rounding, Window};
-use egui_winit_vulkano::{egui, Gui, GuiConfig};
+use egui_winit_vulkano::{allocator::Allocators, egui, Gui, GuiConfig};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
@@ -81,7 +81,7 @@ pub fn main() {
         GuiConfig {
             // Must match your pipeline's sample count
             samples: SampleCount::Sample4,
-            ..Default::default()
+            ..GuiConfig::new_default(context.device().clone())
         },
     );
 
@@ -316,11 +316,11 @@ impl MSAAPipeline {
         )
     }
 
-    pub fn render(
+    pub fn render<Alloc: Allocators>(
         &mut self,
         before_future: Box<dyn GpuFuture>,
         image: Arc<ImageView>,
-        gui: &mut Gui,
+        gui: &mut Gui<Alloc>,
     ) -> Box<dyn GpuFuture> {
         let mut builder = AutoCommandBufferBuilder::primary(
             &self.command_buffer_allocator,
