@@ -34,12 +34,12 @@ use vulkano_util::{
 };
 use winit::{
     event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::EventLoop,
 };
 
 pub fn main() {
     // Winit event loop
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     // Vulkano context
     let context = VulkanoContext::new(VulkanoConfig::default());
     // Vulkano windows (create one)
@@ -71,74 +71,81 @@ pub fn main() {
     };
 
     // Create gui state (pass anything your state requires)
-    event_loop.run(move |event, _, control_flow| {
-        let renderer = windows.get_primary_renderer_mut().unwrap();
-        match event {
-            Event::WindowEvent { event, window_id } if window_id == renderer.window().id() => {
-                // Update Egui integration so the UI works!
-                let _pass_events_to_game = !gui.update(&event);
-                match event {
-                    WindowEvent::Resized(_) => {
-                        renderer.resize();
-                    }
-                    WindowEvent::ScaleFactorChanged { .. } => {
-                        renderer.resize();
-                    }
-                    WindowEvent::CloseRequested => {
-                        *control_flow = ControlFlow::Exit;
-                    }
-                    _ => (),
-                }
-            }
-            Event::RedrawRequested(window_id) if window_id == renderer.window().id() => {
-                let scene = scene.clone();
-                // Set immediate UI in redraw here
-                gui.immediate_ui(|gui| {
-                    let ctx = gui.context();
-                    egui::CentralPanel::default().show(&ctx, |ui| {
-                        // Create a frame to render our triangle image in
-                        egui::Frame::canvas(ui.style()).fill(Rgba::BLACK.into()).show(ui, |ui| {
-                            // Allocate all the space in the frame for the image
-                            let (rect, _) = ui.allocate_exact_size(
-                                vec2(ui.available_width(), ui.available_height()),
-                                Sense::click(),
-                            );
+    event_loop
+        .run(move |event, window| {
+            let renderer = windows.get_primary_renderer_mut().unwrap();
+            match event {
+                Event::WindowEvent { event, window_id } if window_id == renderer.window().id() => {
+                    // Update Egui integration so the UI works!
+                    let _pass_events_to_game = !gui.update(&event);
+                    match event {
+                        WindowEvent::Resized(_) => {
+                            renderer.resize();
+                        }
+                        WindowEvent::ScaleFactorChanged { .. } => {
+                            renderer.resize();
+                        }
+                        WindowEvent::CloseRequested => {
+                            window.exit();
+                        }
+                        WindowEvent::RedrawRequested => {
+                            let scene = scene.clone();
+                            // Set immediate UI in redraw here
+                            gui.immediate_ui(|gui| {
+                                let ctx = gui.context();
+                                egui::CentralPanel::default().show(&ctx, |ui| {
+                                    // Create a frame to render our triangle image in
+                                    egui::Frame::canvas(ui.style()).fill(Rgba::BLACK.into()).show(
+                                        ui,
+                                        |ui| {
+                                            // Allocate all the space in the frame for the image
+                                            let (rect, _) = ui.allocate_exact_size(
+                                                vec2(ui.available_width(), ui.available_height()),
+                                                Sense::click(),
+                                            );
 
-                            // Render the scene in the allocated space
-                            let paint_callback = PaintCallback {
-                                rect,
-                                callback: Arc::new(CallbackFn::new(move |info, context| {
-                                    let mut scene = scene.lock();
-                                    scene.render(info, context);
-                                })),
+                                            // Render the scene in the allocated space
+                                            let paint_callback = PaintCallback {
+                                                rect,
+                                                callback: Arc::new(CallbackFn::new(
+                                                    move |info, context| {
+                                                        let mut scene = scene.lock();
+                                                        scene.render(info, context);
+                                                    },
+                                                )),
+                                            };
+
+                                            ui.painter().add(paint_callback);
+                                        },
+                                    );
+                                });
+                            });
+                            // Render UI
+                            // Acquire swapchain future
+                            match renderer.acquire() {
+                                Ok(future) => {
+                                    // Render gui
+                                    let after_future =
+                                        gui.draw_on_image(future, renderer.swapchain_image_view());
+                                    // Present swapchain
+                                    renderer.present(after_future, true);
+                                }
+                                Err(vulkano::VulkanError::OutOfDate) => {
+                                    renderer.resize();
+                                }
+                                Err(e) => panic!("Failed to acquire swapchain future: {}", e),
                             };
-
-                            ui.painter().add(paint_callback);
-                        });
-                    });
-                });
-                // Render UI
-                // Acquire swapchain future
-                match renderer.acquire() {
-                    Ok(future) => {
-                        // Render gui
-                        let after_future =
-                            gui.draw_on_image(future, renderer.swapchain_image_view());
-                        // Present swapchain
-                        renderer.present(after_future, true);
+                        }
+                        _ => (),
                     }
-                    Err(vulkano::VulkanError::OutOfDate) => {
-                        renderer.resize();
-                    }
-                    Err(e) => panic!("Failed to acquire swapchain future: {}", e),
-                };
+                }
+                Event::AboutToWait => {
+                    renderer.window().request_redraw();
+                }
+                _ => (),
             }
-            Event::MainEventsCleared => {
-                renderer.window().request_redraw();
-            }
-            _ => (),
-        }
-    });
+        })
+        .unwrap();
 }
 
 struct Scene {
@@ -220,9 +227,10 @@ impl Scene {
             .bind_pipeline_graphics(self.pipeline.clone())
             .unwrap()
             .bind_vertex_buffers(0, self.vertex_buffer.clone())
-            .unwrap()
-            .draw(self.vertex_buffer.len() as u32, 1, 0, 0)
             .unwrap();
+        unsafe {
+            context.builder.draw(self.vertex_buffer.len() as u32, 1, 0, 0).unwrap();
+        }
     }
 }
 

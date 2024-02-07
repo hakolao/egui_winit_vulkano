@@ -17,7 +17,7 @@ use vulkano_util::{
 };
 use winit::{
     event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::EventLoop,
 };
 
 fn sized_text(ui: &mut egui::Ui, text: impl Into<String>, size: f32) {
@@ -26,7 +26,7 @@ fn sized_text(ui: &mut egui::Ui, text: impl Into<String>, size: f32) {
 
 pub fn main() {
     // Winit event loop
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     // Vulkano context
     let context = VulkanoContext::new(VulkanoConfig::default());
     // Vulkano windows (create one)
@@ -48,75 +48,79 @@ pub fn main() {
     };
     // Create gui state (pass anything your state requires)
     let mut code = CODE.to_owned();
-    event_loop.run(move |event, _, control_flow| {
-        let renderer = windows.get_primary_renderer_mut().unwrap();
-        match event {
-            Event::WindowEvent { event, window_id } if window_id == renderer.window().id() => {
-                // Update Egui integration so the UI works!
-                let _pass_events_to_game = !gui.update(&event);
-                match event {
-                    WindowEvent::Resized(_) => {
-                        renderer.resize();
+    event_loop
+        .run(move |event, window| {
+            let renderer = windows.get_primary_renderer_mut().unwrap();
+            match event {
+                Event::WindowEvent { event, window_id } if window_id == renderer.window().id() => {
+                    // Update Egui integration so the UI works!
+                    let _pass_events_to_game = !gui.update(&event);
+                    match event {
+                        WindowEvent::Resized(_) => {
+                            renderer.resize();
+                        }
+                        WindowEvent::ScaleFactorChanged { .. } => {
+                            renderer.resize();
+                        }
+                        WindowEvent::CloseRequested => {
+                            window.exit();
+                        }
+                        WindowEvent::RedrawRequested => {
+                            // Set immediate UI in redraw here
+                            // Set immediate UI in redraw here
+                            gui.immediate_ui(|gui| {
+                                let ctx = gui.context();
+                                egui::CentralPanel::default().show(&ctx, |ui| {
+                                    ui.vertical_centered(|ui| {
+                                        ui.add(egui::widgets::Label::new("Hi there!"));
+                                        sized_text(ui, "Rich Text", 32.0);
+                                    });
+                                    ui.separator();
+                                    ui.columns(2, |columns| {
+                                        ScrollArea::vertical().id_source("source").show(
+                                            &mut columns[0],
+                                            |ui| {
+                                                ui.add(
+                                                    TextEdit::multiline(&mut code)
+                                                        .font(TextStyle::Monospace),
+                                                );
+                                            },
+                                        );
+                                        ScrollArea::vertical().id_source("rendered").show(
+                                            &mut columns[1],
+                                            |ui| {
+                                                egui_demo_lib::easy_mark::easy_mark(ui, &code);
+                                            },
+                                        );
+                                    });
+                                });
+                            });
+                            // Render UI
+                            // Acquire swapchain future
+                            match renderer.acquire() {
+                                Ok(future) => {
+                                    // Render gui
+                                    let after_future =
+                                        gui.draw_on_image(future, renderer.swapchain_image_view());
+                                    // Present swapchain
+                                    renderer.present(after_future, true);
+                                }
+                                Err(vulkano::VulkanError::OutOfDate) => {
+                                    renderer.resize();
+                                }
+                                Err(e) => panic!("Failed to acquire swapchain future: {}", e),
+                            };
+                        }
+                        _ => (),
                     }
-                    WindowEvent::ScaleFactorChanged { .. } => {
-                        renderer.resize();
-                    }
-                    WindowEvent::CloseRequested => {
-                        *control_flow = ControlFlow::Exit;
-                    }
-                    _ => (),
                 }
+                Event::AboutToWait => {
+                    renderer.window().request_redraw();
+                }
+                _ => (),
             }
-            Event::RedrawRequested(window_id) if window_id == window_id => {
-                // Set immediate UI in redraw here
-                gui.immediate_ui(|gui| {
-                    let ctx = gui.context();
-                    egui::CentralPanel::default().show(&ctx, |ui| {
-                        ui.vertical_centered(|ui| {
-                            ui.add(egui::widgets::Label::new("Hi there!"));
-                            sized_text(ui, "Rich Text", 32.0);
-                        });
-                        ui.separator();
-                        ui.columns(2, |columns| {
-                            ScrollArea::vertical().id_source("source").show(
-                                &mut columns[0],
-                                |ui| {
-                                    ui.add(
-                                        TextEdit::multiline(&mut code).font(TextStyle::Monospace),
-                                    );
-                                },
-                            );
-                            ScrollArea::vertical().id_source("rendered").show(
-                                &mut columns[1],
-                                |ui| {
-                                    egui_demo_lib::easy_mark::easy_mark(ui, &code);
-                                },
-                            );
-                        });
-                    });
-                });
-                // Render UI
-                // Acquire swapchain future
-                match renderer.acquire() {
-                    Ok(future) => {
-                        // Render gui
-                        let after_future =
-                            gui.draw_on_image(future, renderer.swapchain_image_view());
-                        // Present swapchain
-                        renderer.present(after_future, true);
-                    }
-                    Err(vulkano::VulkanError::OutOfDate) => {
-                        renderer.resize();
-                    }
-                    Err(e) => panic!("Failed to acquire swapchain future: {}", e),
-                };
-            }
-            Event::MainEventsCleared => {
-                renderer.window().request_redraw();
-            }
-            _ => (),
-        }
-    });
+        })
+        .unwrap();
 }
 
 const CODE: &str = r"

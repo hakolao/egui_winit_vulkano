@@ -14,7 +14,7 @@ use vulkano_util::{
 };
 use winit::{
     event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::EventLoop,
 };
 
 // Simply create egui demo apps to test everything works correctly.
@@ -78,64 +78,66 @@ pub fn main() {
     let mut egui_test1 = egui_demo_lib::ColorTest::default();
     let mut egui_test2 = egui_demo_lib::ColorTest::default();
 
-    event_loop.run(move |event, _, control_flow| {
-        for (wi, renderer) in windows.iter_mut() {
-            // Quick and ugly...
-            let gui = if *wi == window1 { &mut gui1 } else { &mut gui2 };
-            let demo_app = if *wi == window1 { &mut demo_app1 } else { &mut demo_app2 };
-            let egui_test = if *wi == window1 { &mut egui_test1 } else { &mut egui_test2 };
-            match &event {
-                Event::WindowEvent { event, window_id } if window_id == wi => {
-                    // Update Egui integration so the UI works!
-                    let _pass_events_to_game = !gui.update(event);
-                    match event {
-                        WindowEvent::Resized(_) => {
-                            renderer.resize();
+    event_loop
+        .run(move |event, window| {
+            for (wi, renderer) in windows.iter_mut() {
+                // Quick and ugly...
+                let gui = if *wi == window1 { &mut gui1 } else { &mut gui2 };
+                let demo_app = if *wi == window1 { &mut demo_app1 } else { &mut demo_app2 };
+                let egui_test = if *wi == window1 { &mut egui_test1 } else { &mut egui_test2 };
+                match &event {
+                    Event::WindowEvent { event, window_id } if window_id == wi => {
+                        // Update Egui integration so the UI works!
+                        let _pass_events_to_game = !gui.update(event);
+                        match event {
+                            WindowEvent::Resized(_) => {
+                                renderer.resize();
+                            }
+                            WindowEvent::ScaleFactorChanged { .. } => {
+                                renderer.resize();
+                            }
+                            WindowEvent::CloseRequested => {
+                                window.exit();
+                            }
+                            WindowEvent::RedrawRequested => {
+                                // Set immediate UI in redraw here
+                                gui.immediate_ui(|gui| {
+                                    let ctx = gui.context();
+                                    demo_app.ui(&ctx);
+
+                                    egui::Window::new("Colors").vscroll(true).show(&ctx, |ui| {
+                                        egui_test.ui(ui);
+                                    });
+                                });
+                                // Alternatively you could
+                                // gui.begin_frame();
+                                // let ctx = gui.context();
+                                // demo_app.ui(&ctx);
+
+                                // Render UI
+                                // Acquire swapchain future
+                                match renderer.acquire() {
+                                    Ok(future) => {
+                                        let after_future = gui
+                                            .draw_on_image(future, renderer.swapchain_image_view());
+                                        // Present swapchain
+                                        renderer.present(after_future, true);
+                                    }
+                                    Err(vulkano::VulkanError::OutOfDate) => {
+                                        renderer.resize();
+                                    }
+                                    Err(e) => panic!("Failed to acquire swapchain future: {}", e),
+                                };
+                            }
+                            _ => (),
                         }
-                        WindowEvent::ScaleFactorChanged { .. } => {
-                            renderer.resize();
-                        }
-                        WindowEvent::CloseRequested => {
-                            *control_flow = ControlFlow::Exit;
-                        }
-                        _ => (),
                     }
+                    Event::AboutToWait => {
+                        renderer.window().request_redraw();
+                    }
+                    _ => (),
                 }
-                Event::RedrawRequested(window_id) if window_id == wi => {
-                    // Set immediate UI in redraw here
-                    gui.immediate_ui(|gui| {
-                        let ctx = gui.context();
-                        demo_app.ui(&ctx);
-
-                        egui::Window::new("Colors").vscroll(true).show(&ctx, |ui| {
-                            egui_test.ui(ui);
-                        });
-                    });
-                    // Alternatively you could
-                    // gui.begin_frame();
-                    // let ctx = gui.context();
-                    // demo_app.ui(&ctx);
-
-                    // Render UI
-                    // Acquire swapchain future
-                    match renderer.acquire() {
-                        Ok(future) => {
-                            let after_future =
-                                gui.draw_on_image(future, renderer.swapchain_image_view());
-                            // Present swapchain
-                            renderer.present(after_future, true);
-                        }
-                        Err(vulkano::VulkanError::OutOfDate) => {
-                            renderer.resize();
-                        }
-                        Err(e) => panic!("Failed to acquire swapchain future: {}", e),
-                    };
-                }
-                Event::MainEventsCleared => {
-                    renderer.window().request_redraw();
-                }
-                _ => (),
             }
-        }
-    });
+        })
+        .unwrap();
 }

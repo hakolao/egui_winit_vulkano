@@ -16,8 +16,8 @@ use std::{convert::TryInto, sync::Arc};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
-        CommandBufferInheritanceInfo, CommandBufferUsage, SecondaryAutoCommandBuffer,
+        allocator::StandardCommandBufferAllocator, CommandBuffer, CommandBufferBeginInfo,
+        CommandBufferInheritanceInfo, RecordingCommandBuffer,
     },
     device::Queue,
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter},
@@ -122,16 +122,16 @@ impl TriangleDrawSystem {
         }
     }
 
-    pub fn draw(
-        &self,
-        viewport_dimensions: [u32; 2],
-    ) -> Arc<SecondaryAutoCommandBuffer<Arc<StandardCommandBufferAllocator>>> {
-        let mut builder = AutoCommandBufferBuilder::secondary(
-            &self.command_buffer_allocator,
+    pub fn draw(&self, viewport_dimensions: [u32; 2]) -> Arc<CommandBuffer> {
+        let mut builder = RecordingCommandBuffer::new(
+            self.command_buffer_allocator.clone(),
             self.gfx_queue.queue_family_index(),
-            CommandBufferUsage::MultipleSubmit,
-            CommandBufferInheritanceInfo {
-                render_pass: Some(self.subpass.clone().into()),
+            vulkano::command_buffer::CommandBufferLevel::Secondary,
+            CommandBufferBeginInfo {
+                inheritance_info: Some(CommandBufferInheritanceInfo {
+                    render_pass: Some(self.subpass.clone().into()),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
         )
@@ -151,10 +151,11 @@ impl TriangleDrawSystem {
             )
             .unwrap()
             .bind_vertex_buffers(0, self.vertex_buffer.clone())
-            .unwrap()
-            .draw(self.vertex_buffer.len() as u32, 1, 0, 0)
             .unwrap();
-        builder.build().unwrap()
+        unsafe {
+            builder.draw(self.vertex_buffer.len() as u32, 1, 0, 0).unwrap();
+        }
+        builder.end().unwrap()
     }
 }
 
