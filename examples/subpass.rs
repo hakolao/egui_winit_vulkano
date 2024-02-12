@@ -253,25 +253,21 @@ impl SimpleGuiPipeline {
 
         let subpass = Subpass::from(render_pass, 0).unwrap();
         (
-            GraphicsPipeline::new(
-                device,
-                None,
-                GraphicsPipelineCreateInfo {
-                    stages: stages.into_iter().collect(),
-                    vertex_input_state: Some(vertex_input_state),
-                    input_assembly_state: Some(InputAssemblyState::default()),
-                    viewport_state: Some(ViewportState::default()),
-                    rasterization_state: Some(RasterizationState::default()),
-                    multisample_state: Some(MultisampleState::default()),
-                    color_blend_state: Some(ColorBlendState::with_attachment_states(
-                        subpass.num_color_attachments(),
-                        ColorBlendAttachmentState::default(),
-                    )),
-                    dynamic_state: [DynamicState::Viewport].into_iter().collect(),
-                    subpass: Some(subpass.clone().into()),
-                    ..GraphicsPipelineCreateInfo::layout(layout)
-                },
-            )
+            GraphicsPipeline::new(device, None, GraphicsPipelineCreateInfo {
+                stages: stages.into_iter().collect(),
+                vertex_input_state: Some(vertex_input_state),
+                input_assembly_state: Some(InputAssemblyState::default()),
+                viewport_state: Some(ViewportState::default()),
+                rasterization_state: Some(RasterizationState::default()),
+                multisample_state: Some(MultisampleState::default()),
+                color_blend_state: Some(ColorBlendState::with_attachment_states(
+                    subpass.num_color_attachments(),
+                    ColorBlendAttachmentState::default(),
+                )),
+                dynamic_state: [DynamicState::Viewport].into_iter().collect(),
+                subpass: Some(subpass.clone().into()),
+                ..GraphicsPipelineCreateInfo::layout(layout)
+            })
             .unwrap(),
             subpass,
         )
@@ -295,10 +291,10 @@ impl SimpleGuiPipeline {
         .unwrap();
 
         let dimensions = image.image().extent();
-        let framebuffer = Framebuffer::new(
-            self.render_pass.clone(),
-            FramebufferCreateInfo { attachments: vec![image], ..Default::default() },
-        )
+        let framebuffer = Framebuffer::new(self.render_pass.clone(), FramebufferCreateInfo {
+            attachments: vec![image],
+            ..Default::default()
+        })
         .unwrap();
 
         // Begin render pipeline commands
@@ -353,13 +349,10 @@ impl SimpleGuiPipeline {
 
         // Move on to next subpass for gui
         builder
-            .next_subpass(
-                Default::default(),
-                SubpassBeginInfo {
-                    contents: SubpassContents::SecondaryCommandBuffers,
-                    ..Default::default()
-                },
-            )
+            .next_subpass(Default::default(), SubpassBeginInfo {
+                contents: SubpassContents::SecondaryCommandBuffers,
+                ..Default::default()
+            })
             .unwrap();
         // Draw gui on subpass
         let cb = gui.draw_on_subpass_image([dimensions[0], dimensions[1]]);

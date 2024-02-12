@@ -298,28 +298,24 @@ impl MSAAPipeline {
 
         let subpass = Subpass::from(render_pass, 0).unwrap();
         (
-            GraphicsPipeline::new(
-                device.clone(),
-                None,
-                GraphicsPipelineCreateInfo {
-                    stages: stages.into_iter().collect(),
-                    vertex_input_state: Some(vertex_input_state),
-                    input_assembly_state: Some(InputAssemblyState::default()),
-                    viewport_state: Some(ViewportState::default()),
-                    rasterization_state: Some(RasterizationState::default()),
-                    multisample_state: Some(MultisampleState {
-                        rasterization_samples: subpass.num_samples().unwrap(),
-                        ..MultisampleState::default()
-                    }),
-                    color_blend_state: Some(ColorBlendState::with_attachment_states(
-                        subpass.num_color_attachments(),
-                        ColorBlendAttachmentState::default(),
-                    )),
-                    dynamic_state: [DynamicState::Viewport].into_iter().collect(),
-                    subpass: Some(subpass.clone().into()),
-                    ..GraphicsPipelineCreateInfo::layout(layout)
-                },
-            )
+            GraphicsPipeline::new(device.clone(), None, GraphicsPipelineCreateInfo {
+                stages: stages.into_iter().collect(),
+                vertex_input_state: Some(vertex_input_state),
+                input_assembly_state: Some(InputAssemblyState::default()),
+                viewport_state: Some(ViewportState::default()),
+                rasterization_state: Some(RasterizationState::default()),
+                multisample_state: Some(MultisampleState {
+                    rasterization_samples: subpass.num_samples().unwrap(),
+                    ..MultisampleState::default()
+                }),
+                color_blend_state: Some(ColorBlendState::with_attachment_states(
+                    subpass.num_color_attachments(),
+                    ColorBlendAttachmentState::default(),
+                )),
+                dynamic_state: [DynamicState::Viewport].into_iter().collect(),
+                subpass: Some(subpass.clone().into()),
+                ..GraphicsPipelineCreateInfo::layout(layout)
+            })
             .unwrap(),
             subpass,
         )
@@ -364,13 +360,10 @@ impl MSAAPipeline {
             .unwrap();
         }
 
-        let framebuffer = Framebuffer::new(
-            self.render_pass.clone(),
-            FramebufferCreateInfo {
-                attachments: vec![self.intermediary.clone(), image],
-                ..Default::default()
-            },
-        )
+        let framebuffer = Framebuffer::new(self.render_pass.clone(), FramebufferCreateInfo {
+            attachments: vec![self.intermediary.clone(), image],
+            ..Default::default()
+        })
         .unwrap();
 
         // Begin render pipeline commands
