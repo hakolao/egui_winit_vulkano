@@ -20,7 +20,6 @@ use vulkano::{
     format::Format,
     image::{view::ImageView, Image, ImageCreateInfo, ImageType, ImageUsage},
     memory::allocator::AllocationCreateInfo,
-    sync::{self, GpuFuture},
 };
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
@@ -221,22 +220,22 @@ pub fn main() {
                 });
                 // Render UI
                 // Acquire swapchain future
-                let before_future = match renderer.acquire() {
-                    Ok(future) => future,
+                match renderer.acquire() {
+                    Ok(future) => {
+                        // Draw scene
+                        let after_scene_draw =
+                            scene_render_pipeline.render(future, scene_image.clone());
+                        // Render gui
+                        let after_future =
+                            gui.draw_on_image(after_scene_draw, renderer.swapchain_image_view());
+                        // Present swapchain
+                        renderer.present(after_future, true);
+                    }
                     Err(vulkano::VulkanError::OutOfDate) => {
                         renderer.resize();
-                        sync::now(context.device().clone()).boxed()
                     }
                     Err(e) => panic!("Failed to acquire swapchain future: {}", e),
                 };
-                // Draw scene
-                let after_scene_draw =
-                    scene_render_pipeline.render(before_future, scene_image.clone());
-                // Render gui
-                let after_future =
-                    gui.draw_on_image(after_scene_draw, renderer.swapchain_image_view());
-                // Present swapchain
-                renderer.present(after_future, true);
 
                 // Update fps & dt
                 time.update();
