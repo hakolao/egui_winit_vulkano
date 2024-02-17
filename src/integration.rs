@@ -119,7 +119,7 @@ impl Gui {
         renderer: Renderer,
     ) -> Gui {
         let max_texture_side =
-            renderer.queue().device().physical_device().properties().max_image_array_layers
+            renderer.queue().device().physical_device().properties().max_image_dimension2_d
                 as usize;
         let egui_ctx: egui::Context = Default::default();
         let egui_winit = egui_winit::State::new(
