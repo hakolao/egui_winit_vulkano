@@ -116,7 +116,7 @@ pub fn main() {
 
                                 // Render UI
                                 // Acquire swapchain future
-                                match renderer.acquire() {
+                                match renderer.acquire(|_| {}) {
                                     Ok(future) => {
                                         let after_future = gui
                                             .draw_on_image(future, renderer.swapchain_image_view());

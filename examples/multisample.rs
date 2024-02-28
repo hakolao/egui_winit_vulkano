@@ -126,7 +126,7 @@ pub fn main() {
                             });
                             // Render
                             // Acquire swapchain future
-                            match renderer.acquire() {
+                            match renderer.acquire(|_| {}) {
                                 Ok(future) => {
                                     // Render
                                     let after_future = pipeline.render(

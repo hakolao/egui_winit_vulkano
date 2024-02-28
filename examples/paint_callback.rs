@@ -122,7 +122,7 @@ pub fn main() {
                             });
                             // Render UI
                             // Acquire swapchain future
-                            match renderer.acquire() {
+                            match renderer.acquire(|_| {}) {
                                 Ok(future) => {
                                     // Render gui
                                     let after_future =
