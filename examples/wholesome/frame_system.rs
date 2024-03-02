@@ -11,7 +11,7 @@
 // https://github.com/vulkano-rs/vulkano-examples/blob/master/src/bin/deferred/frame/system.rs
 // Egui drawing could be its own pass or it could be a deferred subpass
 
-use std::{convert::TryFrom, sync::Arc};
+use std::sync::Arc;
 
 use cgmath::Matrix4;
 use vulkano::{
