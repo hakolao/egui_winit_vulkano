@@ -9,6 +9,7 @@
 
 use std::sync::Arc;
 
+#[cfg(feature = "image")]
 use image::RgbaImage;
 use vulkano::{
     buffer::{AllocateBufferError, Buffer, BufferCreateInfo, BufferUsage},
@@ -82,6 +83,7 @@ pub fn immutable_texture_from_bytes(
     Ok(ImageView::new_default(texture).unwrap())
 }
 
+#[cfg(feature = "image")]
 pub fn immutable_texture_from_file(
     allocators: &Allocators,
     queue: Arc<Queue>,

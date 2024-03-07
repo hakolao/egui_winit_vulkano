@@ -23,8 +23,10 @@ use winit::window::Window;
 
 use crate::{
     renderer::{RenderResources, Renderer},
-    utils::{immutable_texture_from_bytes, immutable_texture_from_file},
+    utils::immutable_texture_from_bytes,
 };
+#[cfg(feature = "image")]
+use crate::utils::immutable_texture_from_file;
 
 pub struct GuiConfig {
     /// Allows supplying sRGB ImageViews as render targets instead of just UNORM ImageViews, defaults to false.
@@ -267,6 +269,7 @@ impl Gui {
     /// Registers a user image to be used by egui
     /// - `image_file_bytes`: e.g. include_bytes!("./assets/tree.png")
     /// - `format`: e.g. vulkano::format::Format::R8G8B8A8Unorm
+    #[cfg(feature = "image")]
     pub fn register_user_image(
         &mut self,
         image_file_bytes: &[u8],
