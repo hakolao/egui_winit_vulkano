@@ -12,7 +12,7 @@ categories = ["gui", "game-development"]
 keywords = ["gui", "imgui", "immediate", "portable", "gamedev"]
 
 [features]
-default = ["clipboard", "links", "wayland", "x11"]
+default = ["clipboard", "links", "wayland", "x11", "image"]
 links = ["egui-winit/links"]
 clipboard = ["egui-winit/clipboard"]
 wayland = ["winit/wayland", "winit/wayland-dlopen", "egui-winit/wayland"]
