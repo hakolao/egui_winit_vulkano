@@ -21,12 +21,12 @@ use vulkano::{
 };
 use winit::window::Window;
 
+#[cfg(feature = "image")]
+use crate::utils::immutable_texture_from_file;
 use crate::{
     renderer::{RenderResources, Renderer},
     utils::immutable_texture_from_bytes,
 };
-#[cfg(feature = "image")]
-use crate::utils::immutable_texture_from_file;
 
 pub struct GuiConfig {
     /// Allows supplying sRGB ImageViews as render targets instead of just UNORM ImageViews, defaults to false.
