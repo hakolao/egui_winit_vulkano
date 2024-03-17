@@ -235,8 +235,7 @@ impl Renderer {
             ..ColorBlendState::default()
         };
 
-        let vertex_input_state =
-            Some(EguiVertex::per_vertex().definition(&vs.info().input_interface).unwrap());
+        let vertex_input_state = Some(EguiVertex::per_vertex().definition(&vs).unwrap());
 
         let stages =
             [PipelineShaderStageCreateInfo::new(vs), PipelineShaderStageCreateInfo::new(fs)];
