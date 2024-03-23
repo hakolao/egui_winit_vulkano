@@ -10,7 +10,7 @@
 #![allow(clippy::eq_op)]
 
 use egui::{ScrollArea, TextEdit, TextStyle};
-use egui_winit_vulkano::{egui, Gui, GuiConfig};
+use egui_winit_vulkano::{Gui, GuiConfig};
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
     window::{VulkanoWindows, WindowDescriptor},
