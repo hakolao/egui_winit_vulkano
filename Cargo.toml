@@ -20,7 +20,7 @@ clipboard = ["egui-winit/clipboard"]
 ahash = "0.8"
 egui-winit = "0.26"
 egui = "0.26"
-image = "0.24"
+image = "0.25"
 winit = { version = "0.29" }
 vulkano = { version = "0.34", git = "https://github.com/vulkano-rs/vulkano.git"}
 vulkano-shaders = "0.34"
