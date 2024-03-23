@@ -11,7 +11,7 @@
 // https://github.com/vulkano-rs/vulkano-examples/blob/master/src/bin/deferred/triangle_draw_system.rs
 // To simplify this wholesome example :)
 
-use std::{convert::TryInto, sync::Arc};
+use std::sync::Arc;
 
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},

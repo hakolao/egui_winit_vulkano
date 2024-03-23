@@ -9,13 +9,10 @@
 
 #![allow(clippy::eq_op)]
 
-use std::{
-    convert::{TryFrom, TryInto},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use egui::{epaint::Shadow, style::Margin, vec2, Align, Align2, Color32, Frame, Rounding, Window};
-use egui_winit_vulkano::{egui, Gui, GuiConfig};
+use egui_winit_vulkano::{Gui, GuiConfig};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
