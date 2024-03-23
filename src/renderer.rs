@@ -668,10 +668,8 @@ impl Renderer {
         let command_buffer = command_buffer_builder.build().unwrap();
         let after_main_cb =
             before_main_cb_future.then_execute(self.gfx_queue.clone(), command_buffer).unwrap();
-        let future =
-            after_main_cb.then_signal_fence_and_flush().expect("Failed to signal fence and flush");
         // Return our future
-        Box::new(future)
+        Box::new(after_main_cb)
     }
 
     pub fn draw_on_subpass_image(
