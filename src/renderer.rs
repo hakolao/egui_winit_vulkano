@@ -17,14 +17,14 @@ use vulkano::{
         Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer,
     },
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, BufferImageCopy,
-        CommandBufferInheritanceInfo, CommandBufferUsage, CopyBufferToImageInfo,
-        PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, RenderPassBeginInfo,
-        SecondaryAutoCommandBuffer, SubpassBeginInfo, SubpassContents,
+        allocator::StandardCommandBufferAllocator, BufferImageCopy, CommandBuffer,
+        CommandBufferBeginInfo, CommandBufferInheritanceInfo, CommandBufferLevel,
+        CommandBufferUsage, CopyBufferToImageInfo, RecordingCommandBuffer, RenderPassBeginInfo,
+        SubpassBeginInfo, SubpassContents,
     },
     descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, layout::DescriptorSetLayout,
-        PersistentDescriptorSet, WriteDescriptorSet,
+        allocator::StandardDescriptorSetAllocator, layout::DescriptorSetLayout, DescriptorSet,
+        WriteDescriptorSet,
     },
     device::Queue,
     format::{Format, NumericFormat},
@@ -102,7 +102,7 @@ pub struct Renderer {
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
 
-    texture_desc_sets: AHashMap<egui::TextureId, Arc<PersistentDescriptorSet>>,
+    texture_desc_sets: AHashMap<egui::TextureId, Arc<DescriptorSet>>,
     texture_images: AHashMap<egui::TextureId, Arc<ImageView>>,
     next_native_tex_id: u64,
 }
@@ -235,8 +235,7 @@ impl Renderer {
             ..ColorBlendState::default()
         };
 
-        let vertex_input_state =
-            Some(EguiVertex::per_vertex().definition(&vs.info().input_interface).unwrap());
+        let vertex_input_state = Some(EguiVertex::per_vertex().definition(&vs).unwrap());
 
         let stages =
             [PipelineShaderStageCreateInfo::new(vs), PipelineShaderStageCreateInfo::new(fs)];
@@ -273,9 +272,9 @@ impl Renderer {
         layout: &Arc<DescriptorSetLayout>,
         image: Arc<ImageView>,
         sampler: Arc<Sampler>,
-    ) -> Arc<PersistentDescriptorSet> {
-        PersistentDescriptorSet::new(
-            &self.allocators.descriptor_set,
+    ) -> Arc<DescriptorSet> {
+        DescriptorSet::new(
+            self.allocators.descriptor_set.clone(),
             layout.clone(),
             [WriteDescriptorSet::image_view_sampler(0, image, sampler)],
             [],
@@ -382,7 +381,7 @@ impl Renderer {
         delta: &egui::epaint::ImageDelta,
         stage: Subbuffer<[u8]>,
         mapped_stage: &mut [u8],
-        cbb: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+        cbb: &mut RecordingCommandBuffer,
     ) {
         // Extract pixel data from egui, writing into our region of the stage buffer.
         let format = match &delta.image {
@@ -501,10 +500,14 @@ impl Renderer {
         let buffer = Subbuffer::new(buffer);
 
         // Shared command buffer for every upload in this batch.
-        let mut cbb = AutoCommandBufferBuilder::primary(
-            &self.allocators.command_buffer,
+        let mut cbb = RecordingCommandBuffer::new(
+            self.allocators.command_buffer.clone(),
             self.gfx_queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
+            CommandBufferLevel::Primary,
+            CommandBufferBeginInfo {
+                usage: CommandBufferUsage::OneTimeSubmit,
+                ..Default::default()
+            },
         )
         .unwrap();
 
@@ -532,7 +535,7 @@ impl Renderer {
         }
 
         // Execute every upload at once and await:
-        let command_buffer = cbb.build().unwrap();
+        let command_buffer = cbb.end().unwrap();
         // Executing on the graphics queue not only since it's what we have, but
         // we must guarantee a transfer granularity of [1,1,x] which graphics queue is required to have.
         command_buffer
@@ -568,26 +571,24 @@ impl Renderer {
         }
     }
 
-    fn create_secondary_command_buffer_builder(
-        &self,
-    ) -> AutoCommandBufferBuilder<SecondaryAutoCommandBuffer> {
-        AutoCommandBufferBuilder::secondary(
-            &self.allocators.command_buffer,
+    fn create_secondary_command_buffer_builder(&self) -> RecordingCommandBuffer {
+        RecordingCommandBuffer::new(
+            self.allocators.command_buffer.clone(),
             self.gfx_queue.queue_family_index(),
-            CommandBufferUsage::MultipleSubmit,
-            CommandBufferInheritanceInfo {
-                render_pass: Some(self.subpass.clone().into()),
+            CommandBufferLevel::Secondary,
+            CommandBufferBeginInfo {
+                inheritance_info: Some(CommandBufferInheritanceInfo {
+                    render_pass: Some(self.subpass.clone().into()),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
         )
         .unwrap()
     }
 
-    // Starts the rendering pipeline and returns [`AutoCommandBufferBuilder`] for drawing
-    fn start(
-        &mut self,
-        final_image: Arc<ImageView>,
-    ) -> (AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>, [u32; 2]) {
+    // Starts the rendering pipeline and returns [`RecordingCommandBuffer`] for drawing
+    fn start(&mut self, final_image: Arc<ImageView>) -> (RecordingCommandBuffer, [u32; 2]) {
         // Get dimensions
         let img_dims = final_image.image().extent();
         // Create framebuffer (must be in same order as render pass description in `new`
@@ -602,10 +603,14 @@ impl Renderer {
             FramebufferCreateInfo { attachments: vec![final_image], ..Default::default() },
         )
         .unwrap();
-        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-            &self.allocators.command_buffer,
+        let mut command_buffer_builder = RecordingCommandBuffer::new(
+            self.allocators.command_buffer.clone(),
             self.gfx_queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
+            CommandBufferLevel::Primary,
+            CommandBufferBeginInfo {
+                usage: CommandBufferUsage::OneTimeSubmit,
+                ..Default::default()
+            },
         )
         .unwrap();
         // Add clear values here for attachments and begin render pass
@@ -642,7 +647,7 @@ impl Renderer {
         let mut builder = self.create_secondary_command_buffer_builder();
         self.draw_egui(scale_factor, clipped_meshes, framebuffer_dimensions, &mut builder);
         // Execute draw commands
-        let command_buffer = builder.build().unwrap();
+        let command_buffer = builder.end().unwrap();
         command_buffer_builder.execute_commands(command_buffer).unwrap();
         let done_future = self.finish(command_buffer_builder, Box::new(before_future));
 
@@ -656,13 +661,13 @@ impl Renderer {
     // Finishes the rendering pipeline
     fn finish(
         &self,
-        mut command_buffer_builder: AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+        mut command_buffer_builder: RecordingCommandBuffer,
         before_main_cb_future: Box<dyn GpuFuture>,
     ) -> Box<dyn GpuFuture> {
         // We end render pass
         command_buffer_builder.end_render_pass(Default::default()).unwrap();
         // Then execute our whole command buffer
-        let command_buffer = command_buffer_builder.build().unwrap();
+        let command_buffer = command_buffer_builder.end().unwrap();
         let after_main_cb =
             before_main_cb_future.then_execute(self.gfx_queue.clone(), command_buffer).unwrap();
         // Return our future
@@ -675,11 +680,11 @@ impl Renderer {
         textures_delta: &TexturesDelta,
         scale_factor: f32,
         framebuffer_dimensions: [u32; 2],
-    ) -> Arc<SecondaryAutoCommandBuffer> {
+    ) -> Arc<CommandBuffer> {
         self.update_textures(&textures_delta.set);
         let mut builder = self.create_secondary_command_buffer_builder();
         self.draw_egui(scale_factor, clipped_meshes, framebuffer_dimensions, &mut builder);
-        let buffer = builder.build().unwrap();
+        let buffer = builder.end().unwrap();
         for &id in &textures_delta.free {
             self.unregister_image(id);
         }
@@ -765,7 +770,7 @@ impl Renderer {
         scale_factor: f32,
         clipped_meshes: &[ClippedPrimitive],
         framebuffer_dimensions: [u32; 2],
-        builder: &mut AutoCommandBufferBuilder<SecondaryAutoCommandBuffer>,
+        builder: &mut RecordingCommandBuffer,
     ) {
         let push_constants = vs::PushConstants {
             screen_size: [
@@ -864,15 +869,17 @@ impl Renderer {
                     }
 
                     // All set up to draw!
-                    builder
-                        .draw_indexed(
-                            mesh.indices.len() as u32,
-                            1,
-                            index_cursor,
-                            vertex_cursor as i32,
-                            0,
-                        )
-                        .unwrap();
+                    unsafe {
+                        builder
+                            .draw_indexed(
+                                mesh.indices.len() as u32,
+                                1,
+                                index_cursor,
+                                vertex_cursor as i32,
+                                0,
+                            )
+                            .unwrap();
+                    }
 
                     // Consume this mesh for next iteration
                     index_cursor += mesh.indices.len() as u32;
@@ -972,7 +979,7 @@ impl Renderer {
 ///
 /// See the `triangle` demo source for a detailed usage example.
 pub struct CallbackContext<'a> {
-    pub builder: &'a mut AutoCommandBufferBuilder<SecondaryAutoCommandBuffer>,
+    pub builder: &'a mut RecordingCommandBuffer,
     pub resources: RenderResources<'a>,
 }
 
