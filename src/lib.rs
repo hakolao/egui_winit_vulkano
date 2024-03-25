@@ -14,4 +14,6 @@ mod utils;
 pub use egui;
 pub use integration::*;
 pub use renderer::{CallbackContext, CallbackFn, RenderResources};
-pub use utils::{immutable_texture_from_bytes, immutable_texture_from_file};
+pub use utils::immutable_texture_from_bytes;
+#[cfg(feature = "image")]
+pub use utils::immutable_texture_from_file;
