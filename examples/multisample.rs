@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use egui::{epaint::Shadow, style::Margin, vec2, Align, Align2, Color32, Frame, Rounding, Window};
+use egui::{epaint::Shadow, vec2, Align, Align2, Color32, Frame, Margin, Rounding, Window};
 use egui_winit_vulkano::{Gui, GuiConfig};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
@@ -111,8 +111,10 @@ pub fn main() {
                                         Frame::none()
                                             .fill(Color32::from_white_alpha(125))
                                             .shadow(Shadow {
-                                                extrusion: 8.0,
+                                                spread: 8.0,
+                                                blur: 10.0,
                                                 color: Color32::from_black_alpha(125),
+                                                ..Default::default()
                                             })
                                             .rounding(Rounding::same(5.0))
                                             .inner_margin(Margin::same(10.0)),

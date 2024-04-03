@@ -18,8 +18,8 @@ clipboard = ["egui-winit/clipboard"]
 
 [dependencies]
 ahash = "0.8"
-egui-winit = "0.26"
-egui = "0.26"
+egui-winit = "0.27"
+egui = "0.27"
 image = "0.25"
 winit = { version = "0.29" }
 vulkano = { version = "0.34", git = "https://github.com/vulkano-rs/vulkano.git"}
@@ -27,5 +27,5 @@ vulkano-shaders = "0.34"
 
 [dev-dependencies]
 cgmath = "0.18.0"
-egui_demo_lib = "0.26"
+egui_demo_lib = "0.27"
 vulkano-util = { version = "0.34", git = "https://github.com/vulkano-rs/vulkano.git"}

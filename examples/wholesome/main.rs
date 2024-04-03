@@ -122,7 +122,7 @@ impl GuiState {
                 ])));
             },
         );
-        egui::Area::new("fps")
+        egui::Area::new("fps".into())
             .fixed_pos(egui::pos2(window_size[0] - 0.05 * window_size[0], 10.0))
             .show(&egui_context, |ui| {
                 ui.label(format!("{fps:.2}"));
