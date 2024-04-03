@@ -28,7 +28,7 @@ use vulkano_util::{
 };
 use winit::{
     event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::EventLoop,
 };
 
 use crate::{renderer::RenderPipeline, time_info::TimeInfo};
@@ -122,7 +122,7 @@ impl GuiState {
                 ])));
             },
         );
-        egui::Area::new("fps")
+        egui::Area::new("fps".into())
             .fixed_pos(egui::pos2(window_size[0] - 0.05 * window_size[0], 10.0))
             .show(&egui_context, |ui| {
                 ui.label(format!("{fps:.2}"));
@@ -132,7 +132,7 @@ impl GuiState {
 
 pub fn main() {
     // Winit event loop & our time tracking initialization
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     let mut time = TimeInfo::new();
     // Create renderer for our scene & ui
     let scene_view_size = [256, 256];
@@ -191,59 +191,65 @@ pub fn main() {
     // Create gui state (pass anything your state requires)
     let mut gui_state = GuiState::new(&mut gui, scene_image.clone(), scene_view_size);
     // Event loop run
-    event_loop.run(move |event, _, control_flow| {
-        let renderer = windows.get_primary_renderer_mut().unwrap();
-        // Update Egui integration so the UI works!
-        match event {
-            Event::WindowEvent { event, window_id } if window_id == renderer.window().id() => {
-                let _pass_events_to_game = !gui.update(&event);
-                match event {
-                    WindowEvent::Resized(_) => {
-                        renderer.resize();
-                    }
-                    WindowEvent::ScaleFactorChanged { .. } => {
-                        renderer.resize();
-                    }
-                    WindowEvent::CloseRequested => {
-                        *control_flow = ControlFlow::Exit;
-                    }
-                    _ => (),
-                }
-            }
-            Event::RedrawRequested(window_id) if window_id == window_id => {
-                // Set immediate UI in redraw here
-                // It's a closure giving access to egui context inside which you can call anything.
-                // Here we're calling the layout of our `gui_state`.
-                gui.immediate_ui(|gui| {
-                    let ctx = gui.context();
-                    gui_state.layout(ctx, renderer.window_size(), time.fps())
-                });
-                // Render UI
-                // Acquire swapchain future
-                match renderer.acquire() {
-                    Ok(future) => {
-                        // Draw scene
-                        let after_scene_draw =
-                            scene_render_pipeline.render(future, scene_image.clone());
-                        // Render gui
-                        let after_future =
-                            gui.draw_on_image(after_scene_draw, renderer.swapchain_image_view());
-                        // Present swapchain
-                        renderer.present(after_future, true);
-                    }
-                    Err(vulkano::VulkanError::OutOfDate) => {
-                        renderer.resize();
-                    }
-                    Err(e) => panic!("Failed to acquire swapchain future: {}", e),
-                };
+    event_loop
+        .run(move |event, window| {
+            let renderer = windows.get_primary_renderer_mut().unwrap();
+            // Update Egui integration so the UI works!
+            match event {
+                Event::WindowEvent { event, window_id } if window_id == renderer.window().id() => {
+                    let _pass_events_to_game = !gui.update(&event);
+                    match event {
+                        WindowEvent::Resized(_) => {
+                            renderer.resize();
+                        }
+                        WindowEvent::ScaleFactorChanged { .. } => {
+                            renderer.resize();
+                        }
+                        WindowEvent::CloseRequested => {
+                            window.exit();
+                        }
+                        WindowEvent::RedrawRequested => {
+                            // Set immediate UI in redraw here
+                            // It's a closure giving access to egui context inside which you can call anything.
+                            // Here we're calling the layout of our `gui_state`.
+                            gui.immediate_ui(|gui| {
+                                let ctx = gui.context();
+                                gui_state.layout(ctx, renderer.window_size(), time.fps())
+                            });
+                            // Render UI
+                            // Acquire swapchain future
+                            match renderer
+                                .acquire(Some(std::time::Duration::from_millis(10)), |_| {})
+                            {
+                                Ok(future) => {
+                                    // Draw scene
+                                    let after_scene_draw =
+                                        scene_render_pipeline.render(future, scene_image.clone());
+                                    // Render gui
+                                    let after_future = gui.draw_on_image(
+                                        after_scene_draw,
+                                        renderer.swapchain_image_view(),
+                                    );
+                                    // Present swapchain
+                                    renderer.present(after_future, true);
+                                }
+                                Err(vulkano::VulkanError::OutOfDate) => {
+                                    renderer.resize();
+                                }
+                                Err(e) => panic!("Failed to acquire swapchain future: {}", e),
+                            };
 
-                // Update fps & dt
-                time.update();
+                            // Update fps & dt
+                            time.update();
+                        }
+                        _ => (),
+                    }
+                }
+                Event::AboutToWait => {
+                    renderer.window().request_redraw();
+                }
+                _ => (),
             }
-            Event::MainEventsCleared => {
-                renderer.window().request_redraw();
-            }
-            _ => (),
-        }
-    });
+        })
+        .unwrap();
 }

@@ -58,7 +58,7 @@ impl RenderPipeline {
         while let Some(pass) = frame.next_pass() {
             match pass {
                 Pass::Deferred(mut draw_pass) => {
-                    let cb = Arc::new(self.draw_pipeline.draw([dims[0], dims[1]]));
+                    let cb = self.draw_pipeline.draw([dims[0], dims[1]]);
                     draw_pass.execute(cb);
                 }
                 Pass::Finished(af) => {
