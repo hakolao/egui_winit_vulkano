@@ -116,7 +116,9 @@ pub fn main() {
 
                                 // Render UI
                                 // Acquire swapchain future
-                                match renderer.acquire(|_| {}) {
+                                match renderer
+                                    .acquire(Some(std::time::Duration::from_millis(10)), |_| {})
+                                {
                                     Ok(future) => {
                                         let after_future = gui
                                             .draw_on_image(future, renderer.swapchain_image_view());

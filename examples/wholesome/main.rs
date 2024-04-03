@@ -218,7 +218,9 @@ pub fn main() {
                             });
                             // Render UI
                             // Acquire swapchain future
-                            match renderer.acquire(|_| {}) {
+                            match renderer
+                                .acquire(Some(std::time::Duration::from_millis(10)), |_| {})
+                            {
                                 Ok(future) => {
                                     // Draw scene
                                     let after_scene_draw =

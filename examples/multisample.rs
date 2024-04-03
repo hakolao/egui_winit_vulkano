@@ -123,7 +123,9 @@ pub fn main() {
                             });
                             // Render
                             // Acquire swapchain future
-                            match renderer.acquire(|_| {}) {
+                            match renderer
+                                .acquire(Some(std::time::Duration::from_millis(10)), |_| {})
+                            {
                                 Ok(future) => {
                                     // Render
                                     let after_future = pipeline.render(
