@@ -971,8 +971,9 @@ impl Renderer {
     }
 }
 
-/// A set of objects used to perform custom rendering in a `PaintCallback`. It
-/// includes [`RenderResources`] for constructing a subpass pipeline and a secondary
+/// A set of objects used to perform custom rendering in a `PaintCallback`.
+///
+/// It includes [`RenderResources`] for constructing a subpass pipeline and a secondary
 /// command buffer for pushing render commands onto it.
 ///
 /// # Example
