@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use egui::{ClippedPrimitive, TexturesDelta};
-use egui_winit::winit::event_loop::EventLoopWindowTarget;
+use egui_winit::winit::event_loop::ActiveEventLoop;
 use vulkano::{
     device::Queue,
     format::{Format, NumericFormat},
@@ -82,8 +82,8 @@ impl Gui {
     /// This is to be called once we have access to vulkano_win's winit window surface
     /// and gfx queue. Created with this, the renderer will own a render pass which is useful to e.g. place your render pass' images
     /// onto egui windows
-    pub fn new<T>(
-        event_loop: &EventLoopWindowTarget<T>,
+    pub fn new(
+        event_loop: &ActiveEventLoop,
         surface: Arc<Surface>,
         gfx_queue: Arc<Queue>,
         output_format: Format,
@@ -100,8 +100,8 @@ impl Gui {
     }
 
     /// Same as `new` but instead of integration owning a render pass, egui renders on your subpass
-    pub fn new_with_subpass<T>(
-        event_loop: &EventLoopWindowTarget<T>,
+    pub fn new_with_subpass(
+        event_loop: &ActiveEventLoop,
         surface: Arc<Surface>,
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
@@ -114,8 +114,8 @@ impl Gui {
     }
 
     /// Same as `new` but instead of integration owning a render pass, egui renders on your subpass
-    fn new_internal<T>(
-        event_loop: &EventLoopWindowTarget<T>,
+    fn new_internal(
+        event_loop: &ActiveEventLoop,
         surface: Arc<Surface>,
         renderer: Renderer,
     ) -> Gui {
@@ -123,11 +123,16 @@ impl Gui {
             renderer.queue().device().physical_device().properties().max_image_dimension2_d
                 as usize;
         let egui_ctx: egui::Context = Default::default();
+        let theme = match egui_ctx.theme() {
+            egui::Theme::Dark => winit::window::Theme::Dark,
+            egui::Theme::Light => winit::window::Theme::Light,
+        };
         let egui_winit = egui_winit::State::new(
             egui_ctx.clone(),
             egui_ctx.viewport_id(),
             event_loop,
             Some(surface_window(&surface).scale_factor() as f32),
+            Some(theme),
             Some(max_texture_side),
         );
         Gui {
@@ -165,7 +170,7 @@ impl Gui {
     /// Begins Egui frame & determines what will be drawn later. This must be called before draw, and after `update` (winit event).
     pub fn immediate_ui(&mut self, layout_function: impl FnOnce(&mut Self)) {
         let raw_input = self.egui_winit.take_egui_input(surface_window(&self.surface));
-        self.egui_ctx.begin_frame(raw_input);
+        self.egui_ctx.begin_pass(raw_input);
         // Render Egui
         layout_function(self);
     }
@@ -174,7 +179,7 @@ impl Gui {
     /// (Finish by drawing)
     pub fn begin_frame(&mut self) {
         let raw_input = self.egui_winit.take_egui_input(surface_window(&self.surface));
-        self.egui_ctx.begin_frame(raw_input);
+        self.egui_ctx.begin_pass(raw_input);
     }
 
     /// Renders ui on `final_image` & Updates cursor icon
@@ -246,7 +251,7 @@ impl Gui {
             shapes,
             pixels_per_point: _,
             viewport_output: _,
-        } = self.egui_ctx.end_frame();
+        } = self.egui_ctx.end_pass();
 
         self.egui_winit.handle_platform_output(surface_window(&self.surface), platform_output);
         self.shapes = shapes;
