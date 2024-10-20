@@ -17,9 +17,8 @@ use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
         allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
-        CommandBufferBeginInfo, CommandBufferInheritanceInfo, CommandBufferLevel,
-        CommandBufferUsage, RecordingCommandBuffer, RenderPassBeginInfo, SubpassBeginInfo,
-        SubpassContents,
+        AutoCommandBufferBuilder, CommandBufferInheritanceInfo, CommandBufferUsage,
+        RenderPassBeginInfo, SubpassBeginInfo, SubpassContents,
     },
     device::{Device, Queue},
     format::Format,
@@ -355,14 +354,10 @@ impl MSAAPipeline {
         image: Arc<ImageView>,
         gui: &mut Gui,
     ) -> Box<dyn GpuFuture> {
-        let mut builder = RecordingCommandBuffer::new(
+        let mut builder = AutoCommandBufferBuilder::primary(
             self.command_buffer_allocator.clone(),
             self.queue.queue_family_index(),
-            CommandBufferLevel::Primary,
-            CommandBufferBeginInfo {
-                usage: CommandBufferUsage::OneTimeSubmit,
-                ..Default::default()
-            },
+            CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
 
@@ -409,15 +404,12 @@ impl MSAAPipeline {
             .unwrap();
 
         // Render first draw pass
-        let mut secondary_builder = RecordingCommandBuffer::new(
+        let mut secondary_builder = AutoCommandBufferBuilder::secondary(
             self.command_buffer_allocator.clone(),
             self.queue.queue_family_index(),
-            CommandBufferLevel::Secondary,
-            CommandBufferBeginInfo {
-                inheritance_info: Some(CommandBufferInheritanceInfo {
-                    render_pass: Some(self.subpass.clone().into()),
-                    ..Default::default()
-                }),
+            CommandBufferUsage::MultipleSubmit,
+            CommandBufferInheritanceInfo {
+                render_pass: Some(self.subpass.clone().into()),
                 ..Default::default()
             },
         )
@@ -441,7 +433,7 @@ impl MSAAPipeline {
         unsafe {
             secondary_builder.draw(self.vertex_buffer.len() as u32, 1, 0, 0).unwrap();
         }
-        let cb = secondary_builder.end().unwrap();
+        let cb = secondary_builder.build().unwrap();
         builder.execute_commands(cb).unwrap();
 
         // Draw gui on subpass
@@ -450,7 +442,7 @@ impl MSAAPipeline {
 
         // Last end render pass
         builder.end_render_pass(Default::default()).unwrap();
-        let command_buffer = builder.end().unwrap();
+        let command_buffer = builder.build().unwrap();
         let after_future = before_future.then_execute(self.queue.clone(), command_buffer).unwrap();
 
         after_future.boxed()

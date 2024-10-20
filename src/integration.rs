@@ -11,6 +11,7 @@ use std::sync::Arc;
 use egui::{ClippedPrimitive, TexturesDelta};
 use egui_winit::winit::event_loop::ActiveEventLoop;
 use vulkano::{
+    command_buffer::SecondaryAutoCommandBuffer,
     device::Queue,
     format::{Format, NumericFormat},
     image::{sampler::SamplerCreateInfo, view::ImageView, SampleCount},
@@ -218,7 +219,7 @@ impl Gui {
     pub fn draw_on_subpass_image(
         &mut self,
         image_dimensions: [u32; 2],
-    ) -> Arc<vulkano::command_buffer::CommandBuffer> {
+    ) -> Arc<SecondaryAutoCommandBuffer> {
         if self.renderer.has_renderpass() {
             panic!(
                 "Gui integration has been created with its own render pass, use `draw_on_image` \
