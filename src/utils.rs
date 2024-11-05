@@ -16,6 +16,7 @@ use vulkano::{
     command_buffer::{
         allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
         AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferToImageInfo,
+        PrimaryCommandBufferAbstract,
     },
     descriptor_set::allocator::StandardDescriptorSetAllocator,
     device::{Device, Queue},

@@ -19,8 +19,8 @@ use vulkano::{
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, BufferImageCopy,
         CommandBufferInheritanceInfo, CommandBufferUsage, CopyBufferToImageInfo,
-        PrimaryAutoCommandBuffer, RenderPassBeginInfo, SecondaryAutoCommandBuffer,
-        SubpassBeginInfo, SubpassContents,
+        PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, RenderPassBeginInfo,
+        SecondaryAutoCommandBuffer, SubpassBeginInfo, SubpassContents,
     },
     descriptor_set::{
         allocator::StandardDescriptorSetAllocator, layout::DescriptorSetLayout, DescriptorSet,
