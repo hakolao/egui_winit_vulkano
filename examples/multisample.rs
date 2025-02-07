@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use egui::{epaint::Shadow, vec2, Align, Align2, Color32, Frame, Margin, Rounding, Window};
+use egui::{epaint::Shadow, vec2, Align, Align2, Color32, CornerRadius, Frame, Margin, Window};
 use egui_winit_vulkano::{Gui, GuiConfig};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
@@ -130,16 +130,16 @@ impl ApplicationHandler for App {
                         .resizable(false)
                         .default_width(300.0)
                         .frame(
-                            Frame::none()
+                            Frame::NONE
                                 .fill(Color32::from_white_alpha(125))
                                 .shadow(Shadow {
-                                    spread: 8.0,
-                                    blur: 10.0,
+                                    spread: 8,
+                                    blur: 10,
                                     color: Color32::from_black_alpha(125),
                                     ..Default::default()
                                 })
-                                .rounding(Rounding::same(5.0))
-                                .inner_margin(Margin::same(10.0)),
+                                .corner_radius(CornerRadius::same(5))
+                                .inner_margin(Margin::same(10)),
                         )
                         .show(&ctx, |ui| {
                             ui.colored_label(Color32::BLACK, "Content :)");

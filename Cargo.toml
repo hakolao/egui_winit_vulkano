@@ -20,14 +20,14 @@ x11 = ["winit/x11", "egui-winit/x11"]
 
 [dependencies]
 ahash = "0.8"
-egui-winit = { version = "0.29", default-features = false }
-egui = "0.29"
+egui-winit = { version = "0.31", default-features = false }
+egui = "0.31"
 image = { version = "0.25", optional = true }
 winit = { version = "0.30", default-features = false, features = [ "rwh_06" ] }
-vulkano = { version = "0.34", git = "https://github.com/vulkano-rs/vulkano.git"}
-vulkano-shaders = "0.34"
+vulkano = { version = "0.35"}
+vulkano-shaders = "0.35"
 
 [dev-dependencies]
 cgmath = "0.18.0"
-egui_demo_lib = "0.29.1"
-vulkano-util = { version = "0.34", git = "https://github.com/vulkano-rs/vulkano.git"}
+egui_demo_lib = "0.31.0"
+vulkano-util = { version = "0.35"}
