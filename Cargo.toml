@@ -19,15 +19,15 @@ wayland = ["winit/wayland", "winit/wayland-dlopen", "egui-winit/wayland"]
 x11 = ["winit/x11", "egui-winit/x11"]
 
 [dependencies]
-ahash = "0.8.3"
-egui-winit = { version = "0.24", default-features = false }
-egui = "0.24"
-image = { version = "0.24.5", optional = true }
-winit = { version = "0.28", default-features = false }
-vulkano = "0.34"
-vulkano-shaders = "0.34"
+ahash = "0.8.11"
+egui-winit = { version = "0.31", default-features = false }
+egui = "0.31"
+image = { version = "0.25.5", optional = true }
+winit = { version = "0.30", default-features = false }
+vulkano = "0.35"
+vulkano-shaders = "0.35"
 
 [dev-dependencies]
 cgmath = "0.18.0"
-egui_demo_lib = "0.24"
-vulkano-util = "0.34"
+egui_demo_lib = "0.31"
+vulkano-util = "0.35"

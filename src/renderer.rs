@@ -23,8 +23,8 @@ use vulkano::{
         SecondaryAutoCommandBuffer, SubpassBeginInfo, SubpassContents,
     },
     descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, layout::DescriptorSetLayout,
-        PersistentDescriptorSet, WriteDescriptorSet,
+        allocator::StandardDescriptorSetAllocator, layout::DescriptorSetLayout, DescriptorSet,
+        WriteDescriptorSet,
     },
     device::Queue,
     format::{Format, NumericFormat},
@@ -102,7 +102,7 @@ pub struct Renderer {
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
 
-    texture_desc_sets: AHashMap<egui::TextureId, Arc<PersistentDescriptorSet>>,
+    texture_desc_sets: AHashMap<egui::TextureId, Arc<DescriptorSet>>,
     texture_images: AHashMap<egui::TextureId, Arc<ImageView>>,
     next_native_tex_id: u64,
 }
@@ -173,22 +173,27 @@ impl Renderer {
             // final_output_format.type_color().unwrap() == NumericType::SRGB;
             final_output_format.numeric_format_color().unwrap() == NumericFormat::SRGB;
         let allocators = Allocators::new_default(gfx_queue.device());
-        let vertex_index_buffer_pool =
-            SubbufferAllocator::new(allocators.memory.clone(), SubbufferAllocatorCreateInfo {
+        let vertex_index_buffer_pool = SubbufferAllocator::new(
+            allocators.memory.clone(),
+            SubbufferAllocatorCreateInfo {
                 arena_size: INDEX_BUFFER_SIZE + VERTEX_BUFFER_SIZE,
                 buffer_usage: BufferUsage::INDEX_BUFFER | BufferUsage::VERTEX_BUFFER,
                 memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
                     | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
-            });
+            },
+        );
         let pipeline = Self::create_pipeline(gfx_queue.clone(), subpass.clone());
-        let font_sampler = Sampler::new(gfx_queue.device().clone(), SamplerCreateInfo {
-            mag_filter: Filter::Linear,
-            min_filter: Filter::Linear,
-            address_mode: [SamplerAddressMode::ClampToEdge; 3],
-            mipmap_mode: SamplerMipmapMode::Linear,
-            ..Default::default()
-        })
+        let font_sampler = Sampler::new(
+            gfx_queue.device().clone(),
+            SamplerCreateInfo {
+                mag_filter: Filter::Linear,
+                min_filter: Filter::Linear,
+                address_mode: [SamplerAddressMode::ClampToEdge; 3],
+                mipmap_mode: SamplerMipmapMode::Linear,
+                ..Default::default()
+            },
+        )
         .unwrap();
         let font_format = Self::choose_font_format(gfx_queue.device());
         Renderer {
@@ -235,8 +240,7 @@ impl Renderer {
             ..ColorBlendState::default()
         };
 
-        let vertex_input_state =
-            Some(EguiVertex::per_vertex().definition(&vs.info().input_interface).unwrap());
+        let vertex_input_state = Some(EguiVertex::per_vertex().definition(&vs).unwrap());
 
         let stages =
             [PipelineShaderStageCreateInfo::new(vs), PipelineShaderStageCreateInfo::new(fs)];
@@ -249,21 +253,27 @@ impl Renderer {
         )
         .unwrap();
 
-        GraphicsPipeline::new(gfx_queue.device().clone(), None, GraphicsPipelineCreateInfo {
-            stages: stages.into_iter().collect(),
-            vertex_input_state,
-            input_assembly_state: Some(InputAssemblyState::default()),
-            viewport_state: Some(ViewportState::default()),
-            rasterization_state: Some(RasterizationState::default()),
-            multisample_state: Some(MultisampleState {
-                rasterization_samples: subpass.num_samples().unwrap_or(SampleCount::Sample1),
-                ..Default::default()
-            }),
-            color_blend_state: Some(blend_state),
-            dynamic_state: [DynamicState::Viewport, DynamicState::Scissor].into_iter().collect(),
-            subpass: Some(subpass.into()),
-            ..GraphicsPipelineCreateInfo::layout(layout)
-        })
+        GraphicsPipeline::new(
+            gfx_queue.device().clone(),
+            None,
+            GraphicsPipelineCreateInfo {
+                stages: stages.into_iter().collect(),
+                vertex_input_state,
+                input_assembly_state: Some(InputAssemblyState::default()),
+                viewport_state: Some(ViewportState::default()),
+                rasterization_state: Some(RasterizationState::default()),
+                multisample_state: Some(MultisampleState {
+                    rasterization_samples: subpass.num_samples().unwrap_or(SampleCount::Sample1),
+                    ..Default::default()
+                }),
+                color_blend_state: Some(blend_state),
+                dynamic_state: [DynamicState::Viewport, DynamicState::Scissor]
+                    .into_iter()
+                    .collect(),
+                subpass: Some(subpass.into()),
+                ..GraphicsPipelineCreateInfo::layout(layout)
+            },
+        )
         .unwrap()
     }
 
@@ -273,9 +283,9 @@ impl Renderer {
         layout: &Arc<DescriptorSetLayout>,
         image: Arc<ImageView>,
         sampler: Arc<Sampler>,
-    ) -> Arc<PersistentDescriptorSet> {
-        PersistentDescriptorSet::new(
-            &self.allocators.descriptor_set,
+    ) -> Arc<DescriptorSet> {
+        DescriptorSet::new(
+            self.allocators.descriptor_set.clone(),
             layout.clone(),
             [WriteDescriptorSet::image_view_sampler(0, image, sampler)],
             [],
@@ -461,10 +471,10 @@ impl Renderer {
                 },
                 _ => ComponentMapping::identity(),
             };
-            let view = ImageView::new(img.clone(), ImageViewCreateInfo {
-                component_mapping,
-                ..ImageViewCreateInfo::from_image(&img)
-            })
+            let view = ImageView::new(
+                img.clone(),
+                ImageViewCreateInfo { component_mapping, ..ImageViewCreateInfo::from_image(&img) },
+            )
             .unwrap();
             // Create a descriptor for it
             let layout = self.pipeline.layout().set_layouts().first().unwrap();
@@ -502,7 +512,7 @@ impl Renderer {
 
         // Shared command buffer for every upload in this batch.
         let mut cbb = AutoCommandBufferBuilder::primary(
-            &self.allocators.command_buffer,
+            self.allocators.command_buffer.clone(),
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
@@ -572,7 +582,7 @@ impl Renderer {
         &self,
     ) -> AutoCommandBufferBuilder<SecondaryAutoCommandBuffer> {
         AutoCommandBufferBuilder::secondary(
-            &self.allocators.command_buffer,
+            self.allocators.command_buffer.clone(),
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
@@ -603,7 +613,7 @@ impl Renderer {
         )
         .unwrap();
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-            &self.allocators.command_buffer,
+            self.allocators.command_buffer.clone(),
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
@@ -864,15 +874,16 @@ impl Renderer {
                     }
 
                     // All set up to draw!
-                    builder
-                        .draw_indexed(
+                    unsafe {
+                        builder.draw_indexed(
                             mesh.indices.len() as u32,
                             1,
                             index_cursor,
                             vertex_cursor as i32,
                             0,
                         )
-                        .unwrap();
+                    }
+                    .unwrap();
 
                     // Consume this mesh for next iteration
                     index_cursor += mesh.indices.len() as u32;
@@ -929,10 +940,10 @@ impl Renderer {
                             pixels_per_point: scale_factor,
                             screen_size_px: framebuffer_dimensions,
                         };
-                        (callback_fn.f)(info, &mut CallbackContext {
-                            builder,
-                            resources: self.render_resources(),
-                        });
+                        (callback_fn.f)(
+                            info,
+                            &mut CallbackContext { builder, resources: self.render_resources() },
+                        );
 
                         // The user could have done much here - rebind pipes, set views, bind things, etc.
                         // Mark all state as lost so that next mesh rebinds everything to a known state.

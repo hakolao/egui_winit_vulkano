@@ -7,135 +7,172 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
+use std::collections::HashMap;
+
 use egui_winit_vulkano::{Gui, GuiConfig};
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
     window::{VulkanoWindows, WindowDescriptor},
 };
 use winit::{
-    event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    application::ApplicationHandler, event::WindowEvent, event_loop::EventLoop, window::WindowId,
 };
 
 // Simply create egui demo apps to test everything works correctly.
 // Creates two windows with different color formats for their swapchain.
 
-pub fn main() {
+fn main() {
     // Winit event loop
-    let event_loop = EventLoop::new();
-    // Vulkano context
-    let context = VulkanoContext::new(VulkanoConfig::default());
-    // Vulkano windows (create one)
-    let mut windows = VulkanoWindows::default();
-    let window1 = windows.create_window(
-        &event_loop,
-        &context,
-        &WindowDescriptor {
-            title: String::from("egui_winit_vulkano SRGB"),
-            ..WindowDescriptor::default()
-        },
-        |ci| {
-            ci.image_format = vulkano::format::Format::B8G8R8A8_SRGB;
-            ci.min_image_count = ci.min_image_count.max(2);
-        },
-    );
-    let window2 = windows.create_window(
-        &event_loop,
-        &context,
-        &WindowDescriptor {
-            title: String::from("egui_winit_vulkano UNORM"),
-            ..WindowDescriptor::default()
-        },
-        |ci| {
-            ci.image_format = vulkano::format::Format::B8G8R8A8_UNORM;
-            ci.min_image_count = ci.min_image_count.max(2);
-        },
-    );
-    // Create gui as main render pass (no overlay means it clears the image each frame)
-    let mut gui1 = {
-        let renderer = windows.get_renderer_mut(window1).unwrap();
-        Gui::new(
-            &event_loop,
-            renderer.surface(),
-            renderer.graphics_queue(),
-            renderer.swapchain_format(),
-            GuiConfig { allow_srgb_render_target: true, ..GuiConfig::default() },
-        )
-    };
-    let mut gui2 = {
-        let renderer = windows.get_renderer_mut(window2).unwrap();
-        Gui::new(
-            &event_loop,
-            renderer.surface(),
-            renderer.graphics_queue(),
-            renderer.swapchain_format(),
-            GuiConfig::default(),
-        )
-    };
-    // Display the demo application that ships with egui.
-    let mut demo_app1 = egui_demo_lib::DemoWindows::default();
-    let mut demo_app2 = egui_demo_lib::DemoWindows::default();
-    let mut egui_test1 = egui_demo_lib::ColorTest::default();
-    let mut egui_test2 = egui_demo_lib::ColorTest::default();
+    let event_loop = EventLoop::new().unwrap();
+    event_loop
+        .run_app(&mut App {
+            // Vulkano context
+            context: VulkanoContext::new(VulkanoConfig::default()),
+            // Vulkano windows (create one)
+            windows: VulkanoWindows::default(),
+            window_context: HashMap::new(),
+        })
+        .unwrap();
+}
 
-    event_loop.run(move |event, _, control_flow| {
-        for (wi, renderer) in windows.iter_mut() {
-            // Quick and ugly...
-            let gui = if *wi == window1 { &mut gui1 } else { &mut gui2 };
-            let demo_app = if *wi == window1 { &mut demo_app1 } else { &mut demo_app2 };
-            let egui_test = if *wi == window1 { &mut egui_test1 } else { &mut egui_test2 };
-            match &event {
-                Event::WindowEvent { event, window_id } if window_id == wi => {
-                    // Update Egui integration so the UI works!
-                    let _pass_events_to_game = !gui.update(event);
-                    match event {
-                        WindowEvent::Resized(_) => {
-                            renderer.resize();
-                        }
-                        WindowEvent::ScaleFactorChanged { .. } => {
-                            renderer.resize();
-                        }
-                        WindowEvent::CloseRequested => {
-                            *control_flow = ControlFlow::Exit;
-                        }
-                        _ => (),
-                    }
-                }
-                Event::RedrawRequested(window_id) if window_id == wi => {
-                    // Set immediate UI in redraw here
-                    gui.immediate_ui(|gui| {
-                        let ctx = gui.context();
-                        demo_app.ui(&ctx);
+struct App {
+    context: VulkanoContext,
+    windows: VulkanoWindows,
+    window_context: HashMap<WindowId, WindowContext>,
+}
 
-                        egui::Window::new("Colors").vscroll(true).show(&ctx, |ui| {
-                            egui_test.ui(ui);
-                        });
-                    });
-                    // Alternatively you could
-                    // gui.begin_frame();
-                    // let ctx = gui.context();
-                    // demo_app.ui(&ctx);
+struct WindowContext {
+    gui: Gui,
+    demo_app: egui_demo_lib::DemoWindows,
+    egui_test: egui_demo_lib::ColorTest,
+}
 
-                    // Render UI
-                    // Acquire swapchain future
-                    match renderer.acquire() {
-                        Ok(future) => {
-                            let after_future =
-                                gui.draw_on_image(future, renderer.swapchain_image_view());
-                            // Present swapchain
-                            renderer.present(after_future, true);
-                        }
-                        Err(vulkano::VulkanError::OutOfDate) => {
-                            renderer.resize();
-                        }
-                        Err(e) => panic!("Failed to acquire swapchain future: {}", e),
-                    };
-                }
-                Event::MainEventsCleared => {
-                    renderer.window().request_redraw();
-                }
-                _ => (),
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        // Vulkano windows (create one)
+        let window1 = self.windows.create_window(
+            event_loop,
+            &self.context,
+            &WindowDescriptor {
+                title: String::from("egui_winit_vulkano SRGB"),
+                ..WindowDescriptor::default()
+            },
+            |ci| {
+                ci.image_format = vulkano::format::Format::B8G8R8A8_SRGB;
+                ci.min_image_count = ci.min_image_count.max(2);
+            },
+        );
+        let window2 = self.windows.create_window(
+            event_loop,
+            &self.context,
+            &WindowDescriptor {
+                title: String::from("egui_winit_vulkano UNORM"),
+                ..WindowDescriptor::default()
+            },
+            |ci| {
+                ci.image_format = vulkano::format::Format::B8G8R8A8_UNORM;
+                ci.min_image_count = ci.min_image_count.max(2);
+            },
+        );
+
+        // Create gui as main render pass (no overlay means it clears the image each frame)
+        let gui1 = {
+            let renderer = self.windows.get_renderer_mut(window1).unwrap();
+            Gui::new(
+                event_loop,
+                renderer.surface(),
+                renderer.graphics_queue(),
+                renderer.swapchain_format(),
+                GuiConfig { allow_srgb_render_target: true, ..GuiConfig::default() },
+            )
+        };
+        let gui2 = {
+            let renderer = self.windows.get_renderer_mut(window2).unwrap();
+            Gui::new(
+                event_loop,
+                renderer.surface(),
+                renderer.graphics_queue(),
+                renderer.swapchain_format(),
+                GuiConfig::default(),
+            )
+        };
+
+        self.window_context.insert(
+            window1,
+            WindowContext {
+                gui: gui1,
+                demo_app: egui_demo_lib::DemoWindows::default(),
+                egui_test: egui_demo_lib::ColorTest::default(),
+            },
+        );
+        self.window_context.insert(
+            window2,
+            WindowContext {
+                gui: gui2,
+                demo_app: egui_demo_lib::DemoWindows::default(),
+                egui_test: egui_demo_lib::ColorTest::default(),
+            },
+        );
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
+        let wc = self.window_context.get_mut(&window_id).unwrap();
+        let renderer = self.windows.get_renderer_mut(window_id).unwrap();
+
+        // Update Egui integration so the UI works!
+        let _pass_events_to_game = !wc.gui.update(renderer.window(), &event);
+        match event {
+            WindowEvent::Resized(_) => {
+                renderer.resize();
             }
+            WindowEvent::ScaleFactorChanged { .. } => {
+                renderer.resize();
+            }
+            WindowEvent::CloseRequested => {
+                event_loop.exit();
+            }
+            WindowEvent::RedrawRequested => {
+                // Set immediate UI in redraw here
+                wc.gui.immediate_ui(|gui| {
+                    let ctx = gui.context();
+                    wc.demo_app.ui(ctx);
+
+                    egui::Window::new("Colors").vscroll(true).show(ctx, |ui| {
+                        wc.egui_test.ui(ui);
+                    });
+                });
+                // Alternatively you could
+                // gui.begin_frame();
+                // let ctx = gui.context();
+                // demo_app.ui(&ctx);
+
+                // Render UI
+                // Acquire swapchain future
+                match renderer.acquire(None, |_| {}) {
+                    Ok(future) => {
+                        let after_future =
+                            wc.gui.draw_on_image(future, renderer.swapchain_image_view());
+                        // Present swapchain
+                        renderer.present(after_future, true);
+                    }
+                    Err(vulkano::VulkanError::OutOfDate) => {
+                        renderer.resize();
+                    }
+                    Err(e) => panic!("Failed to acquire swapchain future: {}", e),
+                };
+            }
+            _ => (),
         }
-    });
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
+        for (_, renderer) in self.windows.iter() {
+            renderer.window().request_redraw();
+        }
+    }
 }

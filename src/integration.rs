@@ -9,7 +9,6 @@
 use std::sync::Arc;
 
 use egui::{ClippedPrimitive, TexturesDelta};
-use egui_winit::winit::event_loop::EventLoopWindowTarget;
 use vulkano::{
     command_buffer::SecondaryAutoCommandBuffer,
     device::Queue,
@@ -19,7 +18,7 @@ use vulkano::{
     swapchain::Surface,
     sync::GpuFuture,
 };
-use winit::window::Window;
+use winit::{event_loop::ActiveEventLoop, raw_window_handle::HasDisplayHandle, window::Window};
 
 #[cfg(feature = "image")]
 use crate::utils::immutable_texture_from_file;
@@ -69,7 +68,6 @@ impl GuiConfig {
 }
 
 pub struct Gui {
-    pub egui_ctx: egui::Context,
     pub egui_winit: egui_winit::State,
     renderer: Renderer,
     surface: Arc<Surface>,
@@ -83,8 +81,8 @@ impl Gui {
     /// This is to be called once we have access to vulkano_win's winit window surface
     /// and gfx queue. Created with this, the renderer will own a render pass which is useful to e.g. place your render pass' images
     /// onto egui windows
-    pub fn new<T>(
-        event_loop: &EventLoopWindowTarget<T>,
+    pub fn new(
+        event_loop: &ActiveEventLoop,
         surface: Arc<Surface>,
         gfx_queue: Arc<Queue>,
         output_format: Format,
@@ -101,8 +99,8 @@ impl Gui {
     }
 
     /// Same as `new` but instead of integration owning a render pass, egui renders on your subpass
-    pub fn new_with_subpass<T>(
-        event_loop: &EventLoopWindowTarget<T>,
+    pub fn new_with_subpass(
+        event_loop: &ActiveEventLoop,
         surface: Arc<Surface>,
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
@@ -115,8 +113,8 @@ impl Gui {
     }
 
     /// Same as `new` but instead of integration owning a render pass, egui renders on your subpass
-    fn new_internal<T>(
-        event_loop: &EventLoopWindowTarget<T>,
+    fn new_internal(
+        event_loop: &ActiveEventLoop,
         surface: Arc<Surface>,
         renderer: Renderer,
     ) -> Gui {
@@ -124,25 +122,21 @@ impl Gui {
             renderer.queue().device().physical_device().properties().max_image_dimension2_d
                 as usize;
         let egui_ctx: egui::Context = Default::default();
+        let viewport_id = egui_ctx.viewport_id();
         let egui_winit = egui_winit::State::new(
-            egui_ctx.viewport_id(),
-            event_loop,
+            egui_ctx,
+            viewport_id,
+            &event_loop.display_handle().unwrap(),
             Some(surface_window(&surface).scale_factor() as f32),
+            None,
             Some(max_texture_side),
         );
-        Gui {
-            egui_ctx,
-            egui_winit,
-            renderer,
-            surface,
-            shapes: vec![],
-            textures_delta: Default::default(),
-        }
+        Gui { egui_winit, renderer, surface, shapes: vec![], textures_delta: Default::default() }
     }
 
     /// Returns the pixels per point of the window of this gui.
     fn pixels_per_point(&self) -> f32 {
-        egui_winit::pixels_per_point(&self.egui_ctx, surface_window(&self.surface))
+        egui_winit::pixels_per_point(self.context(), surface_window(&self.surface))
     }
 
     /// Returns a set of resources used to construct the render pipeline. These can be reused
@@ -158,23 +152,22 @@ impl Gui {
     /// and only when this returns `false` pass on the events to your game.
     ///
     /// Note that egui uses `tab` to move focus between elements, so this will always return `true` for tabs.
-    pub fn update(&mut self, winit_event: &winit::event::WindowEvent<'_>) -> bool {
-        self.egui_winit.on_window_event(&self.egui_ctx, winit_event).consumed
+    pub fn update(&mut self, window: &Window, winit_event: &winit::event::WindowEvent) -> bool {
+        self.egui_winit.on_window_event(window, winit_event).consumed
     }
 
     /// Begins Egui frame & determines what will be drawn later. This must be called before draw, and after `update` (winit event).
     pub fn immediate_ui(&mut self, layout_function: impl FnOnce(&mut Self)) {
-        let raw_input = self.egui_winit.take_egui_input(surface_window(&self.surface));
-        self.egui_ctx.begin_frame(raw_input);
+        self.begin_pass();
         // Render Egui
         layout_function(self);
     }
 
-    /// If you wish to better control when to begin frame, do so by calling this function
+    /// If you wish to better control when to begin pass, do so by calling this function
     /// (Finish by drawing)
-    pub fn begin_frame(&mut self) {
+    pub fn begin_pass(&mut self) {
         let raw_input = self.egui_winit.take_egui_input(surface_window(&self.surface));
-        self.egui_ctx.begin_frame(raw_input);
+        self.context().begin_pass(raw_input);
     }
 
     /// Renders ui on `final_image` & Updates cursor icon
@@ -232,27 +225,23 @@ impl Gui {
     }
 
     fn extract_draw_data_at_frame_end(&mut self) -> (Vec<ClippedPrimitive>, TexturesDelta) {
-        self.end_frame();
+        self.end_pass();
         let shapes = std::mem::take(&mut self.shapes);
         let textures_delta = std::mem::take(&mut self.textures_delta);
-        let clipped_meshes = self.egui_ctx.tessellate(shapes, self.pixels_per_point());
+        let clipped_meshes = self.context().tessellate(shapes, self.pixels_per_point());
         (clipped_meshes, textures_delta)
     }
 
-    fn end_frame(&mut self) {
+    fn end_pass(&mut self) {
         let egui::FullOutput {
             platform_output,
             textures_delta,
             shapes,
             pixels_per_point: _,
             viewport_output: _,
-        } = self.egui_ctx.end_frame();
+        } = self.context().end_pass();
 
-        self.egui_winit.handle_platform_output(
-            surface_window(&self.surface),
-            &self.egui_ctx,
-            platform_output,
-        );
+        self.egui_winit.handle_platform_output(surface_window(&self.surface), platform_output);
         self.shapes = shapes;
         self.textures_delta = textures_delta;
     }
@@ -310,8 +299,8 @@ impl Gui {
     }
 
     /// Access egui's context (which can be used to e.g. set fonts, visuals etc)
-    pub fn context(&self) -> egui::Context {
-        self.egui_ctx.clone()
+    pub fn context(&self) -> &egui::Context {
+        self.egui_winit.egui_ctx()
     }
 }
 
