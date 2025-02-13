@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use egui::{epaint::Shadow, style::Margin, vec2, Align, Align2, Color32, Frame, Rounding, Window};
+use egui::{epaint::Shadow, vec2, Align, Align2, Color32, CornerRadius, Frame, Margin, Window};
 use egui_winit_vulkano::{Gui, GuiConfig};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
@@ -45,64 +45,83 @@ use vulkano_util::{
     window::{VulkanoWindows, WindowDescriptor},
 };
 use winit::{
-    event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    application::ApplicationHandler, error::EventLoopError, event::WindowEvent,
+    event_loop::EventLoop,
 };
 
-pub fn main() {
-    // Winit event loop
-    let event_loop = EventLoop::new();
-    // Vulkano context
-    let context = VulkanoContext::new(VulkanoConfig::default());
-    // Vulkano windows (create one)
-    let mut windows = VulkanoWindows::default();
-    windows.create_window(&event_loop, &context, &WindowDescriptor::default(), |ci| {
-        ci.image_format = vulkano::format::Format::B8G8R8A8_UNORM;
-        ci.image_usage = ImageUsage::TRANSFER_DST | ci.image_usage;
-        ci.min_image_count = ci.min_image_count.max(2);
-    });
-    // Create out gui pipeline
-    let mut pipeline = MSAAPipeline::new(
-        context.graphics_queue().clone(),
-        windows.get_primary_renderer_mut().unwrap().swapchain_format(),
-        context.memory_allocator(),
-        SampleCount::Sample4,
-    );
-    // Create gui subpass
-    let mut gui = Gui::new_with_subpass(
-        &event_loop,
-        windows.get_primary_renderer_mut().unwrap().surface(),
-        windows.get_primary_renderer_mut().unwrap().graphics_queue(),
-        pipeline.gui_pass(),
-        windows.get_primary_renderer_mut().unwrap().swapchain_format(),
-        GuiConfig {
-            // Must match your pipeline's sample count
-            samples: SampleCount::Sample4,
-            ..Default::default()
-        },
-    );
+pub struct App {
+    context: VulkanoContext,
+    windows: VulkanoWindows,
+    pipeline: Option<MSAAPipeline>,
+    gui: Option<Gui>,
+}
 
-    // Create gui state (pass anything your state requires)
-    event_loop.run(move |event, _, control_flow| {
-        let renderer = windows.get_primary_renderer_mut().unwrap();
+impl Default for App {
+    fn default() -> Self {
+        // Vulkano context
+        let context = VulkanoContext::new(VulkanoConfig::default());
+
+        // Vulkano windows
+        let windows = VulkanoWindows::default();
+
+        Self { context, windows, pipeline: None, gui: None }
+    }
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        self.windows.create_window(event_loop, &self.context, &WindowDescriptor::default(), |ci| {
+            ci.image_format = vulkano::format::Format::B8G8R8A8_UNORM;
+            ci.image_usage = ImageUsage::TRANSFER_DST | ci.image_usage;
+            ci.min_image_count = ci.min_image_count.max(2);
+        });
+
+        // Create out gui pipeline
+        let pipeline = MSAAPipeline::new(
+            self.context.graphics_queue().clone(),
+            self.windows.get_primary_renderer_mut().unwrap().swapchain_format(),
+            self.context.memory_allocator(),
+            SampleCount::Sample4,
+        );
+
+        // Create gui subpass
+        self.gui = Some(Gui::new_with_subpass(
+            event_loop,
+            self.windows.get_primary_renderer_mut().unwrap().surface(),
+            self.windows.get_primary_renderer_mut().unwrap().graphics_queue(),
+            pipeline.gui_pass(),
+            self.windows.get_primary_renderer_mut().unwrap().swapchain_format(),
+            GuiConfig {
+                // Must match your pipeline's sample count
+                samples: SampleCount::Sample4,
+                ..Default::default()
+            },
+        ));
+
+        self.pipeline = Some(pipeline);
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
+        let renderer = self.windows.get_renderer_mut(window_id).unwrap();
+
+        let gui = self.gui.as_mut().unwrap();
+
+        // Update Egui integration so the UI works!
+        let _pass_events_to_game = !gui.update(&event);
         match event {
-            Event::WindowEvent { event, window_id } if window_id == renderer.window().id() => {
-                // Update Egui integration so the UI works!
-                let _pass_events_to_game = !gui.update(&event);
-                match event {
-                    WindowEvent::Resized(_) => {
-                        renderer.resize();
-                    }
-                    WindowEvent::ScaleFactorChanged { .. } => {
-                        renderer.resize();
-                    }
-                    WindowEvent::CloseRequested => {
-                        *control_flow = ControlFlow::Exit;
-                    }
-                    _ => (),
-                }
+            WindowEvent::Resized(_) => {
+                renderer.resize();
             }
-            Event::RedrawRequested(window_id) if window_id == window_id => {
+            WindowEvent::ScaleFactorChanged { .. } => {
+                renderer.resize();
+            }
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::RedrawRequested => {
                 // Set immediate UI in redraw here
                 gui.immediate_ui(|gui| {
                     let ctx = gui.context();
@@ -111,14 +130,16 @@ pub fn main() {
                         .resizable(false)
                         .default_width(300.0)
                         .frame(
-                            Frame::none()
+                            Frame::NONE
                                 .fill(Color32::from_white_alpha(125))
                                 .shadow(Shadow {
-                                    extrusion: 8.0,
+                                    spread: 8,
+                                    blur: 10,
                                     color: Color32::from_black_alpha(125),
+                                    ..Default::default()
                                 })
-                                .rounding(Rounding::same(5.0))
-                                .inner_margin(Margin::same(10.0)),
+                                .corner_radius(CornerRadius::same(5))
+                                .inner_margin(Margin::same(10)),
                         )
                         .show(&ctx, |ui| {
                             ui.colored_label(Color32::BLACK, "Content :)");
@@ -126,11 +147,14 @@ pub fn main() {
                 });
                 // Render
                 // Acquire swapchain future
-                match renderer.acquire() {
+                match renderer.acquire(Some(std::time::Duration::from_millis(10)), |_| {}) {
                     Ok(future) => {
                         // Render
-                        let after_future =
-                            pipeline.render(future, renderer.swapchain_image_view(), &mut gui);
+                        let after_future = self.pipeline.as_mut().unwrap().render(
+                            future,
+                            renderer.swapchain_image_view(),
+                            gui,
+                        );
                         // Present swapchain
                         renderer.present(after_future, true);
                     }
@@ -140,12 +164,23 @@ pub fn main() {
                     Err(e) => panic!("Failed to acquire swapchain future: {}", e),
                 };
             }
-            Event::MainEventsCleared => {
-                renderer.window().request_redraw();
-            }
             _ => (),
         }
-    });
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
+        let renderer = self.windows.get_primary_renderer().unwrap();
+        renderer.window().request_redraw();
+    }
+}
+
+pub fn main() -> Result<(), EventLoopError> {
+    // Winit event loop
+    let event_loop = EventLoop::new().unwrap();
+
+    let mut app = App::default();
+
+    event_loop.run_app(&mut app)
 }
 
 struct MSAAPipeline {
@@ -156,7 +191,7 @@ struct MSAAPipeline {
     subpass: Subpass,
     intermediary: Arc<ImageView>,
     vertex_buffer: Subbuffer<[MyVertex]>,
-    command_buffer_allocator: StandardCommandBufferAllocator,
+    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
 }
 
 impl MSAAPipeline {
@@ -194,7 +229,8 @@ impl MSAAPipeline {
                 secondary_buffer_count: 32,
                 ..Default::default()
             },
-        );
+        )
+        .into();
 
         let intermediary = ImageView::new_default(
             Image::new(
@@ -274,8 +310,7 @@ impl MSAAPipeline {
             .entry_point("main")
             .unwrap();
 
-        let vertex_input_state =
-            MyVertex::per_vertex().definition(&vs.info().input_interface).unwrap();
+        let vertex_input_state = MyVertex::per_vertex().definition(&vs).unwrap();
 
         let stages =
             [PipelineShaderStageCreateInfo::new(vs), PipelineShaderStageCreateInfo::new(fs)];
@@ -320,7 +355,7 @@ impl MSAAPipeline {
         gui: &mut Gui,
     ) -> Box<dyn GpuFuture> {
         let mut builder = AutoCommandBufferBuilder::primary(
-            &self.command_buffer_allocator,
+            self.command_buffer_allocator.clone(),
             self.queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
@@ -370,7 +405,7 @@ impl MSAAPipeline {
 
         // Render first draw pass
         let mut secondary_builder = AutoCommandBufferBuilder::secondary(
-            &self.command_buffer_allocator,
+            self.command_buffer_allocator.clone(),
             self.queue.queue_family_index(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
@@ -394,9 +429,10 @@ impl MSAAPipeline {
             )
             .unwrap()
             .bind_vertex_buffers(0, self.vertex_buffer.clone())
-            .unwrap()
-            .draw(self.vertex_buffer.len() as u32, 1, 0, 0)
             .unwrap();
+        unsafe {
+            secondary_builder.draw(self.vertex_buffer.len() as u32, 1, 0, 0).unwrap();
+        }
         let cb = secondary_builder.build().unwrap();
         builder.execute_commands(cb).unwrap();
 

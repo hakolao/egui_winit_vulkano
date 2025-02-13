@@ -1,2 +1,2 @@
-cargo fmt -- --check --color always
-cargo clippy --all-targets -- -D warnings
+cargo +nightly fmt -- --check --color always
+cargo +nightly clippy --all-targets -- -D warnings

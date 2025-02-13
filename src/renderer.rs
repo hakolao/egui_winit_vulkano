@@ -23,8 +23,8 @@ use vulkano::{
         SecondaryAutoCommandBuffer, SubpassBeginInfo, SubpassContents,
     },
     descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, layout::DescriptorSetLayout,
-        PersistentDescriptorSet, WriteDescriptorSet,
+        allocator::StandardDescriptorSetAllocator, layout::DescriptorSetLayout, DescriptorSet,
+        WriteDescriptorSet,
     },
     device::Queue,
     format::{Format, NumericFormat},
@@ -102,7 +102,7 @@ pub struct Renderer {
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
 
-    texture_desc_sets: AHashMap<egui::TextureId, Arc<PersistentDescriptorSet>>,
+    texture_desc_sets: AHashMap<egui::TextureId, Arc<DescriptorSet>>,
     texture_images: AHashMap<egui::TextureId, Arc<ImageView>>,
     next_native_tex_id: u64,
 }
@@ -235,8 +235,7 @@ impl Renderer {
             ..ColorBlendState::default()
         };
 
-        let vertex_input_state =
-            Some(EguiVertex::per_vertex().definition(&vs.info().input_interface).unwrap());
+        let vertex_input_state = Some(EguiVertex::per_vertex().definition(&vs).unwrap());
 
         let stages =
             [PipelineShaderStageCreateInfo::new(vs), PipelineShaderStageCreateInfo::new(fs)];
@@ -273,9 +272,9 @@ impl Renderer {
         layout: &Arc<DescriptorSetLayout>,
         image: Arc<ImageView>,
         sampler: Arc<Sampler>,
-    ) -> Arc<PersistentDescriptorSet> {
-        PersistentDescriptorSet::new(
-            &self.allocators.descriptor_set,
+    ) -> Arc<DescriptorSet> {
+        DescriptorSet::new(
+            self.allocators.descriptor_set.clone(),
             layout.clone(),
             [WriteDescriptorSet::image_view_sampler(0, image, sampler)],
             [],
@@ -502,7 +501,7 @@ impl Renderer {
 
         // Shared command buffer for every upload in this batch.
         let mut cbb = AutoCommandBufferBuilder::primary(
-            &self.allocators.command_buffer,
+            self.allocators.command_buffer.clone(),
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
@@ -572,7 +571,7 @@ impl Renderer {
         &self,
     ) -> AutoCommandBufferBuilder<SecondaryAutoCommandBuffer> {
         AutoCommandBufferBuilder::secondary(
-            &self.allocators.command_buffer,
+            self.allocators.command_buffer.clone(),
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
@@ -583,7 +582,7 @@ impl Renderer {
         .unwrap()
     }
 
-    // Starts the rendering pipeline and returns [`AutoCommandBufferBuilder`] for drawing
+    // Starts the rendering pipeline and returns [`RecordingCommandBuffer`] for drawing
     fn start(
         &mut self,
         final_image: Arc<ImageView>,
@@ -603,7 +602,7 @@ impl Renderer {
         )
         .unwrap();
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-            &self.allocators.command_buffer,
+            self.allocators.command_buffer.clone(),
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
@@ -864,15 +863,17 @@ impl Renderer {
                     }
 
                     // All set up to draw!
-                    builder
-                        .draw_indexed(
-                            mesh.indices.len() as u32,
-                            1,
-                            index_cursor,
-                            vertex_cursor as i32,
-                            0,
-                        )
-                        .unwrap();
+                    unsafe {
+                        builder
+                            .draw_indexed(
+                                mesh.indices.len() as u32,
+                                1,
+                                index_cursor,
+                                vertex_cursor as i32,
+                                0,
+                            )
+                            .unwrap();
+                    }
 
                     // Consume this mesh for next iteration
                     index_cursor += mesh.indices.len() as u32;
@@ -964,8 +965,9 @@ impl Renderer {
     }
 }
 
-/// A set of objects used to perform custom rendering in a `PaintCallback`. It
-/// includes [`RenderResources`] for constructing a subpass pipeline and a secondary
+/// A set of objects used to perform custom rendering in a `PaintCallback`.
+///
+/// It includes [`RenderResources`] for constructing a subpass pipeline and a secondary
 /// command buffer for pushing render commands onto it.
 ///
 /// # Example

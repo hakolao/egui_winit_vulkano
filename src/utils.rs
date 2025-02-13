@@ -41,7 +41,7 @@ pub fn immutable_texture_from_bytes(
     format: vulkano::format::Format,
 ) -> Result<Arc<ImageView>, ImageCreationError> {
     let mut cbb = AutoCommandBufferBuilder::primary(
-        &allocators.command_buffer,
+        allocators.command_buffer.clone(),
         queue.queue_family_index(),
         CommandBufferUsage::OneTimeSubmit,
     )
@@ -114,22 +114,24 @@ pub fn immutable_texture_from_file(
 
 pub struct Allocators {
     pub memory: Arc<StandardMemoryAllocator>,
-    pub descriptor_set: StandardDescriptorSetAllocator,
-    pub command_buffer: StandardCommandBufferAllocator,
+    pub descriptor_set: Arc<StandardDescriptorSetAllocator>,
+    pub command_buffer: Arc<StandardCommandBufferAllocator>,
 }
 
 impl Allocators {
     pub fn new_default(device: &Arc<Device>) -> Self {
         Self {
             memory: Arc::new(StandardMemoryAllocator::new_default(device.clone())),
-            descriptor_set: StandardDescriptorSetAllocator::new(device.clone(), Default::default()),
+            descriptor_set: StandardDescriptorSetAllocator::new(device.clone(), Default::default())
+                .into(),
             command_buffer: StandardCommandBufferAllocator::new(
                 device.clone(),
                 StandardCommandBufferAllocatorCreateInfo {
                     secondary_buffer_count: 32,
                     ..Default::default()
                 },
-            ),
+            )
+            .into(),
         }
     }
 }

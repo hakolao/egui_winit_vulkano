@@ -17,7 +17,7 @@ use cgmath::Matrix4;
 use vulkano::{
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
-        RenderPassBeginInfo, SecondaryCommandBufferAbstract, SubpassBeginInfo, SubpassContents,
+        RenderPassBeginInfo, SecondaryAutoCommandBuffer, SubpassBeginInfo, SubpassContents,
     },
     device::Queue,
     format::Format,
@@ -125,7 +125,7 @@ impl FrameSystem {
         })
         .unwrap();
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-            self.allocators.command_buffers.as_ref(),
+            self.allocators.command_buffers.clone(),
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
@@ -148,7 +148,7 @@ impl FrameSystem {
             before_main_cb_future: Some(Box::new(before_future)),
             framebuffer,
             num_pass: 0,
-            command_buffer_builder: Some(command_buffer_builder),
+            recording_command_buffer: Some(command_buffer_builder),
             world_to_framebuffer,
         }
     }
@@ -159,27 +159,27 @@ pub struct Frame<'a> {
     num_pass: u8,
     before_main_cb_future: Option<Box<dyn GpuFuture>>,
     framebuffer: Arc<Framebuffer>,
-    command_buffer_builder: Option<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>>,
+    recording_command_buffer: Option<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>>,
     #[allow(dead_code)]
     world_to_framebuffer: Matrix4<f32>,
 }
 
 impl<'a> Frame<'a> {
     pub fn next_pass<'f>(&'f mut self) -> Option<Pass<'f, 'a>> {
-        let res = {
+        let current_pass = {
             let current_pass = self.num_pass;
             self.num_pass += 1;
             current_pass
         };
-        match res {
+        match current_pass {
             0 => Some(Pass::Deferred(DrawPass { frame: self })),
             1 => {
-                self.command_buffer_builder
+                self.recording_command_buffer
                     .as_mut()
                     .unwrap()
                     .end_render_pass(Default::default())
                     .unwrap();
-                let command_buffer = self.command_buffer_builder.take().unwrap().build().unwrap();
+                let command_buffer = self.recording_command_buffer.take().unwrap().build().unwrap();
                 let after_main_cb = self
                     .before_main_cb_future
                     .take()
@@ -204,12 +204,9 @@ pub struct DrawPass<'f, 's: 'f> {
 
 impl<'f, 's: 'f> DrawPass<'f, 's> {
     #[inline]
-    pub fn execute<C>(&mut self, command_buffer: Arc<C>)
-    where
-        C: SecondaryCommandBufferAbstract + Send + Sync + 'static,
-    {
+    pub fn execute(&mut self, command_buffer: Arc<SecondaryAutoCommandBuffer>) {
         self.frame
-            .command_buffer_builder
+            .recording_command_buffer
             .as_mut()
             .unwrap()
             .execute_commands(command_buffer)

@@ -80,8 +80,7 @@ impl TriangleDrawSystem {
                 .entry_point("main")
                 .unwrap();
 
-            let vertex_input_state =
-                MyVertex::per_vertex().definition(&vs.info().input_interface).unwrap();
+            let vertex_input_state = MyVertex::per_vertex().definition(&vs).unwrap();
 
             let stages =
                 [PipelineShaderStageCreateInfo::new(vs), PipelineShaderStageCreateInfo::new(fs)];
@@ -122,12 +121,9 @@ impl TriangleDrawSystem {
         }
     }
 
-    pub fn draw(
-        &self,
-        viewport_dimensions: [u32; 2],
-    ) -> Arc<SecondaryAutoCommandBuffer<Arc<StandardCommandBufferAllocator>>> {
+    pub fn draw(&self, viewport_dimensions: [u32; 2]) -> Arc<SecondaryAutoCommandBuffer> {
         let mut builder = AutoCommandBufferBuilder::secondary(
-            &self.command_buffer_allocator,
+            self.command_buffer_allocator.clone(),
             self.gfx_queue.queue_family_index(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
@@ -151,9 +147,10 @@ impl TriangleDrawSystem {
             )
             .unwrap()
             .bind_vertex_buffers(0, self.vertex_buffer.clone())
-            .unwrap()
-            .draw(self.vertex_buffer.len() as u32, 1, 0, 0)
             .unwrap();
+        unsafe {
+            builder.draw(self.vertex_buffer.len() as u32, 1, 0, 0).unwrap();
+        }
         builder.build().unwrap()
     }
 }
