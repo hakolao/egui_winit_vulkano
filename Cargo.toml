@@ -1,6 +1,6 @@
 [package]
 name = "egui_winit_vulkano"
-version = "0.27.0"
+version = "0.28.0"
 authors = ["hakolao <okkohakola@gmail.com>"]
 edition = "2021"
 description = "Egui immediate mode gui integration with winit and Vulkano"
@@ -23,11 +23,11 @@ ahash = "0.8"
 egui-winit = { version = "0.31", default-features = false }
 egui = "0.31"
 image = { version = "0.25", optional = true }
-winit = { version = "0.30", default-features = false, features = [ "rwh_06" ] }
-vulkano = { version = "0.35"}
+winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
+vulkano = { version = "0.35" }
 vulkano-shaders = "0.35"
 
 [dev-dependencies]
 cgmath = "0.18.0"
 egui_demo_lib = "0.31.0"
-vulkano-util = { version = "0.35"}
+vulkano-util = { version = "0.35" }
