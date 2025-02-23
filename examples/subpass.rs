@@ -60,7 +60,9 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         // Vulkano context
-        let context = VulkanoContext::new(VulkanoConfig::default());
+        let mut config = VulkanoConfig::default();
+        config.device_features.image_view_format_swizzle = true;
+        let context = VulkanoContext::new(config);
 
         // Vulkano windows
         let windows = VulkanoWindows::default();
