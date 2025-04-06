@@ -7,13 +7,10 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-mod integration;
-mod renderer;
+mod egui_system;
 mod utils;
 
-pub use egui;
-pub use integration::*;
-pub use renderer::{CallbackContext, CallbackFn, RenderResources};
+pub use egui_system::{EguiSystem, RenderEguiWorld};
 pub use utils::immutable_texture_from_bytes;
 #[cfg(feature = "image")]
 pub use utils::immutable_texture_from_file;
