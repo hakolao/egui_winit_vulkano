@@ -568,11 +568,10 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> EguiSystem<W> {
     }
 
     /// Begins Egui frame & determines what will be drawn later. This must be called before draw, and after `update` (winit event).
-    pub fn immediate_ui(&mut self, layout_function: impl FnOnce(&mut Self)) {
+    pub fn immediate_ui(&mut self) -> egui::Context {
         let raw_input = self.egui_winit.take_egui_input(surface_window(&self.surface));
         self.egui_ctx.begin_pass(raw_input);
-        // Render Egui
-        layout_function(self);
+        self.egui_ctx.clone()
     }
 
     /// Extracts the draw data for the frame, updates textures, and sends mesh primitive data required for rendering
