@@ -241,18 +241,14 @@ impl Renderer {
             .depth_stencil_attachment
             .as_ref()
             .is_some_and(|depth_stencil_attachment| {
-                subpass.render_pass().attachments()
-                    [depth_stencil_attachment.attachment as usize]
+                subpass.render_pass().attachments()[depth_stencil_attachment.attachment as usize]
                     .format
                     .aspects()
                     .intersects(ImageAspects::DEPTH)
             });
         let depth_stencil_state = if has_depth_buffer {
             Some(DepthStencilState {
-                depth: Some(DepthState {
-                    write_enable: false,
-                    compare_op: CompareOp::Always,
-                }),
+                depth: Some(DepthState { write_enable: false, compare_op: CompareOp::Always }),
                 ..Default::default()
             })
         } else {
