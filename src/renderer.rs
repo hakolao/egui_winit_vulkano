@@ -48,6 +48,7 @@ use vulkano::{
             color_blend::{
                 AttachmentBlend, BlendFactor, ColorBlendAttachmentState, ColorBlendState,
             },
+            depth_stencil::{CompareOp, DepthState, DepthStencilState},
             input_assembly::InputAssemblyState,
             multisample::MultisampleState,
             rasterization::RasterizationState,
@@ -235,6 +236,25 @@ impl Renderer {
             ..ColorBlendState::default()
         };
 
+        let has_depth_buffer = subpass
+            .subpass_desc()
+            .depth_stencil_attachment
+            .as_ref()
+            .is_some_and(|depth_stencil_attachment| {
+                subpass.render_pass().attachments()[depth_stencil_attachment.attachment as usize]
+                    .format
+                    .aspects()
+                    .intersects(ImageAspects::DEPTH)
+            });
+        let depth_stencil_state = if has_depth_buffer {
+            Some(DepthStencilState {
+                depth: Some(DepthState { write_enable: false, compare_op: CompareOp::Always }),
+                ..Default::default()
+            })
+        } else {
+            None
+        };
+
         let vertex_input_state = Some(EguiVertex::per_vertex().definition(&vs).unwrap());
 
         let stages =
@@ -259,6 +279,7 @@ impl Renderer {
                 ..Default::default()
             }),
             color_blend_state: Some(blend_state),
+            depth_stencil_state,
             dynamic_state: [DynamicState::Viewport, DynamicState::Scissor].into_iter().collect(),
             subpass: Some(subpass.into()),
             ..GraphicsPipelineCreateInfo::layout(layout)
