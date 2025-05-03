@@ -47,8 +47,8 @@ pub fn immutable_texture_from_bytes<W: 'static + ?Sized>(
 ) -> Result<(Id<Image>, SampledImageId), ImageCreationError> {
     let texture_data_buffer = resources
         .create_buffer(
-            BufferCreateInfo { usage: BufferUsage::TRANSFER_SRC, ..Default::default() },
-            AllocationCreateInfo {
+            &BufferCreateInfo { usage: BufferUsage::TRANSFER_SRC, ..Default::default() },
+            &AllocationCreateInfo {
                 memory_type_filter: MemoryTypeFilter::PREFER_HOST
                     | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
@@ -59,20 +59,20 @@ pub fn immutable_texture_from_bytes<W: 'static + ?Sized>(
 
     let texture_id = resources
         .create_image(
-            ImageCreateInfo {
+            &ImageCreateInfo {
                 image_type: ImageType::Dim2d,
                 format,
                 extent: [dimensions[0], dimensions[1], 1],
                 usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
                 ..Default::default()
             },
-            AllocationCreateInfo::default(),
+            &AllocationCreateInfo::default(),
         )
         .map_err(ImageCreationError::AllocateImage)?;
 
     let bcx = resources.bindless_context().unwrap();
     let image = resources.image(texture_id).unwrap().image().clone();
-    let image_view = ImageView::new(image.clone(), ImageViewCreateInfo::from_image(&image))
+    let image_view = ImageView::new(&image, &ImageViewCreateInfo::from_image(&image))
         .map_err(ImageCreationError::Vulkan)?;
 
     let sampled_image_id = bcx.global_set().add_sampled_image(image_view, ImageLayout::General);

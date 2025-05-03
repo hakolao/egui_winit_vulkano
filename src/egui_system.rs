@@ -166,7 +166,7 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> EguiSystem<W> {
 
         let font_sampler = bcx
             .global_set()
-            .create_sampler(SamplerCreateInfo {
+            .create_sampler(&SamplerCreateInfo {
                 mag_filter: Filter::Linear,
                 min_filter: Filter::Linear,
                 address_mode: [SamplerAddressMode::ClampToEdge; 3],
@@ -176,8 +176,8 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> EguiSystem<W> {
             .unwrap();
 
         let vertex_index_buffer_pool = SubbufferAllocator::new(
-            resources.memory_allocator().clone(),
-            SubbufferAllocatorCreateInfo {
+            resources.memory_allocator(),
+            &SubbufferAllocatorCreateInfo {
                 arena_size: INDEX_BUFFER_SIZE + VERTEX_BUFFER_SIZE,
                 buffer_usage: BufferUsage::INDEX_BUFFER | BufferUsage::VERTEX_BUFFER,
                 memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
@@ -239,7 +239,7 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> EguiSystem<W> {
         sampler_create_info: SamplerCreateInfo,
     ) -> Result<egui::TextureId, ImageCreationError> {
         let bcx = self.resources.bindless_context().unwrap();
-        let sampler = bcx.global_set().create_sampler(sampler_create_info).unwrap();
+        let sampler = bcx.global_set().create_sampler(&sampler_create_info).unwrap();
 
         let (image_id, sampled_image_id) = immutable_texture_from_file::<W>(
             self.queue.clone(),
@@ -260,7 +260,7 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> EguiSystem<W> {
         sampler_create_info: SamplerCreateInfo,
     ) -> Result<egui::TextureId, ImageCreationError> {
         let bcx = self.resources.bindless_context().unwrap();
-        let sampler = bcx.global_set().create_sampler(sampler_create_info).unwrap();
+        let sampler = bcx.global_set().create_sampler(&sampler_create_info).unwrap();
 
         let (image_id, sampled_image_id) = immutable_texture_from_bytes::<W>(
             self.queue.clone(),
@@ -290,7 +290,7 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> EguiSystem<W> {
         let is_supported = |device: Arc<Device>, format: Format| {
             device
                 .physical_device()
-                .image_format_properties(ImageFormatInfo {
+                .image_format_properties(&ImageFormatInfo {
                     format,
                     usage: ImageUsage::SAMPLED
                         | ImageUsage::TRANSFER_DST
@@ -400,14 +400,14 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> EguiSystem<W> {
                 let new_image_id = self
                     .resources
                     .create_image(
-                        ImageCreateInfo {
+                        &ImageCreateInfo {
                             image_type: ImageType::Dim2d,
                             format,
                             extent,
                             usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
                             ..Default::default()
                         },
-                        AllocationCreateInfo::default(),
+                        &AllocationCreateInfo::default()
                     )
                     .map_err(ImageCreationError::AllocateImage)?;
 
@@ -424,7 +424,7 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> EguiSystem<W> {
 
                 let bcx = self.resources.bindless_context().unwrap();
                 let image = self.resources.image(new_image_id).unwrap().image().clone();
-                let image_view = ImageView::new(image.clone(), ImageViewCreateInfo {
+                let image_view = ImageView::new(&image, &ImageViewCreateInfo {
                     component_mapping,
                     ..ImageViewCreateInfo::from_image(&image)
                 })
@@ -524,8 +524,8 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> EguiSystem<W> {
         let buffer_id = self
             .resources
             .create_buffer(
-                BufferCreateInfo { usage: BufferUsage::TRANSFER_SRC, ..Default::default() },
-                AllocationCreateInfo {
+                &BufferCreateInfo { usage: BufferUsage::TRANSFER_SRC, ..Default::default() },
+                &AllocationCreateInfo {
                     memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
                         | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                     ..Default::default()
