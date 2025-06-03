@@ -36,13 +36,7 @@ use vulkano::{
         graphics::{
             color_blend::{
                 AttachmentBlend, BlendFactor, ColorBlendAttachmentState, ColorBlendState,
-            },
-            input_assembly::InputAssemblyState,
-            multisample::MultisampleState,
-            rasterization::RasterizationState,
-            vertex_input::{Vertex, VertexDefinition},
-            viewport::{Scissor, Viewport, ViewportState},
-            GraphicsPipelineCreateInfo,
+            }, input_assembly::InputAssemblyState, multisample::MultisampleState, rasterization::RasterizationState, subpass::PipelineSubpassType, vertex_input::{Vertex, VertexDefinition}, viewport::{Scissor, Viewport, ViewportState}, GraphicsPipelineCreateInfo
         },
         DynamicState, GraphicsPipeline, Pipeline, PipelineShaderStageCreateInfo,
     },
@@ -460,7 +454,8 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> EguiSystem<W> {
                                     image_subresource: ImageSubresourceLayers {
                                         aspects: ImageAspects::COLOR,
                                         mip_level: 0,
-                                        array_layers: 0..1,
+                                        base_array_layer: 0,
+                                        layer_count: 1,
                                     },
                                     ..Default::default()
                                 }],
@@ -486,7 +481,8 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> EguiSystem<W> {
                                     image_subresource: ImageSubresourceLayers {
                                         aspects: ImageAspects::COLOR,
                                         mip_level: 0,
-                                        array_layers: 0..1,
+                                        base_array_layer: 0,
+                                        layer_count: 1,
                                     },
                                     ..Default::default()
                                 }],
@@ -743,10 +739,10 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> RenderEguiTask<W> {
         render_pass: Arc<RenderPass>,
     ) -> RenderEguiTask<W> {
         let pipeline = {
-            let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
+            let subpass = Subpass::new(&render_pass, 0).unwrap();
 
-            let vs = render_egui_vs::load(device.clone()).unwrap().entry_point("main").unwrap();
-            let fs = render_egui_fs::load(device.clone()).unwrap().entry_point("main").unwrap();
+            let vs = render_egui_vs::load(&device).unwrap().entry_point("main").unwrap();
+            let fs = render_egui_fs::load(&device).unwrap().entry_point("main").unwrap();
 
             let blend = AttachmentBlend {
                 src_color_blend_factor: BlendFactor::One,
@@ -756,38 +752,36 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> RenderEguiTask<W> {
             };
 
             let blend_state = ColorBlendState {
-                attachments: vec![ColorBlendAttachmentState {
+                attachments: &[ColorBlendAttachmentState {
                     blend: Some(blend),
                     ..Default::default()
                 }],
                 ..ColorBlendState::default()
             };
 
-            let vertex_input_state = Some(EguiVertex::per_vertex().definition(&vs).unwrap());
-
-            let stages =
-                [PipelineShaderStageCreateInfo::new(vs), PipelineShaderStageCreateInfo::new(fs)];
+            let stages = &[
+                PipelineShaderStageCreateInfo::new(&vs),
+                PipelineShaderStageCreateInfo::new(&fs)
+            ];
 
             let bcx = resources.bindless_context().unwrap();
 
-            let layout = bcx.pipeline_layout_from_stages(&stages).unwrap();
+            let layout = bcx.pipeline_layout_from_stages(stages).unwrap();
 
-            GraphicsPipeline::new(device.clone(), None, GraphicsPipelineCreateInfo {
-                stages: stages.into_iter().collect(),
-                vertex_input_state,
-                input_assembly_state: Some(InputAssemblyState::default()),
-                viewport_state: Some(ViewportState::default()),
-                rasterization_state: Some(RasterizationState::default()),
-                multisample_state: Some(MultisampleState {
+            GraphicsPipeline::new(&device, None, &GraphicsPipelineCreateInfo {
+                stages: stages,
+                vertex_input_state: Some(&EguiVertex::per_vertex().definition(&vs).unwrap()),
+                input_assembly_state: Some(&InputAssemblyState::default()),
+                viewport_state: Some(&ViewportState::default()),
+                rasterization_state: Some(&RasterizationState::default()),
+                multisample_state: Some(&MultisampleState {
                     rasterization_samples: subpass.num_samples().unwrap_or(SampleCount::Sample1),
                     ..Default::default()
                 }),
-                color_blend_state: Some(blend_state),
-                dynamic_state: [DynamicState::Viewport, DynamicState::Scissor]
-                    .into_iter()
-                    .collect(),
-                subpass: Some(subpass.into()),
-                ..GraphicsPipelineCreateInfo::new(layout)
+                color_blend_state: Some(&blend_state),
+                dynamic_state: &[DynamicState::Viewport, DynamicState::Scissor],
+                subpass: Some(PipelineSubpassType::BeginRenderPass(&subpass)),
+                ..GraphicsPipelineCreateInfo::new(&layout)
             })
             .unwrap()
         };
@@ -879,12 +873,11 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> Task for RenderEguiTask<W> {
                         };
 
                         builder.set_viewport(0, &[Viewport {
-                            offset: [0.0, 0.0],
                             extent: [
                                 framebuffer.extent()[0] as f32,
                                 framebuffer.extent()[1] as f32,
                             ],
-                            depth_range: 0.0..=1.0,
+                            ..Viewport::new()
                         }])?;
                         builder.bind_pipeline_graphics(&self.pipeline)?;
                         builder
