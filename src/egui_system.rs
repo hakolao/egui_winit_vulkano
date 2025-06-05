@@ -698,7 +698,7 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> EguiSystem<W> {
         &mut self,
         task_graph: &mut TaskGraph<W>,
         virtual_swapchain_id: Id<Swapchain>,
-        render_pass: Arc<RenderPass>,
+        render_pass: &Arc<RenderPass>,
     ) -> NodeId {
         // Initialize RenderEguiTask
         let node_id = task_graph
@@ -706,8 +706,8 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> EguiSystem<W> {
                 "Render Egui",
                 QueueFamilyType::Graphics,
                 RenderEguiTask::new(
-                    self.resources.clone(),
-                    self.queue.device().clone(),
+                    &self.resources,
+                    self.queue.device(),
                     render_pass,
                 ),
             )
@@ -734,15 +734,15 @@ pub struct RenderEguiTask<W: 'static + RenderEguiWorld<W> + ?Sized> {
 
 impl<W: 'static + RenderEguiWorld<W> + ?Sized> RenderEguiTask<W> {
     pub fn new(
-        resources: Arc<Resources>,
-        device: Arc<Device>,
-        render_pass: Arc<RenderPass>,
+        resources: &Arc<Resources>,
+        device: &Arc<Device>,
+        render_pass: &Arc<RenderPass>,
     ) -> RenderEguiTask<W> {
         let pipeline = {
-            let subpass = Subpass::new(&render_pass, 0).unwrap();
+            let subpass = Subpass::new(render_pass, 0).unwrap();
 
-            let vs = render_egui_vs::load(&device).unwrap().entry_point("main").unwrap();
-            let fs = render_egui_fs::load(&device).unwrap().entry_point("main").unwrap();
+            let vs = render_egui_vs::load(device).unwrap().entry_point("main").unwrap();
+            let fs = render_egui_fs::load(device).unwrap().entry_point("main").unwrap();
 
             let blend = AttachmentBlend {
                 src_color_blend_factor: BlendFactor::One,
@@ -768,7 +768,7 @@ impl<W: 'static + RenderEguiWorld<W> + ?Sized> RenderEguiTask<W> {
 
             let layout = bcx.pipeline_layout_from_stages(stages).unwrap();
 
-            GraphicsPipeline::new(&device, None, &GraphicsPipelineCreateInfo {
+            GraphicsPipeline::new(device, None, &GraphicsPipelineCreateInfo {
                 stages: stages,
                 vertex_input_state: Some(&EguiVertex::per_vertex().definition(&vs).unwrap()),
                 input_assembly_state: Some(&InputAssemblyState::default()),
